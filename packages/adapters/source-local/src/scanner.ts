@@ -3,6 +3,8 @@
  *
  * 严格遵循规范：
  * §7.5 导入健壮性：逐文件隔离异常，损坏文件不中断整批导入。
+ * P1-2: 读元数据采用 untilTag 与头部切片，不把大像素读入内存。
+ * P1-5: 空间几何缺失显式标记 hasMissingGeometry，严禁静默伪装成正常切片。
  * 严格支持 AbortSignal 可中断扫描，不留孤儿任务。
  * 序列内部调用 sortByPosition 执行几何物理排序与缺层告警。
  */
@@ -10,12 +12,13 @@
 import {
   type ImagePlane,
   type Modality,
+  type ModalityLUT,
   type SeriesMeta,
   type StudyMeta,
   sortByPosition,
 } from '@opendicomviewer/core';
 import type { ImportCandidate } from '@opendicomviewer/core';
-import dicomParser from 'dicom-parser';
+import dicomParser, { type ParseOptions } from 'dicom-parser';
 import { decodeDicomText } from './charset';
 import { hasDicomPrefix } from './magic';
 import { extractZipEntries, isZipBuffer, zipEntryToCandidate } from './zip';
@@ -52,11 +55,12 @@ function parseFloats(raw: string | undefined, expectedCount: number): number[] |
 }
 
 /**
- * 解析单个 DICOM 文件元数据（不读取/解码大像素数据）
+ * 解析单个 DICOM 文件元数据（使用 untilTag: 'x7fe00010' 避免读取大像素数据，P1-2）
  */
 export function parseDicomMetadata(
   bytes: Uint8Array,
   candidate: ImportCandidate,
+  options: ParseOptions = { untilTag: 'x7fe00010' },
 ): {
   plane: ImagePlane;
   studyUid: string;
@@ -69,7 +73,7 @@ export function parseDicomMetadata(
   seriesDescription: string;
   modality: Modality;
 } {
-  const dataSet = dicomParser.parseDicom(bytes);
+  const dataSet = dicomParser.parseDicom(bytes, options);
 
   const sopInstanceUid = dataSet.string('x00080018');
   if (!sopInstanceUid) {
@@ -92,28 +96,56 @@ export function parseDicomMetadata(
     patientName = decodeDicomText(pnBytes, charset);
   }
 
-  const ippFloats = parseFloats(dataSet.string('x00200032'), 3) ?? [0, 0, 0];
-  const ipp: [number, number, number] = [
-    ippFloats[0] ?? 0,
-    ippFloats[1] ?? 0,
-    ippFloats[2] ?? 0,
-  ];
+  // P1-5: 空间几何缺失校验，不得静默编造默认值
+  const ippFloats = parseFloats(dataSet.string('x00200032'), 3);
+  const iopFloats = parseFloats(dataSet.string('x00200037'), 6);
+  const hasMissingGeometry = !ippFloats || !iopFloats;
 
-  const iopFloats = parseFloats(dataSet.string('x00200037'), 6) ?? [1, 0, 0, 0, 1, 0];
-  const iop: [number, number, number, number, number, number] = [
-    iopFloats[0] ?? 1,
-    iopFloats[1] ?? 0,
-    iopFloats[2] ?? 0,
-    iopFloats[3] ?? 0,
-    iopFloats[4] ?? 1,
-    iopFloats[5] ?? 0,
-  ];
+  const ipp: [number, number, number] = ippFloats
+    ? [ippFloats[0] ?? 0, ippFloats[1] ?? 0, ippFloats[2] ?? 0]
+    : [0, 0, 0];
+
+  const iop: [number, number, number, number, number, number] = iopFloats
+    ? [
+        iopFloats[0] ?? 1,
+        iopFloats[1] ?? 0,
+        iopFloats[2] ?? 0,
+        iopFloats[3] ?? 0,
+        iopFloats[4] ?? 1,
+        iopFloats[5] ?? 0,
+      ]
+    : [1, 0, 0, 0, 1, 0];
 
   const psFloats = parseFloats(dataSet.string('x00280030'), 2) ?? [1.0, 1.0];
   const pixelSpacing: [number, number] = [
     psFloats[0] ?? 1.0,
     psFloats[1] ?? 1.0,
   ];
+
+  // N1: 解析 ModalityLUTSequence (0028,3002)
+  let modalityLUT: ModalityLUT | undefined;
+  const lutSeq = dataSet.elements.x00283002;
+  if (lutSeq && lutSeq.items && lutSeq.items[0]) {
+    const itemDs = lutSeq.items[0].dataSet;
+    const desc = parseFloats(itemDs.string('x00283002'), 3);
+    const lutDataElem = itemDs.elements.x00283006;
+    if (desc && desc.length >= 3 && lutDataElem) {
+      const rawLutBytes = itemDs.byteArray.slice(
+        lutDataElem.dataOffset,
+        lutDataElem.dataOffset + lutDataElem.length,
+      );
+      const lutData = new Uint16Array(
+        rawLutBytes.buffer,
+        rawLutBytes.byteOffset,
+        rawLutBytes.byteLength / 2,
+      );
+      modalityLUT = {
+        firstMappedPixelValue: desc[1] ?? 0,
+        bitsStored: desc[2] ?? 16,
+        lutData,
+      };
+    }
+  }
 
   const plane: ImagePlane = {
     imageId: candidate.id,
@@ -128,6 +160,7 @@ export function parseDicomMetadata(
     columns: dataSet.uint16('x00280011') ?? 512,
     rescaleSlope: dataSet.floatString('x00281053') ?? 1.0,
     rescaleIntercept: dataSet.floatString('x00281052') ?? 0.0,
+    modalityLUT,
     windowCenter: dataSet.floatString('x00281050'),
     windowWidth: dataSet.floatString('x00281051'),
     bitsAllocated: dataSet.uint16('x00280100') ?? 16,
@@ -136,6 +169,8 @@ export function parseDicomMetadata(
     photometricInterpretation: dataSet.string('x00280004') ?? 'MONOCHROME2',
     frameOfReferenceUID: dataSet.string('x00200052'),
     specificCharacterSet: charset,
+    transferSyntaxUid: dataSet.string('x00020010'),
+    hasMissingGeometry,
   };
 
   return {
@@ -153,13 +188,14 @@ export function parseDicomMetadata(
 }
 
 /**
- * 扫描并分析候选文件列表，支持 ZIP 自动递归展开与 AbortSignal 中断
+ * 扫描并分析候选文件列表，支持 ZIP 自动展开与深度限制 (P1-9)
  */
 export async function scanCandidates(
   candidates: readonly ImportCandidate[],
   signal?: AbortSignal,
 ): Promise<ScanResult> {
-  const queue: ImportCandidate[] = [...candidates];
+  const queue: Array<{ candidate: ImportCandidate; depth: number }> =
+    candidates.map((c) => ({ candidate: c, depth: 0 }));
   const failedFiles: FileParseFailure[] = [];
 
   const studiesMap = new Map<string, {
@@ -167,13 +203,22 @@ export async function scanCandidates(
     seriesMap: Map<string, InternalSeriesData>;
   }>();
 
+  let processedCount = 0;
+
   while (queue.length > 0) {
     if (signal?.aborted) {
       throw new DOMException('导入已由用户中断', 'AbortError');
     }
 
-    const candidate = queue.shift();
-    if (!candidate) continue;
+    const item = queue.shift();
+    if (!item) continue;
+    const { candidate, depth } = item;
+
+    // P1-1: 主线程定期让出控制权，防止大序列解析冻结 UI 帧循环
+    processedCount++;
+    if (processedCount % 50 === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
 
     try {
       // 检查前 132 字节魔数判定是否为 DICOM
@@ -182,13 +227,25 @@ export async function scanCandidates(
         throw new DOMException('导入已由用户中断', 'AbortError');
       }
 
-      // 如果是 ZIP 压缩包，自动流式解包并将子条目入队
+      // 如果是 ZIP 压缩包，自动流式解包并将子条目入队（深度限制 3，P1-9）
       if (isZipBuffer(headerBuffer)) {
+        if (depth >= 3) {
+          failedFiles.push({
+            id: candidate.id,
+            name: candidate.name,
+            reason: 'ZIP 嵌套层数超过上限（最大 3 层），已跳过',
+          });
+          continue;
+        }
+
         const fullZipBuffer = await candidate.read(undefined, undefined, signal);
         const zipEntries = await extractZipEntries(fullZipBuffer);
         for (const entry of zipEntries) {
           if (!entry.isDirectory) {
-            queue.push(zipEntryToCandidate(candidate.id, entry));
+            queue.push({
+              candidate: zipEntryToCandidate(candidate.id, entry),
+              depth: depth + 1,
+            });
           }
         }
         continue;
@@ -199,9 +256,28 @@ export async function scanCandidates(
         continue;
       }
 
-      // 读取文件完整元数据
-      const fullBuffer = await candidate.read(undefined, undefined, signal);
-      const parsed = parseDicomMetadata(new Uint8Array(fullBuffer), candidate);
+      // P1-2: 先按需读取前 128 KB 元数据段，不将几十 MB 的像素数据读入内存
+      let metadataBytes: Uint8Array;
+      if (candidate.size > 0 && candidate.size <= 131072) {
+        const fullBuf = await candidate.read(0, candidate.size, signal);
+        metadataBytes = new Uint8Array(fullBuf);
+      } else {
+        const chunkBuf = await candidate.read(0, 131072, signal);
+        metadataBytes = new Uint8Array(chunkBuf);
+      }
+
+      let parsed: ReturnType<typeof parseDicomMetadata>;
+      try {
+        parsed = parseDicomMetadata(metadataBytes, candidate, {
+          untilTag: 'x7fe00010',
+        });
+      } catch {
+        // 若超长私有标签导致 128KB 截断，回退读取完整文件
+        const fallbackBuf = await candidate.read(undefined, undefined, signal);
+        parsed = parseDicomMetadata(new Uint8Array(fallbackBuf), candidate, {
+          untilTag: 'x7fe00010',
+        });
+      }
 
       // 归类到 Study 树
       let studyRecord = studiesMap.get(parsed.studyUid);

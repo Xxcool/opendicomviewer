@@ -88,10 +88,13 @@ describe('字符集与编码解码 (charset.ts)', () => {
     expect(decoded).toBe('王五');
   });
 
-  it('CJK 计分辅助函数 scoreCjk', () => {
+  it('CJK 计分辅助函数 scoreCjk（包含 Extension B 补充平面汉字 codePointAt 支持）', () => {
     expect(scoreCjk('张三')).toBe(2);
     expect(scoreCjk('ABC 123')).toBe(0);
     expect(scoreCjk('CT 胸部扫描 001')).toBe(4);
+    // \u{20000} 是 Extension B 生僻字，占 2 个 UTF-16 code units 但为 1 个 code point
+    expect(scoreCjk('𠀀')).toBe(1);
+    expect(scoreCjk('测试𠀀生僻字')).toBe(6);
   });
 });
 
@@ -115,5 +118,92 @@ describe('Dicom Fixture Builder 与 dicom-parser 集成验证', () => {
     expect(dataSet.string('x00080018')).toBe('1.2.3.4.5.6.7');
     expect(dataSet.uint16('x00280010')).toBe(256);
     expect(dataSet.uint16('x00280011')).toBe(256);
+  });
+
+  it('P1-7 验证：DICOMDIR 记录物理乱序时，通过 offset 链树状遍历正确解析出层级关系', async () => {
+    const { parseDicomdir } = await import('../src/dicomdir');
+    const { buildDicomdirBuffer } = await import('../testing/dicom-fixture');
+
+    // 1. 先用占位 offset 构建初始 buffer 获取 4 个 item 的绝对起始位置
+    // 物理顺序故意错乱：[PATIENT, IMAGE, STUDY, SERIES]
+    const baseRecords = [
+      {
+        recordType: 'PATIENT' as const,
+        patientId: 'PID-OFFSET-001',
+        lowerLevelOffset: 0,
+      },
+      {
+        recordType: 'IMAGE' as const,
+        referencedFileId: 'DICOM\\IMG001',
+        referencedSopInstanceUid: '1.2.3.900.1.1',
+      },
+      {
+        recordType: 'STUDY' as const,
+        studyInstanceUid: '1.2.3.900',
+        studyDescription: 'Offset Tree Test',
+        lowerLevelOffset: 0,
+      },
+      {
+        recordType: 'SERIES' as const,
+        seriesInstanceUid: '1.2.3.900.1',
+        modality: 'MR',
+        lowerLevelOffset: 0,
+      },
+    ];
+    const initialBuf = buildDicomdirBuffer(baseRecords, { rootOffset: 0 });
+    const parsedInitial = dicomParser.parseDicom(initialBuf);
+    const items = parsedInitial.elements.x00041220?.items;
+    expect(items).toBeDefined();
+    expect(items?.length).toBe(4);
+
+    // 获取每个 item 的 Item Tag 偏移 (dataOffset - 8)
+    const offsets = items!.map((it) => (it.dataOffset ?? 0) - 8);
+    const [patientOffset, imageOffset, studyOffset, seriesOffset] = offsets;
+
+    // 2. 用真实的树状指针重新构建 DICOMDIR（字段完全相同，字节长度严格一致）：
+    // root -> PATIENT
+    // PATIENT.lowerLevel -> STUDY
+    // STUDY.lowerLevel -> SERIES
+    // SERIES.lowerLevel -> IMAGE
+    const treeRecords = [
+      {
+        recordType: 'PATIENT' as const,
+        patientId: 'PID-OFFSET-001',
+        lowerLevelOffset: studyOffset,
+      },
+      {
+        recordType: 'IMAGE' as const,
+        referencedFileId: 'DICOM\\IMG001',
+        referencedSopInstanceUid: '1.2.3.900.1.1',
+      },
+      {
+        recordType: 'STUDY' as const,
+        studyInstanceUid: '1.2.3.900',
+        studyDescription: 'Offset Tree Test',
+        lowerLevelOffset: seriesOffset,
+      },
+      {
+        recordType: 'SERIES' as const,
+        seriesInstanceUid: '1.2.3.900.1',
+        modality: 'MR',
+        lowerLevelOffset: imageOffset,
+      },
+    ];
+
+    const treeDicomdirBuf = buildDicomdirBuffer(treeRecords, {
+      rootOffset: patientOffset,
+    });
+
+    const result = parseDicomdir(treeDicomdirBuf);
+
+    // 验证：虽然物理排列顺序错乱 (IMAGE 排在 STUDY 与 SERIES 前面)，
+    // 但通过 offset 指针链仍能精准恢复出 Study -> Series -> Image 层次
+    expect(result.length).toBe(1);
+    expect(result[0]?.studyInstanceUid).toBe('1.2.3.900');
+    expect(result[0]?.patientId).toBe('PID-OFFSET-001');
+    expect(result[0]?.series.length).toBe(1);
+    expect(result[0]?.series[0]?.seriesInstanceUid).toBe('1.2.3.900.1');
+    expect(result[0]?.series[0]?.images.length).toBe(1);
+    expect(result[0]?.series[0]?.images[0]?.referencedFileId).toBe('DICOM\\IMG001');
   });
 });

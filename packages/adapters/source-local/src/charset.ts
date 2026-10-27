@@ -20,20 +20,22 @@ const CHARSET_MAP: Readonly<Record<string, string>> = {
 };
 
 /**
- * 统计字符串中 CJK 统一表意文字码点数量，只用于择优，不参与业务逻辑
+ * 统计字符串中 CJK 统一表意文字码点数量，只用于择优，不参与业务逻辑 (N2 修复: codePointAt 支持增补字符集)
  */
 export function scoreCjk(str: string): number {
   let score = 0;
-  for (let i = 0; i < str.length; i++) {
-    const code = str.charCodeAt(i);
-    // CJK 统一表意文字及扩展区基础范围
+  let i = 0;
+  while (i < str.length) {
+    const codePoint = str.codePointAt(i);
+    if (codePoint === undefined) break;
     if (
-      (code >= 0x4e00 && code <= 0x9fff) || // CJK Unified Ideographs
-      (code >= 0x3400 && code <= 0x4dbf) || // CJK Extension A
-      (code >= 0x20000 && code <= 0x2a6df)  // CJK Extension B
+      (codePoint >= 0x4e00 && codePoint <= 0x9fff) || // CJK Unified Ideographs
+      (codePoint >= 0x3400 && codePoint <= 0x4dbf) || // CJK Extension A
+      (codePoint >= 0x20000 && codePoint <= 0x2a6df)  // CJK Extension B
     ) {
       score++;
     }
+    i += codePoint > 0xffff ? 2 : 1;
   }
   return score;
 }

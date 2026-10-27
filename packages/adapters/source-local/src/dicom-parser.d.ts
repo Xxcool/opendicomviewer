@@ -9,6 +9,9 @@ declare module 'dicom-parser' {
 
   export interface DicomItem {
     readonly dataSet: DataSet;
+    readonly tag?: string;
+    readonly length?: number;
+    readonly dataOffset?: number;
   }
 
   export interface DataSet {

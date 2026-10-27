@@ -4,10 +4,15 @@
  * 遵循规范：
  * 实现了 core 的 DataSourcePort 接口。
  * 遵循 R6：不碰 DOM，只接收 ImportCandidate 抽象。
- * 优先使用 DICOMDIR 索引树避免冗余扫描；无 DICOMDIR 时全盘递归扫描并逐文件隔离错误。
+ * P0-1: 缓存隔离至 handle 实例，并使用 LRU 滑动窗口淘汰，杜绝内存无界增长。
+ * P0-2: prefetch 统一走 loadFrame 并有效填充 LRU 缓存。
+ * P1-3 & P1-4: 识别传输语法，对未支持的压缩格式明确报错，对大端字节序做字节反转。
+ * P1-6: DICOMDIR 损坏回退时显式产生告警。
+ * P1-8: 使用 O(1) 路径快速索引表。
  */
 
 import type {
+  DataWarning,
   DataSourcePort,
   ImportCandidate,
   ImportInput,
@@ -21,8 +26,9 @@ import type {
 import dicomParser from 'dicom-parser';
 import {
   type DicomdirStudy,
+  createCandidateIndex,
   dicomdirToStudyMetas,
-  matchCandidateByRefId,
+  matchCandidateO1,
   parseDicomdir,
 } from './dicomdir';
 import { hasDicomPrefix, isDicomdirCandidate } from './magic';
@@ -35,26 +41,87 @@ import {
   scanCandidates,
 } from './scanner';
 
+/**
+ * 轻量固定容量 LRU 缓存（P0-1）
+ */
+export class LRUCache<K, V> {
+  private readonly map = new Map<K, V>();
+  constructor(readonly maxSize: number = 64) {}
+
+  get(key: K): V | undefined {
+    const val = this.map.get(key);
+    if (val !== undefined) {
+      this.map.delete(key);
+      this.map.set(key, val);
+    }
+    return val;
+  }
+
+  set(key: K, value: V): void {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.maxSize) {
+      const oldestKey = this.map.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.map.delete(oldestKey);
+      }
+    }
+    this.map.set(key, value);
+  }
+
+  has(key: K): boolean {
+    return this.map.has(key);
+  }
+
+  clear(): void {
+    this.map.clear();
+  }
+
+  get size(): number {
+    return this.map.size;
+  }
+}
+
+/**
+ * 16-bit 大端字节序反转（P1-4）
+ */
+function swap16InPlace(bytes: Uint8Array): void {
+  for (let i = 0; i < bytes.length - 1; i += 2) {
+    const b0 = bytes[i];
+    const b1 = bytes[i + 1];
+    if (b0 !== undefined && b1 !== undefined) {
+      bytes[i] = b1;
+      bytes[i + 1] = b0;
+    }
+  }
+}
+
+/**
+ * 判断是否为封装压缩的 TransferSyntax（P1-3）
+ */
+function isEncapsulatedTransferSyntax(ts: string | undefined): boolean {
+  if (!ts) return false;
+  // JPEG 系列 (1.2.840.10008.1.2.4.*), RLE (1.2.840.10008.1.2.5) 等
+  return ts.startsWith('1.2.840.10008.1.2.4.') || ts === '1.2.840.10008.1.2.5';
+}
+
 export class LocalDataSource implements DataSourcePort {
   readonly kind = 'local' as const;
 
-  // 内部扫描与索引缓存
   private lastInputFiles: readonly ImportCandidate[] = [];
+  private candidateIndex = new Map<string, ImportCandidate>();
   private isDicomdirIndexed = false;
   private dicomdirStudies: DicomdirStudy[] = [];
   private scanResult: ScanResult | null = null;
-  private readonly pixelFrameCache = new Map<string, PixelFrame>();
+  private probeWarnings: DataWarning[] = [];
 
-  /**
-   * 扫描探测文件集合，产出 Study 摘要列表
-   * 优先识别 DICOMDIR；无有效 DICOMDIR 则执行全盘递归扫描
-   */
   async probe(
     input: ImportInput,
     signal?: AbortSignal,
   ): Promise<readonly StudyMeta[]> {
     this.lastInputFiles = input.files;
-    this.pixelFrameCache.clear();
+    this.candidateIndex = createCandidateIndex(input.files);
+    this.probeWarnings = [];
 
     if (signal?.aborted) {
       throw new DOMException('导入已由用户中断', 'AbortError');
@@ -79,11 +146,17 @@ export class LocalDataSource implements DataSourcePort {
         if (err instanceof DOMException && err.name === 'AbortError') {
           throw err;
         }
-        // DICOMDIR 损坏则静默回退全盘扫描
+        // P1-6: DICOMDIR 损坏回退全盘扫描时明确提示用户，禁止静默处理 (R7)
+        this.probeWarnings.push({
+          code: 'DECODE_PARTIAL_FAILURE',
+          message: 'DICOMDIR 索引文件解析失败，已自动回退至全盘扫描模式',
+          severity: 'warning',
+          details: { error: err instanceof Error ? err.message : String(err) },
+        });
       }
     }
 
-    // 2. 无 DICOMDIR 时执行全盘扫描（逐文件隔离错误）
+    // 2. 无有效 DICOMDIR 时全盘扫描
     this.isDicomdirIndexed = false;
     this.dicomdirStudies = [];
     const result = await scanCandidates(input.files, signal);
@@ -91,20 +164,15 @@ export class LocalDataSource implements DataSourcePort {
     return result.studies;
   }
 
-  /**
-   * 加载指定序列并排好序返回 SeriesHandle
-   */
   async openSeries(ref: SeriesRef, signal?: AbortSignal): Promise<SeriesHandle> {
     if (signal?.aborted) {
       throw new DOMException('打开序列已由用户中断', 'AbortError');
     }
 
-    // 路径 A：基于 DICOMDIR 索引按需提取文件
     if (this.isDicomdirIndexed) {
       return this.openSeriesFromDicomdir(ref, signal);
     }
 
-    // 路径 B：基于已扫描序列
     if (!this.scanResult) {
       throw new Error('未执行 probe 或扫描结果为空，无法打开序列');
     }
@@ -146,16 +214,13 @@ export class LocalDataSource implements DataSourcePort {
     const candidateMap = new Map<string, ImportCandidate>();
     const failures: FileParseFailure[] = [];
 
-    // 仅按需加载属于该序列的文件，避免加载全盘
     for (const imgRef of series.images) {
       if (signal?.aborted) {
         throw new DOMException('打开序列已由用户中断', 'AbortError');
       }
 
-      const candidate = matchCandidateByRefId(
-        this.lastInputFiles,
-        imgRef.referencedFileId,
-      );
+      // P1-8: O(1) 查表快速匹配
+      const candidate = matchCandidateO1(this.candidateIndex, imgRef.referencedFileId);
 
       if (!candidate) {
         failures.push({
@@ -167,8 +232,26 @@ export class LocalDataSource implements DataSourcePort {
       }
 
       try {
-        const buf = await candidate.read(undefined, undefined, signal);
-        const meta = parseDicomMetadata(new Uint8Array(buf), candidate);
+        // 读取前 128KB 元数据
+        let metaBuf: ArrayBuffer;
+        if (candidate.size > 0 && candidate.size <= 131072) {
+          metaBuf = await candidate.read(0, candidate.size, signal);
+        } else {
+          metaBuf = await candidate.read(0, 131072, signal);
+        }
+
+        let meta: ReturnType<typeof parseDicomMetadata>;
+        try {
+          meta = parseDicomMetadata(new Uint8Array(metaBuf), candidate, {
+            untilTag: 'x7fe00010',
+          });
+        } catch {
+          const fullBuf = await candidate.read(undefined, undefined, signal);
+          meta = parseDicomMetadata(new Uint8Array(fullBuf), candidate, {
+            untilTag: 'x7fe00010',
+          });
+        }
+
         planes.push(meta.plane);
         candidateMap.set(meta.plane.imageId, candidate);
       } catch (err: unknown) {
@@ -199,95 +282,124 @@ export class LocalDataSource implements DataSourcePort {
     seriesMeta: SeriesMeta,
     candidateMap: Map<string, ImportCandidate>,
   ): SeriesHandle {
+    // P0-1: 缓存属于 handle 实例，最大容量 64，LRU 淘汰
+    const lruCache = new LRUCache<string, PixelFrame>(64);
+
+    // P0-2: 抽离公共 loadFrame，统一供 pixel() 与 prefetch() 调用
+    const loadFrame = async (plane: SeriesMeta['planes'][0]): Promise<PixelFrame> => {
+      if (!plane) {
+        throw new Error('未提供有效切片信息');
+      }
+
+      const cached = lruCache.get(plane.imageId);
+      if (cached) return cached;
+
+      const candidate = candidateMap.get(plane.imageId);
+      if (!candidate) {
+        throw new Error(`找不到切片对应的数据源文件: ${plane.imageId}`);
+      }
+
+      // P1-3: 识别封装压缩传输语法
+      const transferSyntax = plane.transferSyntaxUid;
+      if (isEncapsulatedTransferSyntax(transferSyntax)) {
+        throw new Error(
+          `暂不支持直接解码封装压缩传输语法 (${transferSyntax})，需经 CodecPort WASM 解码器`,
+        );
+      }
+
+      const buf = await candidate.read();
+      const dataSet = dicomParser.parseDicom(new Uint8Array(buf));
+      const pixelElement = dataSet.elements.x7fe00010;
+
+      let pixelData: Int16Array | Uint16Array | Uint8Array;
+      const bitsAllocated = plane.bitsAllocated ?? 16;
+      const isSigned = plane.pixelRepresentation === 1;
+
+      if (pixelElement && pixelElement.length > 0) {
+        const rawSlice = dataSet.byteArray.slice(
+          pixelElement.dataOffset,
+          pixelElement.dataOffset + pixelElement.length,
+        );
+
+        // P1-4: 大端字节序处理 (Explicit VR Big Endian 1.2.840.10008.1.2.2)
+        if (transferSyntax === '1.2.840.10008.1.2.2' && bitsAllocated === 16) {
+          swap16InPlace(rawSlice);
+        }
+
+        if (bitsAllocated === 16) {
+          pixelData = isSigned
+            ? new Int16Array(
+                rawSlice.buffer,
+                rawSlice.byteOffset,
+                rawSlice.byteLength / 2,
+              )
+            : new Uint16Array(
+                rawSlice.buffer,
+                rawSlice.byteOffset,
+                rawSlice.byteLength / 2,
+              );
+        } else {
+          pixelData = rawSlice;
+        }
+      } else {
+        pixelData = new Int16Array(plane.rows * plane.columns);
+      }
+
+      let defaultVOI: VOIRange | undefined;
+      if (plane.windowCenter !== undefined && plane.windowWidth !== undefined) {
+        defaultVOI = {
+          windowCenter: plane.windowCenter,
+          windowWidth: plane.windowWidth,
+        };
+      }
+
+      const frame: PixelFrame = {
+        width: plane.columns,
+        height: plane.rows,
+        pixelData,
+        rescaleSlope: plane.rescaleSlope ?? 1.0,
+        rescaleIntercept: plane.rescaleIntercept ?? 0.0,
+        modalityLUT: plane.modalityLUT,
+        photometricInterpretation: plane.photometricInterpretation,
+        bitsAllocated: plane.bitsAllocated,
+        pixelRepresentation: plane.pixelRepresentation,
+        defaultVOI,
+      };
+
+      lruCache.set(plane.imageId, frame);
+      return frame;
+    };
+
+    const allWarnings = [...seriesMeta.warnings, ...this.probeWarnings];
+
     return {
-      meta: seriesMeta,
-      warnings: seriesMeta.warnings,
+      meta: {
+        ...seriesMeta,
+        warnings: allWarnings,
+      },
+      warnings: allWarnings,
       pixel: async (layerIndex: number): Promise<PixelFrame> => {
         const plane = seriesMeta.planes[layerIndex];
         if (!plane) {
-          throw new RangeError(`切片索引越界: ${layerIndex}（共 ${seriesMeta.planes.length} 层）`);
-        }
-
-        const cached = this.pixelFrameCache.get(plane.imageId);
-        if (cached) return cached;
-
-        const candidate = candidateMap.get(plane.imageId);
-        if (!candidate) {
-          throw new Error(`找不到切片对应的数据源文件: ${plane.imageId}`);
-        }
-
-        const buf = await candidate.read();
-        const dataSet = dicomParser.parseDicom(new Uint8Array(buf));
-        const pixelElement = dataSet.elements.x7fe00010;
-
-        let pixelData: Int16Array | Uint16Array | Uint8Array;
-        const bitsAllocated = plane.bitsAllocated ?? 16;
-        const isSigned = plane.pixelRepresentation === 1;
-
-        if (pixelElement && pixelElement.length > 0) {
-          const rawSlice = dataSet.byteArray.slice(
-            pixelElement.dataOffset,
-            pixelElement.dataOffset + pixelElement.length,
+          throw new RangeError(
+            `切片索引越界: ${layerIndex}（共 ${seriesMeta.planes.length} 层）`,
           );
-          if (bitsAllocated === 16) {
-            pixelData = isSigned
-              ? new Int16Array(
-                  rawSlice.buffer,
-                  rawSlice.byteOffset,
-                  rawSlice.byteLength / 2,
-                )
-              : new Uint16Array(
-                  rawSlice.buffer,
-                  rawSlice.byteOffset,
-                  rawSlice.byteLength / 2,
-                );
-          } else {
-            pixelData = rawSlice;
-          }
-        } else {
-          // 占位空像素缓冲
-          pixelData = new Int16Array(plane.rows * plane.columns);
         }
-
-        let defaultVOI: VOIRange | undefined;
-        if (plane.windowCenter !== undefined && plane.windowWidth !== undefined) {
-          defaultVOI = {
-            windowCenter: plane.windowCenter,
-            windowWidth: plane.windowWidth,
-          };
-        }
-
-        const frame: PixelFrame = {
-          width: plane.columns,
-          height: plane.rows,
-          pixelData,
-          rescaleSlope: plane.rescaleSlope ?? 1.0,
-          rescaleIntercept: plane.rescaleIntercept ?? 0.0,
-          modalityLUT: plane.modalityLUT,
-          photometricInterpretation: plane.photometricInterpretation,
-          bitsAllocated: plane.bitsAllocated,
-          pixelRepresentation: plane.pixelRepresentation,
-          defaultVOI,
-        };
-
-        this.pixelFrameCache.set(plane.imageId, frame);
-        return frame;
+        return loadFrame(plane);
       },
       prefetch: async (indices: readonly number[]): Promise<void> => {
-        // 批量预取底层文件进内存
+        // P0-2: 批量预取加载并写入 LRU 缓存
         const promises = indices.map(async (idx) => {
           const plane = seriesMeta.planes[idx];
-          if (plane && !this.pixelFrameCache.has(plane.imageId)) {
-            const candidate = candidateMap.get(plane.imageId);
-            if (candidate) {
-              await candidate.read();
-            }
+          if (plane && !lruCache.has(plane.imageId)) {
+            await loadFrame(plane);
           }
         });
         await Promise.all(promises);
       },
       dispose: (): void => {
-        this.pixelFrameCache.clear();
+        // P0-1: 只清空当前实例的 LRU 缓存，不误伤其他活动序列
+        lruCache.clear();
       },
     };
   }

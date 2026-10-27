@@ -70,6 +70,10 @@ export interface ImagePlane {
   readonly pixelRepresentation?: number;
   /** 光度学解释，如 MONOCHROME1, MONOCHROME2, RGB */
   readonly photometricInterpretation?: string;
+  /** 传输语法 UID (0002,0010)，用于解码格式识别与字节序处理 (P1-3, P1-4) */
+  readonly transferSyntaxUid?: string;
+  /** 是否缺失空间几何坐标 (0020,0032)/(0020,0037)，禁止静默降级为 [0,0,0] (P1-5) */
+  readonly hasMissingGeometry?: boolean;
 }
 
 export interface DataWarning {

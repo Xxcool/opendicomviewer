@@ -30,6 +30,7 @@ export interface DicomFixtureOptions {
   readonly pixelSpacing?: [number, number];
   readonly rows?: number;
   readonly columns?: number;
+  readonly transferSyntaxUid?: string;
   readonly extraElements?: readonly DicomFixtureElement[];
 }
 
@@ -138,12 +139,14 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
   );
 
   // (0002,0010) Transfer Syntax UID: 默认 Explicit VR Little Endian
+  const transferSyntaxUid =
+    options.transferSyntaxUid ?? '1.2.840.10008.1.2.1';
   metaElements.push(
     ...encodeElement(
       0x0002,
       0x0010,
       'UI',
-      stringToBytes('1.2.840.10008.1.2.1'),
+      stringToBytes(transferSyntaxUid),
     ),
   );
 
@@ -321,6 +324,12 @@ export interface DicomdirRecordFixture {
   readonly modality?: string;
   readonly referencedFileId?: string;
   readonly referencedSopInstanceUid?: string;
+  readonly nextRecordOffset?: number;
+  readonly lowerLevelOffset?: number;
+}
+
+export interface DicomdirOptions {
+  readonly rootOffset?: number;
 }
 
 /**
@@ -328,6 +337,7 @@ export interface DicomdirRecordFixture {
  */
 export function buildDicomdirBuffer(
   records: readonly DicomdirRecordFixture[],
+  options?: DicomdirOptions,
 ): Uint8Array {
   const result: number[] = [];
 
@@ -371,11 +381,38 @@ export function buildDicomdirBuffer(
   );
   result.push(...metaElements);
 
+  // (0004,1200) Offset of the First Directory Record of the Root Directory Entity
+  if (options?.rootOffset !== undefined) {
+    const rootOffsetBytes: number[] = [];
+    writeUint32LE(rootOffsetBytes, options.rootOffset);
+    result.push(
+      ...encodeElement(0x0004, 0x1200, 'UL', new Uint8Array(rootOffsetBytes)),
+    );
+  }
+
   // Group 0004: DirectoryRecordSequence (0004,1220)
   const allItemsBytes: number[] = [];
 
   for (const rec of records) {
     const itemElements: number[] = [];
+
+    // (0004,1400) Offset of the Next Directory Record
+    if (rec.nextRecordOffset !== undefined) {
+      const nextOffsetBytes: number[] = [];
+      writeUint32LE(nextOffsetBytes, rec.nextRecordOffset);
+      itemElements.push(
+        ...encodeElement(0x0004, 0x1400, 'UL', new Uint8Array(nextOffsetBytes)),
+      );
+    }
+
+    // (0004,1410) Offset of Referenced Lower-Level Directory Entity
+    if (rec.lowerLevelOffset !== undefined) {
+      const lowerOffsetBytes: number[] = [];
+      writeUint32LE(lowerOffsetBytes, rec.lowerLevelOffset);
+      itemElements.push(
+        ...encodeElement(0x0004, 0x1410, 'UL', new Uint8Array(lowerOffsetBytes)),
+      );
+    }
 
     // (0004,1430) Directory Record Type
     itemElements.push(

@@ -137,6 +137,18 @@ export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
   }
 
   const warnings: DataWarning[] = [];
+
+  // P1-5: 显式检测几何缺失切片，严禁假装正常排序并静默降级为 InstanceNumber
+  const missingGeomCount = planes.filter((p) => p.hasMissingGeometry).length;
+  if (missingGeomCount > 0) {
+    warnings.push({
+      code: 'MISSING_GEOMETRY',
+      message: `检测到 ${missingGeomCount} 层切片缺失物理坐标 (0020,0032) 或朝向 (0020,0037)，空间几何无效`,
+      severity: 'warning',
+      details: { missingCount: missingGeomCount },
+    });
+  }
+
   const baseNormal = pickDominantNormal(planes);
 
   // S6: 检测机架倾斜或非标准轴对齐朝向 (Gantry Tilt / Oblique)
