@@ -16,7 +16,7 @@ export type Modality =
   | 'XA'
   | 'SC'
   | 'OT'
-  | string;
+  | (string & {});
 
 export interface ModalityLUT {
   /** 查表输入起始像素值，对应 (0028,3002) Descriptor[1] */
@@ -32,6 +32,10 @@ export interface ImagePlane {
   readonly imageId: string;
   /** 切片 SOP Instance UID（脱敏或原始） */
   readonly sopInstanceUid: string;
+  /** 空间参考坐标系 UID (0020,0052)，用于多序列几何一致性与配准检测 */
+  readonly frameOfReferenceUID?: string;
+  /** 字符集声明 (0008,0005)，用于文本解码派发 */
+  readonly specificCharacterSet?: string;
   /** 实例序号，仅作为几何投影相同层时的 tie-breaker，严禁作为主排序列（R3） */
   readonly instanceNumber?: number;
   /** 患者空间三维坐标 [x, y, z]，对应 DICOM (0020,0032) */
@@ -103,6 +107,10 @@ export interface SeriesMeta {
 
 export interface StudyMeta {
   readonly studyInstanceUid: string;
+  /**
+   * 患者身份相关字段属于受保护健康信息（PHI）。
+   * 仅存在于内存态，严格禁止落盘、写入本地日志或通过任何网络上报（R5/R8）。
+   */
   readonly patientId: string;
   readonly patientName: string;
   readonly studyDate?: string;
@@ -119,7 +127,7 @@ export interface VOIRange {
 }
 
 /**
- * DICOM PS3.3 C.11.2.1.2 线性 VOI LUT 映射边界 (S1)
+ * DICOM PS3.3 C.11.2.1.2 线性 VOI LUT 映射边界
  * lower = windowCenter - 0.5 - (windowWidth - 1) / 2
  * upper = windowCenter - 0.5 + (windowWidth - 1) / 2
  */
@@ -152,13 +160,14 @@ export interface MeasurementRecord {
   readonly id: string;
   readonly seriesInstanceUid: string;
   readonly sopInstanceUid: string;
-  readonly type: 'length' | 'probe' | 'rectangleRoi' | 'ellipseRoi';
+  readonly type: 'length' | 'probe' | 'rectangleRoi' | 'ellipseRoi' | 'angle' | 'cobbAngle';
   /** 标注控制点坐标（像素或患者世界坐标） */
   readonly points: readonly [number, number, number][];
-  /** 物理测量结果，如长度(mm)、面积(mm²)、HU 均值与标准差 */
+  /** 物理测量结果，如长度(mm)、面积(mm²)、角度(度)、HU 均值与标准差 */
   readonly stats: {
     readonly lengthMm?: number;
     readonly areaMm2?: number;
+    readonly angleDeg?: number;
     readonly meanHU?: number;
     readonly stdDevHU?: number;
     readonly minHU?: number;

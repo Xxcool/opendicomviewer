@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ImagePlane, ModalityLUT } from '../domain/types';
 import {
-  assertPhantomHU,
   CT_WINDOW_PRESETS,
   mapHUToUint8,
   rangeToVOI,
@@ -9,6 +8,7 @@ import {
   voiToRange,
 } from '../pipeline/lut';
 import { computeNormal, sortByPosition } from '../pipeline/sort';
+import { assertPhantomHU } from '../testing/phantom';
 
 const AXIAL_IOP: [number, number, number, number, number, number] = [1, 0, 0, 0, 1, 0];
 const SAGITTAL_IOP: [number, number, number, number, number, number] = [0, 1, 0, 0, 0, -1];
@@ -33,8 +33,9 @@ function createPlane(
   };
 }
 
-describe('sortByPosition 几何与层序排序 (P1: S4, S5, S6)', () => {
+describe('sortByPosition 几何与层序排序', () => {
   it('R3：严禁用 InstanceNumber 排序，必须以 IPP 沿法向投影物理坐标为准', () => {
+    // 模拟 InstanceNumber 颠倒混乱，基准层厚 10mm
     const planes = [
       createPlane(30, 999, { sliceThickness: 10, spacingBetweenSlices: 10 }),
       createPlane(10, 100, { sliceThickness: 10, spacingBetweenSlices: 10 }),
@@ -92,6 +93,7 @@ describe('sortByPosition 几何与层序排序 (P1: S4, S5, S6)', () => {
   });
 
   it('S6：非轴对齐与机架倾斜应产生 NON_AXIAL_ORIENTATION 告警', () => {
+    // 倾斜 30 度角
     const cos30 = Math.cos(Math.PI / 6);
     const sin30 = Math.sin(Math.PI / 6);
     const tiltedNormal = computeNormal([1, 0, 0, 0, cos30, sin30]);
@@ -108,7 +110,7 @@ describe('sortByPosition 几何与层序排序 (P1: S4, S5, S6)', () => {
   });
 });
 
-describe('lut.ts 灰度换算与 DICOM PS3.3 C.11.2.1.2 VOI 映射 (P1: S1, S2, S3)', () => {
+describe('lut.ts 灰度换算与 DICOM PS3.3 C.11.2.1.2 VOI 映射', () => {
   it('S1 Golden Test：脑窗 (ww=80, wc=40) 严格对齐 DICOM 标准公式（HU=79 必须映射为 255）', () => {
     const brain = CT_WINDOW_PRESETS.BRAIN;
     const bounds = voiToRange(brain);

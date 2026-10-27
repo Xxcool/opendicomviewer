@@ -1,0 +1,7 @@
+{
+  "name": "@opendicomviewer/source-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local file system and DICOMDIR data source adapter"
+}

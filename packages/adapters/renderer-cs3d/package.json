@@ -1,0 +1,7 @@
+{
+  "name": "@opendicomviewer/renderer-cs3d",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cornerstone3D WebGL2 renderer adapter"
+}

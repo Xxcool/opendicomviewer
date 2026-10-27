@@ -9,7 +9,7 @@
 import type { ModalityLUT, VOIBounds, VOIRange } from '../domain/types';
 
 /**
- * 常用 CT 窗宽窗位预设
+ * 常用 CT 窗宽窗位预设 (N6)
  */
 export const CT_WINDOW_PRESETS = {
   LUNG: { windowCenter: -600, windowWidth: 1500 },
@@ -47,7 +47,7 @@ export function rawToHU(
 }
 
 /**
- * 窗宽窗位 (WW/WL) 转为上下限映射范围 (Lower/Upper) (S1)
+ * 窗宽窗位 (WW/WL) 转为上下限映射范围 (Lower/Upper)
  * 严格遵循 DICOM PS3.3 C.11.2.1.2：
  * lower = c - 0.5 - (w - 1) / 2
  * upper = c - 0.5 + (w - 1) / 2
@@ -75,7 +75,7 @@ export function rangeToVOI(lower: number, upper: number): VOIRange {
 }
 
 /**
- * 将指定 HU 按照给定的 VOI 映射为 0-255 字节值（DICOM PS3.3 C.11.2.1.2 标准三段式映射，S1）
+ * 将指定 HU 按照给定的 VOI 映射为 0-255 字节值（DICOM PS3.3 C.11.2.1.2 标准三段式映射）
  * 支持 MONOCHROME1 灰阶反转（S3: 高值显黑，如 CR/DX）
  */
 export function mapHUToUint8(
@@ -106,29 +106,4 @@ export function mapHUToUint8(
   }
 
   return output;
-}
-
-/**
- * Phantom 物理密度基准断言（用于测试与校验）
- * 断言：水 ∈ [-5, 5] HU、空气 ∈ [-1050, -950] HU、皮质骨 > 300 HU
- */
-export function assertPhantomHU(
-  waterHU: number,
-  airHU: number,
-  boneHU: number,
-): { pass: boolean; reasons: string[] } {
-  const reasons: string[] = [];
-  if (waterHU < -5 || waterHU > 5) {
-    reasons.push(`水密度偏差：当前 ${waterHU.toFixed(1)} HU 不在 [-5, 5] 范围内`);
-  }
-  if (airHU < -1050 || airHU > -950) {
-    reasons.push(`空气密度偏差：当前 ${airHU.toFixed(1)} HU 不在 [-1050, -950] 范围内`);
-  }
-  if (boneHU <= 300) {
-    reasons.push(`骨密度偏差：当前 ${boneHU.toFixed(1)} HU 未超过 300 HU 基线`);
-  }
-  return {
-    pass: reasons.length === 0,
-    reasons,
-  };
 }

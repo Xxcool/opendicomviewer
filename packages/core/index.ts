@@ -10,3 +10,4 @@ export * from './ports/index';
 export * from './pipeline/vector3';
 export * from './pipeline/sort';
 export * from './pipeline/lut';
+export * from './testing/phantom';

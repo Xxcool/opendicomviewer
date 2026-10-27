@@ -20,8 +20,8 @@ export interface ImportCandidate {
   readonly id: string;
   readonly name: string;
   readonly size: number;
-  /** 由具体的 SourceAdapter 提供读取方法 */
-  read(start?: number, end?: number): Promise<ArrayBuffer>;
+  /** 由具体的 SourceAdapter 提供读取方法，支持分段 Range 读取与中止取消 (N9) */
+  read(start?: number, end?: number, signal?: AbortSignal): Promise<ArrayBuffer>;
 }
 
 export interface ImportInput {
@@ -38,14 +38,16 @@ export interface SeriesHandle {
   readonly warnings: readonly DataWarning[];
   /** 按排序后的索引获取原始帧像素（全分辨率 Stack 通路） */
   pixel(layerIndex: number): Promise<PixelFrame>;
+  /** 批量方向性预取指定切片索引（N8: 支撑 p95 帧时间 < 16.7ms 指标） */
+  prefetch?(layerIndices: readonly number[]): Promise<void>;
   /** 释放资源（图片纹理缓存、解码缓冲等） */
   dispose(): void;
 }
 
 export interface DataSourcePort {
   readonly kind: 'local' | 'dicomweb';
-  /** 扫描探测文件集合，产出 Study 摘要列表 */
-  probe(input: ImportInput): Promise<readonly StudyMeta[]>;
+  /** 扫描探测文件集合，产出 Study 摘要列表，支持中止取消 (N9) */
+  probe(input: ImportInput, signal?: AbortSignal): Promise<readonly StudyMeta[]>;
   /** 加载指定序列并排好序返回 SeriesHandle */
   openSeries(ref: SeriesRef, signal?: AbortSignal): Promise<SeriesHandle>;
 }
@@ -113,8 +115,8 @@ export interface TelemetrySpan {
 
 export interface TelemetryPort {
   /**
-   * 两段式追踪 span (S8)。
-   * 支持同步和异步生命周期跨度管理，避免包装式对执行上下文的侵入。
+   * 两段式追踪 span。
+   * 支持同步和异步生命周期跨度管理，避免包装式对执行上下文的侵入 (S8)。
    */
   span(name: string): TelemetrySpan;
   recordMetric(name: string, value: number): void;

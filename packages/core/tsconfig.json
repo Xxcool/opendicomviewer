@@ -11,7 +11,14 @@
     "skipLibCheck": true,
     "declaration": true,
     "declarationMap": true,
-    "types": []
+    "types": ["node"]
   },
-  "include": ["domain/**/*", "ports/**/*", "pipeline/**/*", "tests/**/*", "index.ts"]
+  "include": [
+    "domain/**/*",
+    "ports/**/*",
+    "pipeline/**/*",
+    "testing/**/*",
+    "tests/**/*",
+    "index.ts"
+  ]
 }
