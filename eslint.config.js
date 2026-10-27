@@ -31,6 +31,28 @@ export default tseslint.config(
     },
   },
   {
+    files: ['packages/adapters/source-local/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        'window',
+        'document',
+        'localStorage',
+        'sessionStorage',
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            '../../app-*',
+            '@cornerstonejs/*',
+            'react*',
+          ],
+        },
+      ],
+    },
+  },
+  {
     ignores: [
       '**/node_modules/**',
       '**/dist/**',

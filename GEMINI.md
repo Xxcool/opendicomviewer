@@ -56,9 +56,18 @@ lodash（全量）         → 需要时按需引入单函数
 axios / ky            → 本项目无网络需求，禁止任何 HTTP 客户端
 Sentry / LogRocket    → 违反 R5
 任何 UI 组件库全家桶     → 会与 Tailwind + Radix 冲突
-任何 DICOM 解析库（除 CS3D 自带）→ 会与 CS3D 元数据层打架
+任何 DICOM 解析库（**core 内一律禁止**；adapter 层唯一豁免：`dicom-parser`）→ 会与 CS3D 元数据层打架
 three.js              → 仅 Phase 4 高质量 VR 阶段允许，需先批准
 ```
+
+**DICOM 解析的层级规则（2026-10-27 定，ADR 待补）**
+
+| 层 | 允许 | 说明 |
+| --- | --- | --- |
+| `packages/core` | **不允许任何 DICOM 解析库** | 只认已解析好的 `ImagePlane` / `PixelFrame`（R6） |
+| `packages/adapters/source-*` | **仅 `dicom-parser`** | MIT、纯 JS、可在 Node 运行（可单测）；CS3D 的 dicom-image-loader 本就依赖它 |
+| `packages/adapters/codec-*` | 允许 WASM 解码库（OpenJPEG / CharLS / RLE） | 仅解码像素，不做标签解析 |
+| 其他任何位置 | 禁止，且**禁止再引入第二个 DICOM 解析库** | 两套解析器必然语义不一致 |
 
 **新增任何依赖前必须问。** 包括"很小很方便"的工具库。
 
