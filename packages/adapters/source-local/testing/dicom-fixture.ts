@@ -310,3 +310,161 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
   }
   return fullBytes;
 }
+
+export interface DicomdirRecordFixture {
+  readonly recordType: 'PATIENT' | 'STUDY' | 'SERIES' | 'IMAGE';
+  readonly patientId?: string;
+  readonly patientName?: string;
+  readonly studyInstanceUid?: string;
+  readonly studyDescription?: string;
+  readonly seriesInstanceUid?: string;
+  readonly modality?: string;
+  readonly referencedFileId?: string;
+  readonly referencedSopInstanceUid?: string;
+}
+
+/**
+ * 构建符合 DICOM 标准的 DICOMDIR 索引文件字节流
+ */
+export function buildDicomdirBuffer(
+  records: readonly DicomdirRecordFixture[],
+): Uint8Array {
+  const result: number[] = [];
+
+  // 128 字节 Preamble + DICM
+  for (let i = 0; i < 128; i++) {
+    result.push(0);
+  }
+  writeString(result, 'DICM');
+
+  // File Meta Information
+  const metaElements: number[] = [];
+  metaElements.push(
+    ...encodeElement(
+      0x0002,
+      0x0002,
+      'UI',
+      stringToBytes('1.2.840.10008.1.3.10'), // Media Storage Directory Storage
+    ),
+  );
+  metaElements.push(
+    ...encodeElement(
+      0x0002,
+      0x0003,
+      'UI',
+      stringToBytes('1.2.840.10008.1.3.10.1.1'),
+    ),
+  );
+  metaElements.push(
+    ...encodeElement(
+      0x0002,
+      0x0010,
+      'UI',
+      stringToBytes('1.2.840.10008.1.2.1'), // Explicit VR LE
+    ),
+  );
+
+  const metaGroupLenBytes: number[] = [];
+  writeUint32LE(metaGroupLenBytes, metaElements.length);
+  result.push(
+    ...encodeElement(0x0002, 0x0000, 'UL', new Uint8Array(metaGroupLenBytes)),
+  );
+  result.push(...metaElements);
+
+  // Group 0004: DirectoryRecordSequence (0004,1220)
+  const allItemsBytes: number[] = [];
+
+  for (const rec of records) {
+    const itemElements: number[] = [];
+
+    // (0004,1430) Directory Record Type
+    itemElements.push(
+      ...encodeElement(0x0004, 0x1430, 'CS', stringToBytes(rec.recordType)),
+    );
+
+    if (rec.recordType === 'PATIENT') {
+      itemElements.push(
+        ...encodeElement(
+          0x0010,
+          0x0020,
+          'LO',
+          stringToBytes(rec.patientId ?? 'DIR-PID'),
+        ),
+      );
+      if (rec.patientName) {
+        itemElements.push(
+          ...encodeElement(0x0010, 0x0010, 'PN', stringToBytes(rec.patientName)),
+        );
+      }
+    } else if (rec.recordType === 'STUDY') {
+      itemElements.push(
+        ...encodeElement(
+          0x0020,
+          0x000d,
+          'UI',
+          stringToBytes(rec.studyInstanceUid ?? '1.2.3.1'),
+        ),
+      );
+      if (rec.studyDescription) {
+        itemElements.push(
+          ...encodeElement(
+            0x0008,
+            0x1030,
+            'LO',
+            stringToBytes(rec.studyDescription),
+          ),
+        );
+      }
+    } else if (rec.recordType === 'SERIES') {
+      itemElements.push(
+        ...encodeElement(
+          0x0020,
+          0x000e,
+          'UI',
+          stringToBytes(rec.seriesInstanceUid ?? '1.2.3.1.1'),
+        ),
+      );
+      itemElements.push(
+        ...encodeElement(
+          0x0008,
+          0x0060,
+          'CS',
+          stringToBytes(rec.modality ?? 'CT'),
+        ),
+      );
+    } else if (rec.recordType === 'IMAGE') {
+      if (rec.referencedFileId) {
+        itemElements.push(
+          ...encodeElement(
+            0x0004,
+            0x1500,
+            'CS',
+            stringToBytes(rec.referencedFileId),
+          ),
+        );
+      }
+      if (rec.referencedSopInstanceUid) {
+        itemElements.push(
+          ...encodeElement(
+            0x0004,
+            0x1511,
+            'UI',
+            stringToBytes(rec.referencedSopInstanceUid),
+          ),
+        );
+      }
+    }
+
+    // Sequence Item: FFFE E000, Length (4 bytes LE)
+    allItemsBytes.push(0xfe, 0xff, 0x00, 0xe0);
+    writeUint32LE(allItemsBytes, itemElements.length);
+    allItemsBytes.push(...itemElements);
+  }
+
+  // Sequence Element (0004,1220)
+  result.push(
+    ...encodeElement(0x0004, 0x1220, 'SQ', new Uint8Array(allItemsBytes)),
+  );
+
+  return new Uint8Array(result);
+}

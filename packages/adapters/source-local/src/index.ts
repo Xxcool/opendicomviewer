@@ -7,3 +7,7 @@
 
 export * from './magic';
 export * from './charset';
+export * from './dicomdir';
+export * from './scanner';
+export * from './source-local';
+export * from './zip';
