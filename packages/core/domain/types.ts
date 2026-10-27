@@ -18,6 +18,15 @@ export type Modality =
   | 'OT'
   | string;
 
+export interface ModalityLUT {
+  /** 查表输入起始像素值，对应 (0028,3002) Descriptor[1] */
+  readonly firstMappedPixelValue: number;
+  /** 查表输出存储位深，对应 Descriptor[2] */
+  readonly bitsStored: number;
+  /** LUT 查表数据，对应 (0028,3006) LUTData */
+  readonly lutData: readonly number[] | Uint16Array;
+}
+
 export interface ImagePlane {
   /** 唯一标识符或文件 URI */
   readonly imageId: string;
@@ -43,6 +52,8 @@ export interface ImagePlane {
   readonly rescaleSlope?: number;
   /** 线性灰度换算截距，默认 0.0 */
   readonly rescaleIntercept?: number;
+  /** Modality LUT 序列查表项，存在时优先于线性 Rescale（S2） */
+  readonly modalityLUT?: ModalityLUT;
   /** 默认窗宽 */
   readonly windowWidth?: number;
   /** 默认窗位 */
@@ -61,7 +72,9 @@ export interface DataWarning {
   readonly code:
     | 'SLICE_GAP'
     | 'IRREGULAR_SPACING'
+    | 'DUPLICATE_SLICE'
     | 'ORIENTATION_MISMATCH'
+    | 'NON_AXIAL_ORIENTATION'
     | 'MISSING_GEOMETRY'
     | 'BURNED_IN_INFO'
     | 'UNSUPPORTED_TRANSFER_SYNTAX'
@@ -81,6 +94,8 @@ export interface SeriesMeta {
   readonly numberOfFrames: number;
   /** 经过 IPP 投影排好序的切片列表（严禁依赖 InstanceNumber 排序） */
   readonly planes: readonly ImagePlane[];
+  /** 因朝向冲突或其他严重几何不一致而被排除的切片列表（S5） */
+  readonly excludedPlanes?: readonly ImagePlane[];
   /** 各向异性物理间距 [rowSpacing, colSpacing, sliceSpacing] mm */
   readonly spacing: [number, number, number];
   readonly warnings: readonly DataWarning[];
@@ -97,16 +112,21 @@ export interface StudyMeta {
 }
 
 export interface VOIRange {
-  /** 窗宽 Window Width */
+  /** 窗宽 Window Width (必须 >= 1) */
   readonly windowWidth: number;
   /** 窗位 Window Center */
   readonly windowCenter: number;
 }
 
+/**
+ * DICOM PS3.3 C.11.2.1.2 线性 VOI LUT 映射边界 (S1)
+ * lower = windowCenter - 0.5 - (windowWidth - 1) / 2
+ * upper = windowCenter - 0.5 + (windowWidth - 1) / 2
+ */
 export interface VOIBounds {
-  /** 映射下限 (WL - WW / 2) */
+  /** 映射下限：输入 <= lower 时输出 ymin (0) */
   readonly lower: number;
-  /** 映射上限 (WL + WW / 2) */
+  /** 映射上限：输入 > upper 时输出 ymax (255) */
   readonly upper: number;
 }
 
@@ -117,7 +137,11 @@ export interface PixelFrame {
   readonly pixelData: Int16Array | Uint16Array | Uint8Array;
   readonly rescaleSlope: number;
   readonly rescaleIntercept: number;
-  /** 窗宽窗位（若有） */
+  readonly modalityLUT?: ModalityLUT;
+  readonly photometricInterpretation?: string;
+  readonly bitsAllocated?: number;
+  readonly pixelRepresentation?: number;
+  /** 默认窗宽窗位（若有） */
   readonly defaultVOI?: VOIRange;
 }
 

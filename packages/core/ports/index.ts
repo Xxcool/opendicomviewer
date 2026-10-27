@@ -53,15 +53,15 @@ export interface DataSourcePort {
 export interface CodecPort {
   /** 检查是否支持特定 Transfer Syntax UID */
   canDecode(transferSyntaxUid: string): boolean;
-  /** 解码压缩像素缓冲 */
+  /**
+   * 解码压缩像素缓冲并直接产出完整的领域对象 PixelFrame (S7)。
+   * 调用方不再需要靠猜或二次查询元数据拼接像素表示与斜率截距。
+   */
   decode(
     buffer: ArrayBuffer,
     transferSyntaxUid: string,
-  ): Promise<{
-    readonly data: Int16Array | Uint16Array | Uint8Array;
-    readonly width: number;
-    readonly height: number;
-  }>;
+    planeMeta?: Partial<ImagePlane>,
+  ): Promise<PixelFrame>;
   /** 当前运行时是否优先支持 SharedArrayBuffer（根据 COOP/COEP 探测结果） */
   readonly prefersSharedMemory: boolean;
 }
@@ -112,6 +112,10 @@ export interface TelemetrySpan {
 }
 
 export interface TelemetryPort {
+  /**
+   * 两段式追踪 span (S8)。
+   * 支持同步和异步生命周期跨度管理，避免包装式对执行上下文的侵入。
+   */
   span(name: string): TelemetrySpan;
   recordMetric(name: string, value: number): void;
 }
