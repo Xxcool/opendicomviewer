@@ -7,6 +7,7 @@
   "main": "./index.ts",
   "types": "./index.ts",
   "scripts": {
-    "test": "node --test --experimental-strip-types tests/*.test.ts"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   }
 }

@@ -13,5 +13,5 @@
     "declarationMap": true,
     "types": []
   },
-  "include": ["domain/**/*", "ports/**/*", "pipeline/**/*", "index.ts"]
+  "include": ["domain/**/*", "ports/**/*", "pipeline/**/*", "tests/**/*", "index.ts"]
 }

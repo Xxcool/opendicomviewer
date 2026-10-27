@@ -1,9 +1,15 @@
 {
   "name": "opendicomviewer-monorepo",
   "private": true,
+  "type": "module",
   "description": "Local-first, open-source DICOM viewer (OpenDicomViewer)",
   "license": "Apache-2.0",
   "scripts": {
-    "test:core": "node --test packages/core/tests/*.test.mjs"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p packages/core/tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.3",
+    "vitest": "^3.2.7"
   }
 }
