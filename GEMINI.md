@@ -1,4 +1,4 @@
-# GEMINI.md — OpenMedViewer 编码约束
+# GEMINI.md — OpenDicomViewer 编码约束
 
 > **本文件是硬约束，不是建议。**
 > 权威架构文档：`docs/ARCHITECTURE.md`（v2.0）。与本文件冲突时，以本文件为准。

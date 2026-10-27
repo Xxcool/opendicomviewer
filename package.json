@@ -1,7 +1,7 @@
 {
-  "name": "openmedviewer-monorepo",
+  "name": "opendicomviewer-monorepo",
   "private": true,
-  "description": "Modern open-source DICOM viewer and analysis suite",
+  "description": "Local-first, open-source DICOM viewer (OpenDicomViewer)",
   "license": "Apache-2.0",
   "scripts": {
     "test:core": "node --test packages/core/tests/*.test.mjs"

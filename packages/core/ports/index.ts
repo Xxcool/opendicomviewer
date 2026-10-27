@@ -1,5 +1,5 @@
 /**
- * OpenMedViewer Core Port Definitions
+ * OpenDicomViewer Core Port Definitions
  *
  * 六边形架构（Ports & Adapters）：
  * 核心层仅定义端口接口，不导入任何平台具体实现。

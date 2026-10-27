@@ -1,5 +1,5 @@
 /**
- * OpenMedViewer Core Domain Models
+ * OpenDicomViewer Core Domain Models
  *
  * 严格遵循 R6（零宿主 API、零 DOM、零 Cornerstone3D 依赖）
  * 严格遵循 R10（禁止任何诊断表述）

@@ -34,7 +34,8 @@ v2 在 v1 的产品叙述与技术选型基础上，补齐了"可执行性"与"�
 
 | 项 | 内容 |
 | --- | --- |
-| 项目名 | **OpenMedViewer**（曾用备选 `LuminaDICOM`，**建议弃用**：Lumina 系列商标已被多家影像厂商使用，存在冲突风险） |
+| 项目名 | **OpenDicomViewer**（v1 暂定名 `OpenDicomViewer`；备选 `LuminaDICOM` 已弃用） |
+| 命名取向 | **描述型优先于品牌型**：主动放弃记忆点，换取可搜索性与零理解成本。差异化的表达交给副标——"本地优先的开源 DICOM 阅片器"。**待办：正式对外前完成商标与域名检索**（`Open` 前缀+品类 是最拥挤的命名范式，撞车概率高） |
 | 定位 | **零安装、重隐私、极速流畅、现代化**的开源医学影像浏览器与分析套件 |
 | Tagline | "像看照片一样看 CT —— 纯本地运行，守护每位患者的隐私。" |
 | 授权 | **Apache-2.0**（优于 MIT：含明确专利授权与商标条款，医疗相关项目更稳妥） |
@@ -48,7 +49,7 @@ v2 在 v1 的产品叙述与技术选型基础上，补齐了"可执行性"与"�
 
 Cornerstone3D 由 OHIF 团队主导维护，OHIF Viewer 本身是 MIT、当前 v3.12.x、已有 MPR / 分割 / 体绘制 / SR-GSPS / Hanging Protocol。任何技术评审的第一个问题都会是"为什么不用 OHIF 改一改"。答案不是"我们更好"，而是**数据入口假设不同**：
 
-| 维度 | OHIF | OpenMedViewer |
+| 维度 | OHIF | OpenDicomViewer |
 | --- | --- | --- |
 | 数据入口前提 | **必须存在 DICOMweb 归档服务**（Orthanc / dcm4chee / 云 PACS） | **本地文件、文件夹、光盘、zip**，无任何服务端 |
 | 典型部署 | 院内服务器 + 前端容器，需 IT 运维 | 静态托管 / 拷进 U 盘的单个应用 |
@@ -79,7 +80,7 @@ Cornerstone3D 由 OHIF 团队主导维护，OHIF Viewer 本身是 MIT、当前 v
 
 ### 2.1 预期用途声明（Intended Use）
 
-> **OpenMedViewer 仅供研究、教学与非诊断参考使用（For research, educational and non-diagnostic reference use only）。**
+> **OpenDicomViewer 仅供研究、教学与非诊断参考使用（For research, educational and non-diagnostic reference use only）。**
 > 本软件不构成医疗器械，不用于疾病诊断、治疗决策或患者监护。软件显示结果未经临床验证，不保证符合 DICOM GSDF 校准显示要求。测量数值仅供参考。
 
 该声明必须同时出现在：**README 首屏、应用启动闪屏、关于页、导出图片/报告的水印或页脚**。
@@ -121,7 +122,7 @@ flowchart LR
     B["商业轻量客户端<br/>RadiAnt 等"] -->|"授权昂贵、闭源、平台受限"| D
     C["云端/院内 PACS"] -->|"依赖内网部署、隐私顾虑"| D
     E["OHIF 等 Web 方案"] -->|"前提是已有 DICOMweb 归档"| D
-    D --> F["OpenMedViewer 的生存空间<br/>现代化交互 + 极小体积 + 纯本地 + 零部署"]
+    D --> F["OpenDicomViewer 的生存空间<br/>现代化交互 + 极小体积 + 纯本地 + 零部署"]
 ```
 
 1. **隐私合规红线**：Web 方案普遍要求上传或依赖服务端，触碰患者数据合规边界。纯本地运行是唯一"无需信任"的方案。
@@ -550,7 +551,7 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 | 项 | 方案 |
 | --- | --- |
 | 体积目标 | 安装包 12–18 MB（Windows 依赖系统 WebView2；缺失时引导安装） |
-| **I/O 路径** | **不走 IPC 传像素**。Rust 侧注册自定义协议（`medview://`）支持 `Range` 请求，WebView 侧按需分段读取；或 Rust 起本地回环 HTTP 服务提供 range 访问。IPC 仅用于元数据与小消息 |
+| **I/O 路径** | **不走 IPC 传像素**。Rust 侧注册自定义协议（`odv://`）支持 `Range` 请求，WebView 侧按需分段读取；或 Rust 起本地回环 HTTP 服务提供 range 访问。IPC 仅用于元数据与小消息 |
 | 文件关联 | 主力是**"打开文件夹"**语境 + `DICOMDIR` 自动识别；`.dcm/.dicom` 关联作为补充（光盘文件常无扩展名，扩展名关联价值有限） |
 | 光盘 | 插入后扫描根目录，优先读 `DICOMDIR`，无则全盘扫描；提供"正在索引 n/m"进度 |
 | 脱敏 | Rust 侧批量重写，避免大文件进出 JS |
@@ -565,7 +566,7 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│  [Logo] OpenMedViewer   |  打开文件夹  读光盘  设置      [深色/浅色]  │
+│  [Logo] OpenDicomViewer   |  打开文件夹  读光盘  设置      [深色/浅色]  │
 ├────────────┬───────────────────────────────────────────┬───────────────┤
 │ 序列列表   │  视口 1: 横断面 (Axial)   [肺窗]           │ 影像元数据    │
 │            │  ┌─────────────────────────────────────┐  │ 患者: 已匿名  │
@@ -696,7 +697,7 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 
 ```mermaid
 timeline
-    title OpenMedViewer 演进路线
+    title OpenDicomViewer 演进路线
     section Phase 0
         技术验证 : 内存与性能实测 : SAB 与部署矩阵 : 光盘解析率
     section Phase 1 MVP
@@ -846,6 +847,7 @@ export const NullTelemetry: TelemetryPort = { /* 全空实现，默认注入 */ 
 | ADR-008 | 脱敏采用 PS3.15 白名单而非黑名单 |
 | ADR-009 | Telemetry 默认空实现，永不加第三方 SDK |
 | ADR-010 | 不做 PACS / C-STORE，保持非诊断定位 |
+| ADR-011 | 项目名采用描述型（OpenDicomViewer）而非品牌型，优先 SEO 与零理解成本 |
 
 ---
 

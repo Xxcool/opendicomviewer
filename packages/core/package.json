@@ -1,7 +1,7 @@
 {
-  "name": "@openmedviewer/core",
+  "name": "@opendicomviewer/core",
   "version": "0.1.0",
-  "description": "Domain models, ports, and geometry algorithms for OpenMedViewer",
+  "description": "Domain models, ports, and geometry algorithms for OpenDicomViewer",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./index.ts",
