@@ -92,6 +92,14 @@ describe('sortByPosition 几何与层序排序', () => {
     expect(mismatchWarn?.severity).toBe('error');
   });
 
+  it('S5 反例：异向层位于首位时，不得把正确切片全部剔除', () => {
+    const outlier = createPlane(5, 99, { imageOrientationPatient: SAGITTAL_IOP });
+    const result = sortByPosition([outlier, createPlane(0, 1), createPlane(2, 2)]);
+    expect(result.sortedPlanes).toHaveLength(2);
+    expect(result.excludedPlanes).toHaveLength(1);
+    expect(result.warnings.some((w) => w.code === 'ORIENTATION_MISMATCH')).toBe(true);
+  });
+
   it('S6：非轴对齐与机架倾斜应产生 NON_AXIAL_ORIENTATION 告警', () => {
     // 倾斜 30 度角
     const cos30 = Math.cos(Math.PI / 6);

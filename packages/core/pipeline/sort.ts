@@ -30,6 +30,58 @@ export function computeNormal(
 }
 
 /**
+ * 规约法向至同轴向半球（首个非零绝对值分量非负），用于平行/反平行方向聚类
+ */
+export function canonicalNormal(n: [number, number, number]): [number, number, number] {
+  if (
+    n[0] < -1e-6 ||
+    (Math.abs(n[0]) <= 1e-6 &&
+      (n[1] < -1e-6 || (Math.abs(n[1]) <= 1e-6 && n[2] < -1e-6)))
+  ) {
+    return [-n[0], -n[1], -n[2]];
+  }
+  return [n[0], n[1], n[2]];
+}
+
+/**
+ * 基于多数投票选择序列的主导基准朝向（S5 修复：防止异向切片排在首位时误剔除全部有效切片）
+ */
+export function pickDominantNormal(
+  planes: readonly ImagePlane[],
+): [number, number, number] {
+  const [firstPlane] = planes;
+  if (!firstPlane) {
+    return [0, 0, 1];
+  }
+
+  const buckets = new Map<
+    string,
+    { count: number; rawNormal: [number, number, number] }
+  >();
+
+  for (const plane of planes) {
+    const rawN = computeNormal(plane.imageOrientationPatient);
+    const cN = canonicalNormal(rawN);
+    const key = `${(Math.round(cN[0] * 1000) / 1000).toFixed(3)},${(Math.round(cN[1] * 1000) / 1000).toFixed(3)},${(Math.round(cN[2] * 1000) / 1000).toFixed(3)}`;
+    const hit = buckets.get(key);
+    if (hit) {
+      hit.count += 1;
+    } else {
+      buckets.set(key, { count: 1, rawNormal: rawN });
+    }
+  }
+
+  let best: { count: number; rawNormal: [number, number, number] } | undefined;
+  for (const entry of buckets.values()) {
+    if (!best || entry.count > best.count) {
+      best = entry;
+    }
+  }
+
+  return best?.rawNormal ?? computeNormal(firstPlane.imageOrientationPatient);
+}
+
+/**
  * 计算间距众数（按 0.1 mm 分桶，抗大面积缺层污染，S4）
  */
 export function computeSpacingMode(numbers: readonly number[]): number {
@@ -85,7 +137,7 @@ export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
   }
 
   const warnings: DataWarning[] = [];
-  const baseNormal = computeNormal(firstPlane.imageOrientationPatient);
+  const baseNormal = pickDominantNormal(planes);
 
   // S6: 检测机架倾斜或非标准轴对齐朝向 (Gantry Tilt / Oblique)
   const maxAxisAlignment = Math.max(
