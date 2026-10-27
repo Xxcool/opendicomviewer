@@ -99,6 +99,12 @@ export interface SeriesMeta {
   readonly seriesNumber?: number;
   readonly seriesDescription: string;
   readonly modality: Modality;
+  /**
+   * 序列包含的总可渲染切片/帧数 (N4)。
+   * 说明：对于单文件单切片序列，该值等于 sortedPlanes.length；
+   * 后续接入 Enhanced Multi-frame 序列时，单文件多帧展开后的切片集合亦计入此数。
+   * （此字段代表整条序列的呈现帧总数，与单个 DICOM 物理文件内的 (0028,0008) NumberOfFrames 区分）。
+   */
   readonly numberOfFrames: number;
   /** 经过 IPP 投影排好序的切片列表（严禁依赖 InstanceNumber 排序） */
   readonly planes: readonly ImagePlane[];

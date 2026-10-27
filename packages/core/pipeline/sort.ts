@@ -127,12 +127,21 @@ export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
 
   if (planes.length === 1) {
     const thickness = firstPlane.spacingBetweenSlices ?? firstPlane.sliceThickness ?? 1.0;
+    const singleWarnings: DataWarning[] = [];
+    if (firstPlane.hasMissingGeometry) {
+      singleWarnings.push({
+        code: 'MISSING_GEOMETRY',
+        message: '检测到切片缺失物理坐标 (0020,0032) 或朝向 (0020,0037)，空间几何无效',
+        severity: 'warning',
+        details: { missingCount: 1 },
+      });
+    }
     return {
       sortedPlanes: [firstPlane],
       excludedPlanes: [],
       sliceDistances: [],
       expectedSpacing: thickness,
-      warnings: [],
+      warnings: singleWarnings,
     };
   }
 

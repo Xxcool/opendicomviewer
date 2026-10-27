@@ -53,6 +53,12 @@ describe('字符集与编码解码 (charset.ts)', () => {
     const restored = decodeFilenameForDisplay(latin1Name);
     expect(restored).toBe('胸部CT平扫.dcm');
 
+    // N3 验证：0x80-0x9F 区间经 Windows-1252 转换后仍能精准逆向反推（例如 0x91 映射为 \u2018）
+    // 0x91 0x50 在 GBK/GB18030 中为有效汉字
+    const gbkSpecial = new TextDecoder('gb18030').decode(new Uint8Array([0x91, 0x50]));
+    const win1252String = '\u2018P.dcm'; // 0x2018 对应 0x91, 'P' 对应 0x50
+    expect(decodeFilenameForDisplay(win1252String)).toBe(`${gbkSpecial}.dcm`);
+
     // 常规纯英文文件名不受影响
     expect(decodeFilenameForDisplay('NORMAL_SCAN_001.dcm')).toBe('NORMAL_SCAN_001.dcm');
   });
@@ -205,5 +211,28 @@ describe('Dicom Fixture Builder 与 dicom-parser 集成验证', () => {
     expect(result[0]?.series[0]?.seriesInstanceUid).toBe('1.2.3.900.1');
     expect(result[0]?.series[0]?.images.length).toBe(1);
     expect(result[0]?.series[0]?.images[0]?.referencedFileId).toBe('DICOM\\IMG001');
+  });
+
+  it('P1-1 验证：ParserPool 支持 Worker 解析通道与生命周期管理', async () => {
+    const { ParserPool } = await import('../src/worker/parser-pool');
+    const pool = new ParserPool(2);
+    const buf = buildDicomBuffer({
+      patientId: 'POOL-TEST-001',
+      studyInstanceUid: '1.2.3.999',
+    });
+
+    const parsed = await pool.parse(
+      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+      {
+        id: 'pool-test',
+        name: 'test.dcm',
+        size: buf.byteLength,
+        read: async () => buf.buffer,
+      },
+    );
+
+    expect(parsed.patientId).toBe('POOL-TEST-001');
+    expect(parsed.studyUid).toBe('1.2.3.999');
+    pool.terminate();
   });
 });

@@ -31,6 +31,8 @@ export interface DicomFixtureOptions {
   readonly rows?: number;
   readonly columns?: number;
   readonly transferSyntaxUid?: string;
+  readonly omitImagePositionPatient?: boolean;
+  readonly omitImageOrientationPatient?: boolean;
   readonly extraElements?: readonly DicomFixtureElement[];
 }
 
@@ -244,26 +246,30 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
   );
 
   // (0020,0032) Image Position Patient
-  const ipp = options.imagePositionPatient ?? [0, 0, 0];
-  dsElements.push(
-    ...encodeElement(
-      0x0020,
-      0x0032,
-      'DS',
-      stringToBytes(`${ipp[0]}\\${ipp[1]}\\${ipp[2]}`),
-    ),
-  );
+  if (!options.omitImagePositionPatient) {
+    const ipp = options.imagePositionPatient ?? [0, 0, 0];
+    dsElements.push(
+      ...encodeElement(
+        0x0020,
+        0x0032,
+        'DS',
+        stringToBytes(`${ipp[0]}\\${ipp[1]}\\${ipp[2]}`),
+      ),
+    );
+  }
 
   // (0020,0037) Image Orientation Patient
-  const iop = options.imageOrientationPatient ?? [1, 0, 0, 0, 1, 0];
-  dsElements.push(
-    ...encodeElement(
-      0x0020,
-      0x0037,
-      'DS',
-      stringToBytes(`${iop[0]}\\${iop[1]}\\${iop[2]}\\${iop[3]}\\${iop[4]}\\${iop[5]}`),
-    ),
-  );
+  if (!options.omitImageOrientationPatient) {
+    const iop = options.imageOrientationPatient ?? [1, 0, 0, 0, 1, 0];
+    dsElements.push(
+      ...encodeElement(
+        0x0020,
+        0x0037,
+        'DS',
+        stringToBytes(`${iop[0]}\\${iop[1]}\\${iop[2]}\\${iop[3]}\\${iop[4]}\\${iop[5]}`),
+      ),
+    );
+  }
 
   // (0028,0010) Rows
   const rowsBytes: number[] = [];

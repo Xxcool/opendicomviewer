@@ -40,6 +40,7 @@ import {
   parseDicomMetadata,
   scanCandidates,
 } from './scanner';
+import { getParserPool } from './worker/parser-pool';
 
 /**
  * 轻量固定容量 LRU 缓存（P0-1）
@@ -240,16 +241,13 @@ export class LocalDataSource implements DataSourcePort {
           metaBuf = await candidate.read(0, 131072, signal);
         }
 
+        // P1-1: 采用 Worker 线程池解析切片元数据，转移 buffer 零拷贝
         let meta: ReturnType<typeof parseDicomMetadata>;
         try {
-          meta = parseDicomMetadata(new Uint8Array(metaBuf), candidate, {
-            untilTag: 'x7fe00010',
-          });
+          meta = await getParserPool().parse(metaBuf, candidate);
         } catch {
           const fullBuf = await candidate.read(undefined, undefined, signal);
-          meta = parseDicomMetadata(new Uint8Array(fullBuf), candidate, {
-            untilTag: 'x7fe00010',
-          });
+          meta = await getParserPool().parse(fullBuf, candidate);
         }
 
         planes.push(meta.plane);

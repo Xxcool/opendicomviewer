@@ -21,7 +21,12 @@ import type { ImportCandidate } from '@opendicomviewer/core';
 import dicomParser, { type ParseOptions } from 'dicom-parser';
 import { decodeDicomText } from './charset';
 import { hasDicomPrefix } from './magic';
-import { extractZipEntries, isZipBuffer, zipEntryToCandidate } from './zip';
+import {
+  extractZipEntriesFromCandidate,
+  isZipBuffer,
+  zipEntryToCandidate,
+} from './zip';
+import { getParserPool } from './worker/parser-pool';
 
 export interface FileParseFailure {
   readonly id: string;
@@ -59,7 +64,7 @@ function parseFloats(raw: string | undefined, expectedCount: number): number[] |
  */
 export function parseDicomMetadata(
   bytes: Uint8Array,
-  candidate: ImportCandidate,
+  candidate: Pick<ImportCandidate, 'id'>,
   options: ParseOptions = { untilTag: 'x7fe00010' },
 ): {
   plane: ImagePlane;
@@ -227,7 +232,7 @@ export async function scanCandidates(
         throw new DOMException('导入已由用户中断', 'AbortError');
       }
 
-      // 如果是 ZIP 压缩包，自动流式解包并将子条目入队（深度限制 3，P1-9）
+      // 如果是 ZIP 压缩包，按需从中央目录分段拉取条目（深度限制 3，P1-9）
       if (isZipBuffer(headerBuffer)) {
         if (depth >= 3) {
           failedFiles.push({
@@ -238,8 +243,8 @@ export async function scanCandidates(
           continue;
         }
 
-        const fullZipBuffer = await candidate.read(undefined, undefined, signal);
-        const zipEntries = await extractZipEntries(fullZipBuffer);
+        // P1-9: 基于中央目录仅读取条目索引与按需分段读取，严禁整包 2GB 读入内存
+        const zipEntries = await extractZipEntriesFromCandidate(candidate, signal);
         for (const entry of zipEntries) {
           if (!entry.isDirectory) {
             queue.push({
@@ -257,26 +262,21 @@ export async function scanCandidates(
       }
 
       // P1-2: 先按需读取前 128 KB 元数据段，不将几十 MB 的像素数据读入内存
-      let metadataBytes: Uint8Array;
+      let metadataBuf: ArrayBuffer;
       if (candidate.size > 0 && candidate.size <= 131072) {
-        const fullBuf = await candidate.read(0, candidate.size, signal);
-        metadataBytes = new Uint8Array(fullBuf);
+        metadataBuf = await candidate.read(0, candidate.size, signal);
       } else {
-        const chunkBuf = await candidate.read(0, 131072, signal);
-        metadataBytes = new Uint8Array(chunkBuf);
+        metadataBuf = await candidate.read(0, 131072, signal);
       }
 
+      // P1-1: 采用 Worker 线程池并发解析元数据（Transferable 零拷贝，主线程零阻塞）
       let parsed: ReturnType<typeof parseDicomMetadata>;
       try {
-        parsed = parseDicomMetadata(metadataBytes, candidate, {
-          untilTag: 'x7fe00010',
-        });
+        parsed = await getParserPool().parse(metadataBuf, candidate);
       } catch {
-        // 若超长私有标签导致 128KB 截断，回退读取完整文件
+        // 若超长私有标签导致 128KB 截断，回退读取完整文件并送入 Worker 解析
         const fallbackBuf = await candidate.read(undefined, undefined, signal);
-        parsed = parseDicomMetadata(new Uint8Array(fallbackBuf), candidate, {
-          untilTag: 'x7fe00010',
-        });
+        parsed = await getParserPool().parse(fallbackBuf, candidate);
       }
 
       // 归类到 Study 树
@@ -378,6 +378,7 @@ export function buildSortedSeriesMeta(
     seriesNumber: seriesData.seriesNumber,
     seriesDescription: seriesData.seriesDescription,
     modality: seriesData.modality,
+    // N4 修复说明：代表整条序列展开后的总切片/帧数，与单文件内 (0028,0008) 物理标签语义解耦
     numberOfFrames: sortRes.sortedPlanes.length,
     planes: sortRes.sortedPlanes,
     excludedPlanes: sortRes.excludedPlanes,

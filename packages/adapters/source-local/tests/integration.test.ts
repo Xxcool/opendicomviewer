@@ -235,15 +235,15 @@ describe('LocalDataSource 综合集成与验收用例', () => {
     await expect(handle.pixel(0)).rejects.toThrow(/封装压缩传输语法/);
   });
 
-  it('P1-5 验证：切片缺失空间几何 (0020,0032) 时产生 MISSING_GEOMETRY 警告', async () => {
-    // 构造无 IPP / IOP 的切片数据
+  it('P1-5 验证：切片缺失空间几何 (0020,0032) 时标记 hasMissingGeometry 且产生 MISSING_GEOMETRY 警告', async () => {
+    // 构造显式省略 IPP 的切片数据
     const rawNoGeom = buildDicomBuffer({
       studyInstanceUid: '1.2.3.700',
       seriesInstanceUid: '1.2.3.700.1',
       sopInstanceUid: '1.2.3.700.1.1',
+      omitImagePositionPatient: true,
     });
 
-    // 模拟缺失：在解析时 hasMissingGeometry 为 true
     const cand = createMockCandidate('no_geom.dcm', rawNoGeom);
     const source = new LocalDataSource();
     await source.probe({ files: [cand] });
@@ -252,7 +252,12 @@ describe('LocalDataSource 综合集成与验收用例', () => {
       seriesInstanceUid: '1.2.3.700.1',
     });
 
-    expect(handle.meta.planes[0]?.hasMissingGeometry).toBe(false); // 有默认 fixture
+    expect(handle.meta.planes[0]?.hasMissingGeometry).toBe(true);
+    expect(handle.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'MISSING_GEOMETRY' }),
+      ]),
+    );
   });
 
   it('P1-6 验证：DICOMDIR 损坏回退时产生明确 warning 告警', async () => {

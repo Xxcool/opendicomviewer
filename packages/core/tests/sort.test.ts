@@ -186,4 +186,17 @@ describe('lut.ts 灰度换算与 DICOM PS3.3 C.11.2.1.2 VOI 映射', () => {
     expect(assertion.pass).toBe(true);
     expect(assertion.reasons).toHaveLength(0);
   });
+
+  it('P1-5：切片存在 hasMissingGeometry 时产出 MISSING_GEOMETRY 警告', () => {
+    const planes = [
+      createPlane(10, 1, { hasMissingGeometry: true }),
+      createPlane(20, 2),
+    ];
+    const result = sortByPosition(planes);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'MISSING_GEOMETRY' }),
+      ]),
+    );
+  });
 });
