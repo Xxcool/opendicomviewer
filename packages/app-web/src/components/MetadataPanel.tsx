@@ -28,21 +28,20 @@ function privacyStatus(hasData: boolean): PrivacyStatus {
 /**
  * 右栏单一真源（极简专业风 Figma/Xcode）：
  *
- * 关键决策：**边框是外围墙，内部层次靠 spacing 分隔**。
- * 只在最外层 <aside> 画一条 border-l，内部绝对不写 border。
- * sec-head 靠 10px 顶 padding + 16px 底 padding 自然形成呼吸，不用再画 border。
- * sec 之间靠 16px gap 分隔，不用 border-b（避免双层 border）。
- * 告警卡片也只用 border + 淡 bg，其他区域一律纯色。
+ * 关键决策：**外圈一条墙 + 区块之间一条细线**。
+ * 最外层 <aside> 只画 border-l（和视口分开）；内部每个 section 之间用一条
+ * border-b 分隔——这是用户明确要求的"卡片底边"，只画一条，不做卡片圆角/底色，
+ * 避免回到"到处都是框、还两条线并排"的老问题。
  */
 const SEC_HEAD =
-  'px-3 pt-2.5 pb-1 text-[11px] text-txt-muted font-medium uppercase tracking-wider shrink-0';
+  'pb-2 text-[13px] text-txt font-semibold tracking-wide shrink-0';
 const ROW = 'flex justify-between items-baseline gap-3 text-[12px] leading-relaxed';
 const K = 'text-txt-muted shrink-0 whitespace-nowrap';
 const V = 'text-txt text-right min-w-0';
 const V_NUM = `${V} font-mono text-[11px]`;
 const V_LONG = `${V_NUM} truncate`;
 
-/** 右栏的 section 组件：完全无边框，靠父容器 flex-col + gap-4 形成段落分隔 */
+/** 右栏的 section：自带左右内边距 + 一条底部分隔线（最后一段不画，避免尾巴多一条） */
 function Sec({
   title,
   children,
@@ -51,7 +50,7 @@ function Sec({
   readonly children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col">
+    <section className="flex flex-col px-3 py-3 border-b border-line last:border-b-0">
       <div className={SEC_HEAD}>{title}</div>
       {children}
     </section>
@@ -99,11 +98,11 @@ export function MetadataPanel() {
         </span>
       </div>
 
-      {/* 内部：纯 flex-col + gap-4，所有层次靠 spacing 拉开，绝对无内部 border */}
-      <div className="flex flex-col gap-4 py-3">
-        {/* ══ 1. 影像信息 ══ */}
-        <Sec title="影像信息">
-          <div className="px-3 flex flex-col gap-1.5">
+      {/* 内部：每个 section 自带底边；最后一段不画，避免尾部多一条线 */}
+      <div className="flex flex-1 flex-col">
+        {/* ══ 1. 患者与检查 ══ */}
+        <Sec title="患者与检查">
+          <div className="flex flex-col gap-1.5">
             {/* 隐私状态（保守默认：有数据即标「含身份信息」） */}
             <div className={ROW}>
               <span className={K}>患者</span>
@@ -142,7 +141,7 @@ export function MetadataPanel() {
 
           {/* 未脱敏时的警示文案（弱警示 = 不画 border，只用淡红/黄字 + 小图标） */}
           {privacy === 'phi' && (
-            <div className="px-3 pt-1.5 text-[11px] text-warn leading-relaxed">
+            <div className="pt-1.5 text-[11px] text-warn leading-relaxed">
               ⚠ 含原始身份信息，导出前请使用「脱敏导出」。
             </div>
           )}
@@ -151,7 +150,7 @@ export function MetadataPanel() {
         {/* ══ 2. 当前序列（有数据才显示） ══ */}
         {activeSeriesHandle && (
           <Sec title="当前序列">
-            <div className="px-3 flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <div className={ROW}>
                 <span className={K}>Modality</span>
                 <span className={V_NUM}>{activeSeriesHandle.meta.modality}</span>
@@ -184,7 +183,7 @@ export function MetadataPanel() {
 
         {/* ══ 3. 测量与工具（Phase 2 才补真实数据） ══ */}
         <Sec title="测量与工具">
-          <div className="px-3 flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1.5">
             <div className={ROW}>
               <span className={K}>当前工具</span>
               <span className={`${V} text-txt-muted`}>未启用</span>
@@ -199,7 +198,7 @@ export function MetadataPanel() {
             </div>
           </div>
           {/* 免责（R10 白名单）：弱警示，不画 border */}
-          <div className="px-3 pt-1.5 text-[11px] text-warn leading-relaxed">
+          <div className="pt-1.5 text-[11px] text-warn leading-relaxed">
             ⚠ 测量值仅供参考，不构成诊断依据。
           </div>
         </Sec>
@@ -207,7 +206,7 @@ export function MetadataPanel() {
         {/* ══ 4. 能力与降级 ══ */}
         <Sec title="能力与降级">
           {rendererCapabilities ? (
-            <div className="px-3 flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <div className={ROW}>
                 <span className={K}>渲染后端</span>
                 <span className={V_NUM}>
@@ -250,21 +249,21 @@ export function MetadataPanel() {
               </div>
             </div>
           ) : (
-            <div className="px-3 text-[11px] text-txt-muted">探测中…</div>
+            <div className="text-[11px] text-txt-muted">探测中…</div>
           )}
         </Sec>
       </div>
 
       {/* ══ 5. 数据告警清单：mt-auto 钉底部；内部唯一"画框"的区域 ══ */}
       {warnings.length > 0 && (
-        <div className="mt-auto shrink-0 px-3 pb-3">
-          <div className="flex items-center justify-between text-[12px] text-txt-dim mb-1.5">
+        <div className="mt-auto shrink-0 border-t border-line px-3 py-3">
+          <div className="flex items-center justify-between text-[13px] font-semibold text-txt tracking-wide mb-2">
             <span className="flex items-center gap-1.5">
               <WarningIcon className="w-3.5 h-3.5" />
               <span>数据提醒</span>
-              <span className="text-txt-muted text-[11px]">({warnings.length})</span>
+              <span className="text-txt-muted text-[11px] font-normal">({warnings.length})</span>
             </span>
-            <span className="text-[10px] font-mono text-txt-muted">
+            <span className="text-[10px] font-normal font-mono text-txt-muted">
               {counts.error > 0 && `${counts.error} 错误 `}
               {counts.warning > 0 && `${counts.warning} 告警 `}
               {counts.info > 0 && `${counts.info} 提示`}
