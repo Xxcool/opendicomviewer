@@ -37,9 +37,15 @@ export interface WorkerLike {
 }
 
 export interface ParserPoolOptions {
+  /**
+   * 连续失败多少轮后熔断并永久回退同步模式。
+   * 起因：Worker 因 CSP/线程受限/脚本加载失败而不响应时，每个文件都要等满超时，
+   * 37 个文件就是十几分钟"正在扫描…"，用户只会以为程序卡死。
+   */
+  readonly failureThreshold?: number;
   /** 并发 Worker 上限，默认取 `navigator.hardwareConcurrency`（≤ 8）或 4 */
   readonly maxConcurrency?: number;
-  /** 单次解析超时，超时后终止该 Worker 并报错；默认 30 s，传 0 关闭 */
+  /** 单次解析超时，超时后终止该 Worker 并报错；默认 5 s，传 0 关闭 */
   readonly timeoutMs?: number;
   /** 队列上限，超过直接拒绝，避免 1000 帧全量排队把内存拉满 */
   readonly maxQueueSize?: number;
@@ -50,8 +56,9 @@ export interface ParserPoolOptions {
   readonly createWorker?: (() => WorkerLike) | null;
 }
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_QUEUE_SIZE = 64;
+const DEFAULT_FAILURE_THRESHOLD = 3;
 
 interface PendingTask {
   readonly id: string;
@@ -117,6 +124,10 @@ export class ParserPool {
 
   private requestIdCounter = 0;
   private terminated = false;
+  /** 已熔断：后续全部走同步解析，不再尝试 Worker */
+  private degraded = false;
+  private consecutiveFailures = 0;
+  private readonly failureThreshold: number;
 
   /**
    * @param options 传 number 等价于 `{ maxConcurrency: n }`（保留旧调用写法）
@@ -128,6 +139,7 @@ export class ParserPool {
     this.maxConcurrency = opts.maxConcurrency ?? defaultConcurrency();
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxQueueSize = opts.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE;
+    this.failureThreshold = opts.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
 
     if (opts.createWorker === null) {
       this.createWorker = null;
@@ -149,7 +161,7 @@ export class ParserPool {
     buffer: ArrayBuffer,
     candidate: ImportCandidate,
   ): Promise<ParsedWorkerResult> {
-    if (this.createWorker === null) {
+    if (this.createWorker === null || this.degraded) {
       // 同步回退模式：仅用于无 Worker 运行时，语义与 Worker 通道一致
       try {
         const parsed = parseDicomMetadata(new Uint8Array(buffer), candidate, {
@@ -273,11 +285,13 @@ export class ParserPool {
       }
 
       if (response.success) {
+        this.consecutiveFailures = 0;
         const result = response.result;
         this.settle(task, () => {
           task.resolve(result);
         });
       } else {
+        // 解析失败（如缺少 SOPInstanceUID）属于数据问题，不算 Worker 故障
         const message = response.error;
         this.settle(task, () => {
           task.reject(new Error(message));
@@ -289,6 +303,7 @@ export class ParserPool {
     });
 
     worker.onError((message) => {
+      this.recordWorkerFailure();
       const task = this.busyWorkers.get(worker);
       if (task) {
         this.busyWorkers.delete(worker);
@@ -310,6 +325,7 @@ export class ParserPool {
     if (this.timeoutMs > 0) {
       task.timer = setTimeout(() => {
         if (task.settled) return;
+        this.recordWorkerFailure();
         this.busyWorkers.delete(worker);
         this.settle(task, () => {
           task.reject(
@@ -342,6 +358,34 @@ export class ParserPool {
       this.retireWorker(worker);
       this.pump();
     }
+  }
+
+  /**
+   * 记录一次 Worker 级故障（超时 / 线程异常），连续达到阈值就永久回退同步模式。
+   *
+   * 为什么必须熔断：Worker 不响应时（CSP 拦截、线程数受限、脚本加载失败），
+   * 每个文件都要等满超时；此时继续逐个重试只会让用户对着"正在扫描…"干等。
+   * 同步模式虽慢，但至少能把这一批文件解析完。
+   */
+  private recordWorkerFailure(): void {
+    this.consecutiveFailures += 1;
+    if (this.degraded || this.consecutiveFailures < this.failureThreshold) return;
+
+    this.degraded = true;
+    // 清掉现有 Worker，后续请求走同步
+    for (const worker of this.allWorkers) {
+      worker.terminate();
+    }
+    this.allWorkers.clear();
+    this.idleWorkers.length = 0;
+    console.warn(
+      `[ParserPool] 连续 ${this.consecutiveFailures} 次 Worker 故障，已熔断并回退同步解析（不影响结果，仅影响速度）`,
+    );
+  }
+
+  /** 是否已熔断（供 UI/诊断使用） */
+  public isDegraded(): boolean {
+    return this.degraded || this.createWorker === null;
   }
 
   private settle(task: PendingTask, action: () => void): void {

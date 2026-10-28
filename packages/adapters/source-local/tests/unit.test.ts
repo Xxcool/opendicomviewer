@@ -543,6 +543,34 @@ describe('解析线程池 (parser-pool.ts)', () => {
     pool.terminate();
   });
 
+  it('Worker 连续故障后熔断，回退同步解析而不是让每个文件都等满超时', async () => {
+    const created: FakeWorker[] = [];
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      timeoutMs: 5,
+      failureThreshold: 2,
+      createWorker: () => {
+        const w = new FakeWorker();
+        created.push(w);
+        return w; // 永不回包 → 触发超时
+      },
+    });
+
+    const bytes = buildDicomBuffer({ patientId: 'FALLBACK-AFTER-BREAKER' });
+    const buf = toArrayBuffer(bytes);
+
+    await expect(pool.parse(buf, makeCandidate('f1', bytes))).rejects.toThrow(/超时/);
+    await expect(pool.parse(buf, makeCandidate('f2', bytes))).rejects.toThrow(/超时/);
+    expect(pool.isDegraded()).toBe(true);
+
+    // 熔断后：不再创建新 Worker，且解析仍然成功（走同步回退）
+    const workersBeforeBreaker = created.length;
+    const third = await pool.parse(buf, makeCandidate('f3', bytes));
+    expect(third.patientId).toBe('FALLBACK-AFTER-BREAKER');
+    expect(created.length).toBe(workersBeforeBreaker); // 熔断后不再新建线程
+    pool.terminate();
+  });
+
   it('P1-1 用例 6：队列超过上限时明确拒绝，避免 1000 帧全量排队拉满内存', async () => {
     const fake = new FakeWorker();
     const pool = new ParserPool({
