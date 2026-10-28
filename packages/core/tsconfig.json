@@ -17,6 +17,7 @@
     "domain/**/*",
     "ports/**/*",
     "pipeline/**/*",
+    "volume/**/*",
     "testing/**/*",
     "tests/**/*",
     "index.ts"

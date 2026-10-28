@@ -13,11 +13,17 @@ export {
 export { SeriesFrameRegistry, type FrameRef } from './frame-registry';
 export { parseImageId, toImageId, type ParsedImageId } from './image-id';
 export type {
+  Cs3dCacheLike,
+  Cs3dCameraLike,
   Cs3dEnableElementOptions,
   Cs3dEngineLike,
   Cs3dEnumsLike,
+  Cs3dLocalVolumeOptionsLike,
   Cs3dModuleLike,
   Cs3dViewportLike,
   Cs3dViewportPropertiesLike,
+  Cs3dVolumeInputLike,
+  Cs3dVolumeLike,
+  Cs3dVolumeLoaderLike,
   Cs3dVOIRangeLike,
 } from './cs3d-surface';

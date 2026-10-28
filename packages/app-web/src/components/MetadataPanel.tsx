@@ -14,18 +14,6 @@ const BACKEND_LABEL: Record<RenderBackendType, string> = {
 };
 
 /**
- * 隐私状态（ui-spec §7 的保守默认）
- *
- * 脱敏判定（PS3.15 白名单字段全空/伪名 + UID 重映射）尚未实现，
- * 因此当前一旦有数据就按「含身份信息」处理——宁可误报也不误判为安全。
- */
-type PrivacyStatus = 'unknown' | 'phi';
-
-function privacyStatus(hasData: boolean): PrivacyStatus {
-  return hasData ? 'phi' : 'unknown';
-}
-
-/**
  * 右栏单一真源（极简专业风 Figma/Xcode）：
  *
  * 关键决策：**外圈一条墙 + 区块之间一条细线**。
@@ -67,7 +55,6 @@ export function MetadataPanel() {
   const currentStudy = studies.find(
     (s) => s.studyInstanceUid === activeStudyUid,
   );
-  const privacy = privacyStatus(studies.length > 0);
 
   // 先把可能很长的值算成字符串：右侧面板宽度由 CSS var(--right-w) 控制，
   // 长值必须能截断且用 title 兜底，否则会把左侧 label 挤掉。
@@ -103,17 +90,15 @@ export function MetadataPanel() {
         {/* ══ 1. 患者与检查 ══ */}
         <Sec title="患者与检查">
           <div className="flex flex-col gap-1.5">
-            {/* 隐私状态（保守默认：有数据即标「含身份信息」） */}
+            {/* 患者姓名：隐私角标只保留视口那一处，这里不再重复 */}
             <div className={ROW}>
               <span className={K}>患者</span>
-              {privacy === 'unknown' ? (
-                <span className={`${V} text-txt-muted`}>—</span>
-              ) : (
-                <span className={`${V} inline-flex items-center gap-1 text-warn font-semibold`}>
-                  <WarningIcon className="w-3 h-3" />
-                  <span>含身份信息</span>
-                </span>
-              )}
+              <span
+                className={V_LONG}
+                title={currentStudy?.patientName || '--'}
+              >
+                {currentStudy?.patientName || '--'}
+              </span>
             </div>
 
             <div className={ROW}>
@@ -138,13 +123,6 @@ export function MetadataPanel() {
               </span>
             </div>
           </div>
-
-          {/* 未脱敏时的警示文案（弱警示 = 不画 border，只用淡红/黄字 + 小图标） */}
-          {privacy === 'phi' && (
-            <div className="pt-1.5 text-[11px] text-warn leading-relaxed">
-              ⚠ 含原始身份信息，导出前请使用「脱敏导出」。
-            </div>
-          )}
         </Sec>
 
         {/* ══ 2. 当前序列（有数据才显示） ══ */}

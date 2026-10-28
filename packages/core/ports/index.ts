@@ -17,6 +17,7 @@ import type {
   StudyMeta,
   VOIRange,
 } from '../domain/types';
+import type { VolumeHandle } from '../volume/types';
 
 export interface ImportCandidate {
   readonly id: string;
@@ -95,10 +96,38 @@ export interface CodecPort {
 
 export type RenderBackendType = 'webgl2' | 'webgpu' | 'cpu';
 
+/**
+ * 视口通路类型。
+ *
+ * - `stack`：全分辨率原始切片（2×2 的轴位格、单序列浏览）；
+ * - `orthographic`：降采样体积的正交切面（MPR），只用于显示与定位。
+ *
+ * 两条通路不是可互换的：STACK 视口没有 `setVolumes`，体积视口也没有 `setStack`（Spike B）。
+ */
+export type ViewportKind = 'stack' | 'orthographic';
+
+/** MPR 切面方向（患者坐标轴，不是相机自由朝向） */
+export type ViewportOrientation = 'axial' | 'coronal' | 'sagittal';
+
+export interface ViewportCellSpec {
+  readonly viewportId: string;
+  /** 省略时为 `stack` */
+  readonly kind?: ViewportKind;
+  /** `kind === 'orthographic'` 时必填；`stack` 视口忽略此字段 */
+  readonly orientation?: ViewportOrientation;
+}
+
 export interface ViewportLayout {
   readonly rows: number;
   readonly cols: number;
   readonly viewportIds: readonly string[];
+  /**
+   * 逐格类型/方向声明（P2 起的 2×2 MPR 布局）。
+   *
+   * 不提供时全部按 `stack` 处理（P1 行为不变）。提供时只允许覆盖
+   * `viewportIds` 里的格子，不允许出现布局外的 id。
+   */
+  readonly cells?: readonly ViewportCellSpec[];
 }
 
 export interface RenderMountTarget {
@@ -146,6 +175,11 @@ export type WorldPoint = readonly [number, number, number];
  *    （Spike A 实测 CS3D 读回值与该公式一致）。上下限只存在于 Adapter 内部，
  *    不得出现在端口签名里。
  * 5. **不得在渲染循环里触发状态管理**（R4）。
+ * 6. **ORTHOGRAPHIC 视口必须先预热**：`enableElement` 后首次出图前要空 `render()`
+ *    一次，否则首个体积视口会渲染成纯黑（Spike B 实测，适配器在 `mount` 内完成）。
+ * 7. **层号方向以端口为准**：CS3D 的 `getSliceIndex()` 与世界 z 反向，适配器必须
+ *    换算成"真实层号"再对外的 `currentSliceIndex/stepSlice`。STACK 视口没有
+ *    `setVolumes`，体积视口也没有 `setStack`——两条通路不可互换。
  */
 export interface RendererPort {
   readonly backend: RenderBackendType;
@@ -154,7 +188,12 @@ export interface RendererPort {
 
   /** 初始化并挂载渲染画布至目标容器，按 layout 建立各视口 */
   mount(target: RenderMountTarget, layout: ViewportLayout): Promise<void>;
-  /** 调整视口网格布局（已挂载的前提下） */
+  /**
+   * 调整视口网格布局（已挂载的前提下）。
+   *
+   * 支持增删视口：新增格子走 `enableElement`，移除格子走 `disableElement`。
+   * 与已挂载视口类型不一致的格子会被重建（先禁用再启用）。
+   */
   setLayout(layout: ViewportLayout): Promise<void>;
 
   /** 设置视口显示全分辨率 Stack 序列切片 */
@@ -165,8 +204,32 @@ export interface RendererPort {
   ): Promise<void>;
   /** 切换全分辨率切片索引（滚动翻页），必须 await */
   setStackIndex(viewportId: string, index: number): Promise<void>;
-  /** 设置视口显示降采样 3D Volume（MPR 通路，严禁作测量依据） */
-  setVolume(viewportId: string, volumeId: string): Promise<void>;
+  /**
+   * 设置视口显示降采样 3D Volume（MPR 通路，严禁作测量依据）。
+   *
+   * 只接受 `orthographic` 视口；STACK 视口调用会明确抛错，不会静默降级为 Stack。
+   */
+  setVolume(viewportId: string, volume: VolumeHandle): Promise<void>;
+
+  /**
+   * 在视口当前切面上步进 `delta` 层（负数向前）。
+   *
+   * 层号语义统一为**真实层号**（与 `SeriesMeta.planes` 排序一致），
+   * 适配器内部负责与 CS3D 的相机层号互相换算。到达边界时夹紧并返回，不抛错。
+   */
+  stepSlice(viewportId: string, delta: number): Promise<void>;
+  /**
+   * 读取当前真实层号。
+   *
+   * 未装载序列/体积、或视口无法给出层号时抛错：返回 0 会让准星静默跑到错误位置。
+   */
+  currentSliceIndex(viewportId: string): number;
+  /**
+   * 定位到包含指定患者坐标的切面（MPR 准星联动）。
+   *
+   * 坐标超出视口可定位范围时抛错，由调用方决定是否忽略该方向。
+   */
+  focusAt(viewportId: string, world: WorldPoint): Promise<void>;
 
   /** 显存直通调窗（更新片元着色器 uniform） */
   setVOI(viewportId: string, range: VOIRange): void;

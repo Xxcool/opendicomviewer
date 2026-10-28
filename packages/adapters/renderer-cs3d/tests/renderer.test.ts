@@ -3,6 +3,7 @@ import type {
   PixelFrame,
   SeriesHandle,
   SeriesMeta,
+  VolumeHandle,
 } from '@opendicomviewer/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -10,11 +11,16 @@ import {
   SeriesFrameRegistry,
   parseImageId,
   toImageId,
+  type Cs3dCacheLike,
+  type Cs3dCameraLike,
   type Cs3dEngineLike,
   type Cs3dEnableElementOptions,
   type Cs3dModuleLike,
   type Cs3dViewportLike,
   type Cs3dViewportPropertiesLike,
+  type Cs3dVolumeInputLike,
+  type Cs3dVolumeLike,
+  type Cs3dVolumeLoaderLike,
 } from '../src/index';
 
 // ── 假 CS3D（只记录调用，不做渲染） ────────────────────────────
@@ -36,6 +42,21 @@ class FakeViewport implements Cs3dViewportLike {
   public onIndexDone: (() => void) | null = null;
   /** 按 imageId 决定本次装载耗时，用于构造"慢请求被快请求超越"的并发场景 */
   public stackDelayFor: ((imageIds: readonly string[]) => number) | null = null;
+  /** 体积通路记录：setVolumes 的 volumeId、setOrientation 的方向、jumpToWorld 的落点 */
+  public readonly volumeCalls: Array<readonly string[]> = [];
+  public readonly orientationCalls: string[] = [];
+  public readonly jumpCalls: number[][] = [];
+  /** 模拟 StackViewport.jumpToWorld 找不到对应层 */
+  public jumpShouldFail = false;
+  /** 模拟 setVolumes 抛错（体积通路失败时的回滚） */
+  public volumesShouldFail = false;
+  public camera: Cs3dCameraLike = {
+    focalPoint: [0, 0, 0],
+    viewPlaneNormal: [0, 0, 1],
+    position: [0, 0, -1],
+  };
+  /** 挂载元素由 enableElement 注入；setLayout 用它判断"元素换了就必须重建" */
+  public element: unknown;
   private properties: Cs3dViewportPropertiesLike = {
     voiRange: { lower: -160, upper: 239 },
   };
@@ -62,6 +83,34 @@ class FakeViewport implements Cs3dViewportLike {
     }
     this.indexCalls.push(index);
     this.onIndexDone?.();
+  }
+
+  public async setVolumes(
+    volumeInputs: readonly Cs3dVolumeInputLike[],
+  ): Promise<void> {
+    if (this.volumesShouldFail) {
+      throw new Error('模拟 setVolumes 失败');
+    }
+    this.volumeCalls.push(volumeInputs.map((input) => input.volumeId));
+  }
+
+  public setOrientation(orientation: string): void {
+    this.orientationCalls.push(orientation);
+  }
+
+  public getCamera(): Cs3dCameraLike {
+    return this.camera;
+  }
+
+  public jumpToWorld(world: readonly number[]): boolean {
+    if (this.jumpShouldFail) return false;
+    this.jumpCalls.push([world[0] ?? 0, world[1] ?? 0, world[2] ?? 0]);
+    // 与 CS3D 一致：定位成功后焦点移动到目标点
+    this.camera = {
+      ...this.camera,
+      focalPoint: [world[0] ?? 0, world[1] ?? 0, world[2] ?? 0],
+    };
+    return true;
   }
 
   public setProperties(properties: { voiRange?: { lower: number; upper: number } }): void {
@@ -103,7 +152,11 @@ class FakeEngine implements Cs3dEngineLike {
 
   public enableElement(options: Cs3dEnableElementOptions): void {
     this.enabled.push(options);
-    this.viewports.set(options.viewportId, this.viewportFactory());
+    const viewport = this.viewportFactory();
+    if (viewport instanceof FakeViewport) {
+      viewport.element = options.element;
+    }
+    this.viewports.set(options.viewportId, viewport);
   }
 
   public getViewport(viewportId: string): Cs3dViewportLike {
@@ -130,10 +183,33 @@ class FakeEngine implements Cs3dEngineLike {
   }
 }
 
+/** 假体积缓存：create 即入 cache，remove 即出 cache，便于验证泄漏 */
+class FakeVolumeCache implements Cs3dCacheLike {
+  public readonly live = new Set<string>();
+  public readonly removed: string[] = [];
+
+  public getVolume(volumeId: string): Cs3dVolumeLike | undefined {
+    return this.live.has(volumeId) ? { volumeId } : undefined;
+  }
+
+  public removeVolumeLoadObject(volumeId: string): void {
+    this.removed.push(volumeId);
+    this.live.delete(volumeId);
+  }
+}
+
 function makeCs3dModule(
   viewportFactory?: () => Cs3dViewportLike,
-): { cs3d: Cs3dModuleLike; engine: FakeEngine } {
+  options: { readonly volume?: boolean } = {},
+): {
+  cs3d: Cs3dModuleLike;
+  engine: FakeEngine;
+  cache: FakeVolumeCache;
+  created: string[];
+} {
   const engine = new FakeEngine(viewportFactory);
+  const cache = new FakeVolumeCache();
+  const created: string[] = [];
   // 用类表达式而不是函数：`new (id: string) => Cs3dEngineLike` 要求构造签名
   const RenderingEngine = class implements Cs3dEngineLike {
     public enableElement(options: Cs3dEnableElementOptions): void {
@@ -150,12 +226,24 @@ function makeCs3dModule(
     }
   };
 
+  const volumeLoader: Cs3dVolumeLoaderLike = {
+    createLocalVolume(volumeId: string, opts): Cs3dVolumeLike {
+      // 记录入参，供用例断言几何/体素没有被改写
+      created.push(
+        `${volumeId}:${opts.dimensions.join('x')}:${opts.scalarData.length}`,
+      );
+      cache.live.add(volumeId);
+      return { volumeId };
+    },
+  };
+
   const cs3d: Cs3dModuleLike = {
     init: () => undefined,
     RenderingEngine,
     Enums: { ViewportType: { STACK: 'stack', ORTHOGRAPHIC: 'orthographic' } },
+    ...(options.volume ? { volumeLoader, cache } : {}),
   };
-  return { cs3d, engine };
+  return { cs3d, engine, cache, created };
 }
 
 // ── 假领域对象 ────────────────────────────────────────────────
@@ -216,15 +304,40 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 function makeRenderer(
   overrides: Partial<ConstructorParameters<typeof CornerstoneRenderer>[0]> = {},
-): { renderer: CornerstoneRenderer; engine: FakeEngine; cs3d: Cs3dModuleLike } {
-  const { cs3d, engine } = makeCs3dModule();
+  moduleOptions: { readonly volume?: boolean } = {},
+): {
+  renderer: CornerstoneRenderer;
+  engine: FakeEngine;
+  cs3d: Cs3dModuleLike;
+  cache: FakeVolumeCache;
+  created: string[];
+} {
+  const { cs3d, engine, cache, created } = makeCs3dModule(
+    undefined,
+    moduleOptions,
+  );
   const renderer = new CornerstoneRenderer({
     cs3d,
     resolveElements: () => [ELEMENT],
     idleTimeoutMs: 20,
     ...overrides,
   });
-  return { renderer, engine, cs3d };
+  return { renderer, engine, cs3d, cache, created };
+}
+
+/** 假体积：2×2×4、层距 1 mm，轴向法向 [0,0,1] */
+function makeVolume(overrides: Partial<VolumeHandle> = {}): VolumeHandle {
+  return {
+    volumeId: 'vol-1',
+    seriesInstanceUid: '4.4.4',
+    displayOnly: true,
+    dimensions: [2, 2, 4],
+    spacing: [1, 1, 1],
+    origin: [0, 0, 0],
+    direction: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    scalarData: new Uint8Array(2 * 2 * 4),
+    ...overrides,
+  };
 }
 
 afterEach(() => {
@@ -459,9 +572,11 @@ describe('CornerstoneRenderer · 序列与翻页', () => {
     expect(viewport.indexCalls).toHaveLength(0);
   });
 
-  it('Volume 通路未接入时明确报错，不静默降级成 Stack', async () => {
+  it('STACK 视口拒绝 setVolume，不静默降级成体积渲染', async () => {
     const { renderer } = await mounted();
-    await expect(renderer.setVolume('vp', 'vol-1')).rejects.toThrow(/Volume 通路尚未接入/);
+    await expect(renderer.setVolume('vp', makeVolume())).rejects.toThrow(
+      /STACK 类型，不支持体积渲染/,
+    );
   });
 });
 
@@ -805,5 +920,277 @@ describe('CornerstoneRenderer · mount 竞态', () => {
 
     await expect(mounting).rejects.toThrow(/被销毁/);
     expect(() => renderer.render()).toThrow(/已销毁/);
+  });
+});
+
+describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
+  /** 元素表：同一 id 复用同一 DOM 对象，模拟真实 defaultResolveElements 的"已有子 div" */
+  function stableElements(): {
+    resolve: (
+      target: unknown,
+      layout: { readonly viewportIds: readonly string[] },
+    ) => readonly unknown[];
+  } {
+    const map = new Map<string, { id: string }>();
+    const resolve = (
+      _target: unknown,
+      layout: { readonly viewportIds: readonly string[] },
+    ): readonly unknown[] =>
+      layout.viewportIds.map((viewportId) => {
+        const existing = map.get(viewportId);
+        if (existing) return existing;
+        const created = { id: viewportId };
+        map.set(viewportId, created);
+        return created;
+      });
+    return { resolve };
+  }
+
+  const ORTHO_AXIAL = {
+    rows: 1,
+    cols: 1,
+    viewportIds: ['vp'],
+    cells: [{ viewportId: 'vp', kind: 'orthographic', orientation: 'axial' }],
+  } as const;
+
+  async function mountedOrtho(options: { volume?: boolean } = {}) {
+    const { renderer, engine, cache, created } = makeRenderer(
+      {},
+      { volume: true, ...options },
+    );
+    await renderer.mount({ containerId: 'root' }, ORTHO_AXIAL);
+    return { renderer, engine, cache, created, viewport: engine.viewportOf('vp') };
+  }
+
+  it('混合布局：STACK 与 ORTHOGRAPHIC 同时启用，且只对 ORTHOGRAPHIC 预热', async () => {
+    const { renderer, engine } = makeRenderer({
+      resolveElements: () => [{ id: 'stack' }, { id: 'ortho' }],
+    });
+
+    await renderer.mount(
+      { containerId: 'root' },
+      {
+        rows: 1,
+        cols: 2,
+        viewportIds: ['vp-stack', 'vp-ortho'],
+        cells: [
+          { viewportId: 'vp-stack', kind: 'stack' },
+          { viewportId: 'vp-ortho', kind: 'orthographic', orientation: 'axial' },
+        ],
+      },
+    );
+
+    expect(engine.enabled.map((options) => options.type)).toEqual([
+      'stack',
+      'orthographic',
+    ]);
+    // Spike B 坑 1：ORTHOGRAPHIC 必须空渲染一次预热，否则首帧全黑
+    expect(engine.viewportOf('vp-ortho').renderCount).toBe(1);
+    expect(engine.viewportOf('vp-stack').renderCount).toBe(0);
+  });
+
+  it('setLayout 增删视口：保留未变的、关闭去掉的，不重建健康的视口', async () => {
+    const { resolve } = stableElements();
+    const { renderer, engine } = makeRenderer({ resolveElements: resolve });
+
+    await renderer.mount(
+      { containerId: 'root' },
+      { rows: 1, cols: 2, viewportIds: ['a', 'b'] },
+    );
+    const originalA = engine.viewportOf('a');
+
+    await renderer.setLayout({ rows: 1, cols: 3, viewportIds: ['a', 'b', 'c'] });
+    expect(engine.disabled).toEqual([]);
+    // 元素与类型都没变 → 必须复用原视口（重建会丢序列/相机状态）
+    expect(engine.viewportOf('a')).toBe(originalA);
+
+    await renderer.setLayout({ rows: 1, cols: 1, viewportIds: ['a'] });
+    expect(engine.disabled.sort()).toEqual(['b', 'c']);
+    expect(engine.viewportOf('a')).toBe(originalA);
+  });
+
+  it('元素被替换时必须重建视口，避免两个视口抢同一元素', async () => {
+    // 每次解析都返回新对象：对应 1×1 → 2×2 时挂载点从容器换成子 div
+    const { renderer, engine } = makeRenderer({
+      resolveElements: () => [{ id: 'fresh' }],
+    });
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 1, viewportIds: ['vp'] });
+    const original = engine.viewportOf('vp');
+
+    await renderer.setLayout({ rows: 1, cols: 1, viewportIds: ['vp'] });
+    expect(engine.disabled).toEqual(['vp']);
+    expect(engine.viewportOf('vp')).not.toBe(original);
+  });
+
+  it('视口类型变化（STACK → ORTHOGRAPHIC）必须重建并重新预热', async () => {
+    const { renderer, engine } = makeRenderer();
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 1, viewportIds: ['vp'] });
+    const original = engine.viewportOf('vp');
+
+    await renderer.setLayout(ORTHO_AXIAL);
+
+    expect(engine.disabled).toEqual(['vp']);
+    expect(engine.enabled.at(-1)?.type).toBe('orthographic');
+    const rebuilt = engine.viewportOf('vp');
+    expect(rebuilt).not.toBe(original);
+    // 预热 1 次 + setLayout 末尾统一重绘 1 次
+    expect(rebuilt.renderCount).toBe(2);
+  });
+
+  it('布局校验：ORTHOGRAPHIC 必须指定方向，cells 不得越界', async () => {
+    const { renderer } = makeRenderer();
+    await expect(
+      renderer.mount(
+        { containerId: 'root' },
+        {
+          rows: 1,
+          cols: 1,
+          viewportIds: ['a'],
+          cells: [{ viewportId: 'a', kind: 'orthographic' }],
+        },
+      ),
+    ).rejects.toThrow(/必须指定方向/);
+
+    await expect(
+      renderer.mount(
+        { containerId: 'root' },
+        {
+          rows: 1,
+          cols: 1,
+          viewportIds: ['a'],
+          cells: [{ viewportId: 'b', kind: 'stack' }],
+        },
+      ),
+    ).rejects.toThrow(/不在 viewportIds 内/);
+  });
+
+  it('体积通路未注入时明确报错，不静默降级', async () => {
+    const { renderer } = makeRenderer();
+    await renderer.mount({ containerId: 'root' }, ORTHO_AXIAL);
+    await expect(renderer.setVolume('vp', makeVolume())).rejects.toThrow(
+      /未注入 volumeLoader\/cache/,
+    );
+  });
+
+  it('setVolume 创建本地体积、挂到视口并固定 8-bit 显示区间', async () => {
+    const { renderer, cache, created, viewport } = await mountedOrtho();
+
+    await renderer.setVolume('vp', makeVolume());
+
+    expect(created).toEqual(['vol-1:2x2x4:16']);
+    expect(cache.live.has('vol-1')).toBe(true);
+    expect(viewport.volumeCalls).toEqual([['vol-1']]);
+    expect(viewport.orientationCalls).toEqual(['axial']);
+    expect(viewport.getProperties().voiRange).toEqual({ lower: 0, upper: 255 });
+    expect(viewport.resetCameraCount).toBe(1);
+    // 相机在原点、层距 1 mm → 第 0 层
+    expect(renderer.currentSliceIndex('vp')).toBe(0);
+  });
+
+  it('体素长度与尺寸不一致时拒绝，且不创建体积', async () => {
+    const { renderer, cache, created } = await mountedOrtho();
+    await expect(
+      renderer.setVolume('vp', makeVolume({ scalarData: new Uint8Array(3) })),
+    ).rejects.toThrow(/体积数据与尺寸不一致/);
+    expect(created).toEqual([]);
+    expect(cache.live.size).toBe(0);
+  });
+
+  it('setVolumes 失败时把刚创建的体积移出 cache（错误路径不泄漏）', async () => {
+    const { renderer, cache, viewport } = await mountedOrtho();
+    viewport.volumesShouldFail = true;
+
+    await expect(renderer.setVolume('vp', makeVolume())).rejects.toThrow(
+      /模拟 setVolumes 失败/,
+    );
+    expect(cache.removed).toEqual(['vol-1']);
+    expect(cache.live.size).toBe(0);
+  });
+
+  it('换体积时释放旧体积；同 id 重建先移出旧体积再创建', async () => {
+    const { renderer, cache, created } = await mountedOrtho();
+
+    await renderer.setVolume('vp', makeVolume({ volumeId: 'vol-1' }));
+    await renderer.setVolume('vp', makeVolume({ volumeId: 'vol-2' }));
+    expect(cache.removed).toEqual(['vol-1']);
+    expect(cache.live.has('vol-1')).toBe(false);
+    expect(cache.live.has('vol-2')).toBe(true);
+
+    // 同 id：必须先移除旧体积，否则重建时拿到的是旧尺寸/旧像素
+    await renderer.setVolume('vp', makeVolume({ volumeId: 'vol-2' }));
+    expect(cache.removed).toEqual(['vol-1', 'vol-2']);
+    expect(cache.live.has('vol-2')).toBe(true);
+    expect(created).toHaveLength(3);
+  });
+
+  it('ORTHOGRAPHIC 层号按相机焦点投影换算，stepSlice 通过 jumpToWorld 移动', async () => {
+    const { renderer, viewport } = await mountedOrtho();
+    await renderer.setVolume('vp', makeVolume());
+
+    await renderer.stepSlice('vp', 1);
+    expect(viewport.jumpCalls).toEqual([[0, 0, 1]]);
+    expect(renderer.currentSliceIndex('vp')).toBe(1);
+
+    await renderer.stepSlice('vp', 2);
+    expect(renderer.currentSliceIndex('vp')).toBe(3);
+
+    // 已到末层，再往下必须静默夹紧，不能越界定位
+    await renderer.stepSlice('vp', 1);
+    expect(viewport.jumpCalls).toHaveLength(2);
+  });
+
+  it('STACK 翻层在边界夹紧，且不产生越界调用', async () => {
+    const { renderer, engine } = makeRenderer();
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 1, viewportIds: ['vp'] });
+    const viewport = engine.viewportOf('vp');
+    await renderer.setStack('vp', makeHandle(4));
+
+    await renderer.stepSlice('vp', 2);
+    expect(viewport.indexCalls).toEqual([2]);
+    expect(renderer.currentSliceIndex('vp')).toBe(2);
+
+    await renderer.stepSlice('vp', 99);
+    expect(viewport.indexCalls).toEqual([2, 3]);
+    await renderer.stepSlice('vp', 1);
+    expect(viewport.indexCalls).toEqual([2, 3]);
+
+    await expect(renderer.stepSlice('vp', 1.5)).rejects.toThrow(/步进量必须为整数/);
+  });
+
+  it('未装载时读层号/翻层必须报错，不能返回 0 假装成功', async () => {
+    const { renderer: stackRenderer } = makeRenderer();
+    await stackRenderer.mount(
+      { containerId: 'root' },
+      { rows: 1, cols: 1, viewportIds: ['vp'] },
+    );
+    expect(() => stackRenderer.currentSliceIndex('vp')).toThrow(/尚未装载序列/);
+    await expect(stackRenderer.stepSlice('vp', 1)).rejects.toThrow(/尚未装载序列/);
+
+    const { renderer: orthoRenderer } = await mountedOrtho();
+    expect(() => orthoRenderer.currentSliceIndex('vp')).toThrow(/尚未装载体积/);
+    await expect(orthoRenderer.stepSlice('vp', 1)).rejects.toThrow(/尚未装载体积/);
+  });
+
+  it('focusAt 定位失败必须报错；成功则等渲染就绪', async () => {
+    const { renderer, engine } = makeRenderer();
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 1, viewportIds: ['vp'] });
+    const viewport = engine.viewportOf('vp');
+    await renderer.setStack('vp', makeHandle(4));
+
+    await expect(renderer.focusAt('vp', [1, 2, 3])).resolves.toBeUndefined();
+    expect(viewport.jumpCalls).toEqual([[1, 2, 3]]);
+
+    viewport.jumpShouldFail = true;
+    await expect(renderer.focusAt('vp', [9, 9, 9])).rejects.toThrow(/不在视口 vp 的可定位范围/);
+  });
+
+  it('destroy 时把本适配器创建过的体积从 cache 清掉', async () => {
+    const { renderer, cache } = await mountedOrtho();
+    await renderer.setVolume('vp', makeVolume());
+    expect(cache.live.has('vol-1')).toBe(true);
+
+    renderer.destroy();
+    expect(cache.removed).toEqual(['vol-1']);
+    expect(cache.live.size).toBe(0);
   });
 });
