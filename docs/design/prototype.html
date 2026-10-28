@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" data-state="normal">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OpenDicomViewer · 界面原型 v1</title>
+<style>
+/* ────────────────────────────────────────────────────────────
+   设计 Token（与 docs/design/tokens.md 一一对应）
+   规则：本文件之外，组件代码不得出现十六进制色值/魔法字号
+   ──────────────────────────────────────────────────────────── */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --text-2xs: 11px; --text-xs: 12px; --text-sm: 13px;
+  --text-base: 15px; --text-lg: 18px;
+
+  --space-1: 2px; --space-2: 4px; --space-3: 8px;
+  --space-4: 12px; --space-5: 16px; --space-6: 24px;
+
+  --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px;
+  --border-width: 1px;
+
+  --header-h: 56px;
+  --left-w: 264px;
+  --right-w: 288px;
+  --viewport-bar-h: 36px;
+  --slider-bar-h: 48px;
+
+  --z-canvas: 0; --z-overlay: 10; --z-toolbar: 20;
+  --z-panel: 30; --z-popover: 40; --z-toast: 50; --z-modal: 60;
+
+  /* 画布恒黑，不随主题变 */
+  --canvas-bg: #000000;
+  --overlay-scrim: rgba(0, 0, 0, 0.45);
+  --overlay-text: #FFFFFF;
+  --overlay-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+:root[data-theme="dark"] {
+  --bg-app: #0B0F17;
+  --bg-panel: #0D111A;
+  --bg-elevated: #121826;
+  --bg-hover: #161C28;
+  --bg-active: #1B2436;
+  --border: #1F2937;
+  --border-strong: #374151;
+  --text-primary: #E5E7EB;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  --accent: #2563EB;
+  --accent-hover: #3B82F6;
+  --color-ok: #34D399;
+  --color-warn: #F59E0B;
+  --color-danger: #EF4444;
+  --color-info: #38BDF8;
+  --color-disabled: #4B5563;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg-app: #F5F7FA;
+  --bg-panel: #FFFFFF;
+  --bg-elevated: #FFFFFF;
+  --bg-hover: #EEF1F6;
+  --bg-active: #E3E9F2;
+  --border: #D8DEE8;
+  --border-strong: #B6BFCC;
+  --text-primary: #101418;
+  --text-secondary: #4B5563;
+  --text-muted: #6B7280;
+  --accent: #1D4ED8;
+  --accent-hover: #2563EB;
+  --color-ok: #047857;
+  --color-warn: #B45309;
+  --color-danger: #B91C1C;
+  --color-info: #0369A1;
+  --color-disabled: #9CA3AF;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* ── 骨架 ── */
+.app {
+  display: grid;
+  grid-template-rows: var(--header-h) 1fr;
+  height: 100vh;
+  min-width: 1024px;
+}
+
+/* ── 顶栏 ── */
+.header {
+  display: flex; align-items: center; justify-content: space-between; overflow-x: auto;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  background: var(--bg-panel);
+  border-bottom: var(--border-width) solid var(--border);
+  z-index: var(--z-panel);
+}
+.brand { display: flex; align-items: center; gap: var(--space-3); flex-shrink: 0; }
+.logo {
+  width: 28px; height: 28px; border-radius: var(--radius-md);
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center;
+  font-weight: 700; font-size: var(--text-2xs); letter-spacing: .5px;
+}
+.brand-name { font-size: var(--text-base); font-weight: 600; letter-spacing: -.2px; }
+.badge-intended {
+  font-size: var(--text-2xs); color: var(--text-secondary);
+  border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-sm); padding: 2px var(--space-3);
+}
+.actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.btn {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 32px; padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  border: var(--border-width) solid transparent;
+  background: transparent; color: var(--text-secondary);
+  transition: background .12s, color .12s;
+}
+.btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); color: #fff; }
+.btn-ghost { border-color: var(--border); }
+.btn[disabled] { color: var(--color-disabled); cursor: not-allowed; }
+.btn[disabled]:hover { background: transparent; }
+.sep { width: 1px; height: 20px; background: var(--border); margin: 0 var(--space-2); }
+
+/* 原型专用：演示状态切换 */
+.proto {
+  display: flex; align-items: center; gap: 4px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px dashed var(--border-strong); border-radius: var(--radius-md);
+  font-size: var(--text-2xs); color: var(--text-muted);
+}
+.proto button {
+  background: transparent; border: 0; padding: 2px 6px;
+  border-radius: var(--radius-sm); color: var(--text-secondary);
+  font-size: var(--text-2xs);
+}
+.proto button[aria-pressed="true"] { background: var(--bg-active); color: var(--text-primary); }
+
+/* ── 主区 ── */
+.main {
+  display: grid;
+  grid-template-columns: var(--left-w) 1fr var(--right-w);
+  min-height: 0;
+}
+
+/* ── 左栏：序列列表 ── */
+.left {
+  background: var(--bg-panel);
+  border-right: var(--border-width) solid var(--border);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.panel-head {
+  height: 34px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--space-4);
+  font-size: var(--text-xs); color: var(--text-secondary);
+  border-bottom: var(--border-width) solid var(--border);
+  letter-spacing: .3px;
+}
+.series-list { overflow-y: auto; flex: 1; }
+.series {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width) solid var(--border);
+  display: grid; gap: var(--space-1); cursor: pointer;
+}
+.series:hover { background: var(--bg-hover); }
+.series[aria-selected="true"] { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--accent); }
+.series-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.series-title { font-size: var(--text-sm); font-weight: 500; }
+.series-frames { font-size: var(--text-2xs); color: var(--text-secondary); }
+.series-desc { font-size: var(--text-2xs); color: var(--text-muted); }
+.warn-pill {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  font-size: var(--text-2xs); color: var(--color-warn);
+  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
+  border: var(--border-width) solid color-mix(in srgb, var(--color-warn) 40%, transparent);
+  border-radius: var(--radius-sm); padding: 1px var(--space-2);
+}
+.left-empty { padding: var(--space-5) var(--space-4); color: var(--text-muted); font-size: var(--text-xs); line-height: 1.7; }
+
+/* ── 中栏：视口 ── */
+.center { display: grid; grid-template-rows: var(--viewport-bar-h) 1fr var(--slider-bar-h); min-width: 0; min-height: 0; }
+.vp-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--space-4);
+  background: var(--bg-panel); border-bottom: var(--border-width) solid var(--border);
+  font-size: var(--text-xs); color: var(--text-secondary);
+}
+.vp-bar .grp { display: flex; align-items: center; gap: var(--space-4); }
+.vp-title { color: var(--text-primary); font-weight: 500; }
+.preset-tag {
+  font-size: var(--text-2xs); color: var(--accent);
+  border: var(--border-width) solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius-sm); padding: 1px var(--space-2);
+}
+
+.canvas-wrap { position: relative; background: var(--canvas-bg); overflow: hidden; }
+.canvas-wrap svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* 四角 Overlay */
+.overlay { position: absolute; inset: 0; pointer-events: none; z-index: var(--z-overlay); }
+.corner {
+  position: absolute; max-width: 42%;
+  font-size: var(--text-2xs); color: var(--overlay-text);
+  text-shadow: var(--overlay-shadow);
+  display: grid; gap: 1px;
+}
+.corner span {
+  background: var(--overlay-scrim);
+  padding: 1px var(--space-2); border-radius: var(--radius-sm);
+  justify-self: start;
+}
+.corner.tl { top: var(--space-3); left: var(--space-3); }
+.corner.tr { top: var(--space-3); right: var(--space-3); justify-items: end; }
+.corner.bl { bottom: var(--space-3); left: var(--space-3); justify-items: start; }
+.corner.br { bottom: var(--space-3); right: var(--space-3); justify-items: end; }
+.corner .em { color: var(--overlay-text); }
+
+/* 方位标记 */
+.orient { position: absolute; font-size: var(--text-2xs); color: var(--overlay-text); text-shadow: var(--overlay-shadow); z-index: var(--z-overlay); }
+.orient.a { top: 6px; left: 50%; transform: translateX(-50%); }
+.orient.p { bottom: 6px; left: 50%; transform: translateX(-50%); }
+.orient.r { left: 8px; top: 50%; transform: translateY(-50%); }
+.orient.l { right: 8px; top: 50%; transform: translateY(-50%); }
+
+/* 比例尺 */
+.scalebar { position: absolute; left: var(--space-3); bottom: 64px; z-index: var(--z-overlay); color: var(--overlay-text); font-size: var(--text-2xs); text-shadow: var(--overlay-shadow); }
+.scalebar .bar { height: 4px; border: 1px solid #fff; border-top: 0; width: 80px; }
+
+/* 视口内告警条 */
+.vp-warn {
+  position: absolute; top: var(--space-3); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: var(--space-2);
+  background: color-mix(in srgb, var(--color-warn) 18%, rgba(0,0,0,.6));
+  border: var(--border-width) solid color-mix(in srgb, var(--color-warn) 55%, transparent);
+  color: var(--color-warn);
+  border-radius: var(--radius-md); padding: var(--space-1) var(--space-3);
+  font-size: var(--text-2xs); z-index: var(--z-toolbar);
+}
+.vp-placeholder {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center;
+  gap: var(--space-2); color: var(--text-muted); text-align: center;
+}
+.vp-placeholder .big { font-size: var(--text-lg); color: var(--text-secondary); }
+
+/* 底栏：滑块 + 预设 */
+.vp-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+  padding: 0 var(--space-4);
+  background: var(--bg-panel); border-top: var(--border-width) solid var(--border);
+  font-size: var(--text-xs);
+}
+.slider { display: flex; align-items: center; gap: var(--space-3); flex: 1; max-width: 420px; }
+.slider input { flex: 1; accent-color: var(--accent); }
+.presets { display: flex; align-items: center; gap: var(--space-1); }
+.presets .lbl { font-size: var(--text-2xs); color: var(--text-muted); margin-right: var(--space-2); }
+.chip {
+  background: var(--bg-elevated); border: var(--border-width) solid var(--border);
+  color: var(--text-secondary); border-radius: var(--radius-sm);
+  padding: 3px var(--space-3); font-size: var(--text-2xs);
+}
+.chip:hover { background: var(--bg-hover); color: var(--text-primary); }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip[disabled] { color: var(--color-disabled); border-style: dashed; cursor: not-allowed; }
+
+/* ── 右栏：元数据 + 测量 ── */
+.right { background: var(--bg-panel); border-left: var(--border-width) solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+.sec { border-bottom: var(--border-width) solid var(--border); }
+.sec-head {
+  height: 32px; display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-4);
+  font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: .3px;
+}
+.rows { padding: 0 var(--space-4) var(--space-3); display: grid; gap: var(--space-2); }
+.row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); font-size: var(--text-xs); }
+.row .k { color: var(--text-muted); white-space: nowrap; }
+.row .v { color: var(--text-primary); text-align: right; }
+.privacy-ok { color: var(--color-ok); }
+.privacy-warn { color: var(--color-warn); }
+.note { padding: 0 var(--space-4) var(--space-3); font-size: var(--text-2xs); color: var(--color-warn); display: flex; gap: var(--space-2); align-items: flex-start; line-height: 1.6; }
+.muted-note { padding: 0 var(--space-4) var(--space-3); font-size: var(--text-2xs); color: var(--text-muted); line-height: 1.6; }
+
+/* ── 模态：导入中 / 部分失败 ── */
+.scrim {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  display: grid; place-items: center; z-index: var(--z-modal);
+}
+.modal {
+  width: 420px; background: var(--bg-elevated);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-lg);
+  padding: var(--space-5); display: grid; gap: var(--space-4);
+  box-shadow: 0 16px 48px rgba(0,0,0,.45);
+}
+.modal h3 { margin: 0; font-size: var(--text-base); }
+.modal .sub { font-size: var(--text-2xs); color: var(--text-muted); }
+.progress { height: 4px; background: var(--bg-active); border-radius: 999px; overflow: hidden; }
+.progress > i { display: block; height: 100%; width: 38%; background: var(--accent); }
+.fail-list { display: grid; gap: var(--space-2); font-size: var(--text-2xs); }
+.fail-item {
+  display: flex; justify-content: space-between; gap: var(--space-3);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3); color: var(--text-secondary);
+}
+.fail-item .why { color: var(--color-danger); }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+/* ── 状态可见性 ── */
+[hidden] { display: none !important; }
+:root[data-state="empty"] .only-loaded,
+:root[data-state="degraded"] .only-normal { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ══ 顶栏 ══ -->
+  <header class="header">
+    <div class="brand">
+      <div class="logo">ODV</div>
+      <span class="brand-name">OpenDicomViewer</span>
+      <span class="badge-intended" title="非诊断用途声明，见 ARCHITECTURE §2.1">仅供科研教学与影像分析参考</span>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="btnSample">载入示例</button>
+      <button class="btn btn-ghost">打开文件</button>
+      <button class="btn btn-ghost">打开文件夹</button>
+      <button class="btn btn-ghost" disabled title="需要 Tauri 桌面端与光盘驱动能力，浏览器内不可用">读光盘</button>
+      <span class="sep"></span>
+      <button class="btn" title="设置（快捷键 Ctrl+,）">设置</button>
+      <button class="btn" id="btnTheme" title="切换深色/浅色（教学投屏用浅色）">浅色</button>
+      <span class="sep"></span>
+      <div class="proto" role="group" aria-label="原型演示状态">
+        <span>演示</span>
+        <button data-set="normal" aria-pressed="true">正常</button>
+        <button data-set="empty" aria-pressed="false">空态</button>
+        <button data-set="importing" aria-pressed="false">导入中</button>
+        <button data-set="partial" aria-pressed="false">部分失败</button>
+        <button data-set="degraded" aria-pressed="false">降级</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- ══ 左栏 ══ -->
+    <aside class="left">
+      <div class="panel-head"><span>序列列表</span><span class="num only-loaded">2</span></div>
+      <div class="series-list only-loaded">
+        <div class="series" aria-selected="true">
+          <div class="series-top">
+            <span class="series-title">CT · 胸部平扫</span>
+            <span class="warn-pill" title="按 IPP 投影检测到层间距异常：缺 3 层">⚠ 缺 3 层</span>
+          </div>
+          <div class="series-desc">肺窗重建 · 1.0 mm</div>
+          <div class="series-frames num">1024 帧</div>
+        </div>
+        <div class="series">
+          <div class="series-top">
+            <span class="series-title">CT · 纵隔窗</span>
+          </div>
+          <div class="series-desc">软组织重建 · 2.5 mm</div>
+          <div class="series-frames num">512 帧</div>
+        </div>
+        <div class="series">
+          <div class="series-top">
+            <span class="series-title">CT · 定位像</span>
+          </div>
+          <div class="series-desc">Scout · 非轴位</div>
+          <div class="series-frames num">1 帧</div>
+        </div>
+      </div>
+      <div class="left-empty" hidden data-when="empty">
+        尚未载入影像。<br />
+        拖入文件夹、点击「打开文件夹」，或先用「载入示例」看看效果。
+      </div>
+    </aside>
+
+    <!-- ══ 中栏 ══ -->
+    <main class="center">
+      <div class="vp-bar">
+        <div class="grp">
+          <span class="vp-title only-loaded">横断面 (Axial)</span>
+          <span class="preset-tag only-loaded" id="presetTag">肺窗</span>
+        </div>
+        <div class="grp">
+          <span class="num only-loaded">层数 <b id="sliceNow">512</b>/1024</span>
+          <span class="num only-loaded">WW <b id="wwVal">1500</b> · WL <b id="wlVal">-600</b></span>
+          <button class="btn" style="margin-left:var(--space-3)" title="复位视图（R）">复位</button>
+        </div>
+      </div>
+
+      <div class="canvas-wrap">
+        <!-- 模拟 CT（真实实现由 CS3D WebGL 绘制；此处仅示意观感与叠加层布局） -->
+        <svg class="only-loaded" viewBox="0 0 512 512" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <defs>
+            <radialGradient id="body" cx="50%" cy="48%" r="52%">
+              <stop offset="0%" stop-color="#8a8f96" />
+              <stop offset="58%" stop-color="#6d747c" />
+              <stop offset="78%" stop-color="#5a6169" />
+              <stop offset="100%" stop-color="#2b3138" />
+            </radialGradient>
+          </defs>
+          <rect width="512" height="512" fill="#000" />
+          <ellipse cx="256" cy="250" rx="196" ry="158" fill="url(#body)" />
+          <ellipse cx="256" cy="250" rx="120" ry="96" fill="#9aa1a8" opacity=".55" />
+          <ellipse cx="214" cy="232" rx="34" ry="26" fill="#20262d" opacity=".8" />
+          <ellipse cx="300" cy="232" rx="34" ry="26" fill="#20262d" opacity=".8" />
+          <ellipse cx="256" cy="300" rx="26" ry="20" fill="#1b2027" opacity=".75" />
+          <circle cx="256" cy="250" r="10" fill="#d7dde3" />
+        </svg>
+
+        <div class="overlay only-loaded">
+          <div class="corner tl">
+            <span class="em">已匿名 · 数据未出本机</span>
+            <span>胸部平扫 · CT</span>
+          </div>
+          <div class="corner tr">
+            <span>层厚 1.0 mm</span>
+            <span>KVP 120 · mAs 180</span>
+          </div>
+          <div class="corner bl">
+            <span class="num">窗 [肺窗] WW 1500 / WL −600</span>
+          </div>
+          <div class="corner br">
+            <span class="num">Z −62.5 mm</span>
+            <span class="num">1.00 mm / 层</span>
+          </div>
+          <div class="orient a">A</div>
+          <div class="orient p">P</div>
+          <div class="orient r">R</div>
+          <div class="orient l">L</div>
+          <div class="scalebar"><div class="bar"></div>5 cm</div>
+        </div>
+
+        <div class="vp-warn only-loaded" id="vpWarn">
+          ⚠ 检测到 3 处层缺失（层间距 1.0 → 2.0 mm），测量结果可能受影响
+        </div>
+
+        <div class="vp-placeholder" hidden data-when="empty">
+          <div class="big">拖入 DICOM 文件夹开始</div>
+          <div>或点击顶栏「打开文件夹」／「载入示例」</div>
+          <div class="muted-note" style="padding:0">全程本机处理 · 无任何网络请求</div>
+        </div>
+      </div>
+
+      <div class="vp-foot">
+        <div class="slider only-loaded">
+          <span class="num">1</span>
+          <input type="range" min="1" max="1024" value="512" id="sliceRange" aria-label="切片位置" />
+          <span class="num">1024</span>
+        </div>
+        <div class="presets only-loaded">
+          <span class="lbl">快捷预设</span>
+          <button class="chip" data-preset="肺窗" data-ww="1500" data-wl="-600" aria-pressed="true">肺</button>
+          <button class="chip" data-preset="纵隔窗" data-ww="350" data-wl="40" aria-pressed="false">纵隔</button>
+          <button class="chip" data-preset="骨窗" data-ww="2000" data-wl="350" aria-pressed="false">骨</button>
+          <button class="chip" data-preset="脑窗" data-ww="80" data-wl="40" aria-pressed="false">脑</button>
+          <button class="chip" data-preset="软组织" data-ww="400" data-wl="40" aria-pressed="false">软组织</button>
+          <button class="chip" disabled title="体绘制需要降采样 Volume 通路，当前设备能力探测未通过（降级入口置灰并说明）">3D 体绘制</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- ══ 右栏 ══ -->
+    <aside class="right">
+      <section class="sec">
+        <div class="sec-head">影像信息</div>
+        <div class="rows">
+          <div class="row"><span class="k">患者</span><span class="v privacy-ok" id="privacyState">已匿名</span></div>
+          <div class="row"><span class="k">检查</span><span class="v only-loaded">CT 胸部平扫</span></div>
+          <div class="row"><span class="k">检查日期</span><span class="v num only-loaded">2026-10-20</span></div>
+          <div class="row"><span class="k">设备</span><span class="v only-loaded">SOMATOM go.Now</span></div>
+        </div>
+        <div class="note only-loaded" id="privacyNote">
+          <span>⚠</span><span>该文件仍含原始身份信息，导出前请使用「脱敏导出」（PS3.15 基础保密性配置）。</span>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">当前序列</div>
+        <div class="rows">
+          <div class="row"><span class="k">Modality</span><span class="v num only-loaded">CT</span></div>
+          <div class="row"><span class="k">切片数</span><span class="v num only-loaded">1024</span></div>
+          <div class="row"><span class="k">矩阵</span><span class="v num only-loaded">512 × 512</span></div>
+          <div class="row"><span class="k">像素间距</span><span class="v num only-loaded">0.70 / 0.70 mm</span></div>
+          <div class="row"><span class="k">层间距</span><span class="v num only-loaded privacy-warn">1.00 → 2.00 mm</span></div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">测量与工具</div>
+        <div class="rows">
+          <div class="row"><span class="k">当前工具</span><span class="v only-loaded">直线测量</span></div>
+          <div class="row"><span class="k">直线</span><span class="v num only-loaded">8.2 mm</span></div>
+          <div class="row"><span class="k">ROI 均值</span><span class="v num only-loaded">−720 HU</span></div>
+          <div class="row"><span class="k">ROI 标准差</span><span class="v num only-loaded">31.4</span></div>
+        </div>
+        <div class="note only-loaded"><span>⚠</span><span>测量值仅供参考，不构成诊断依据。</span></div>
+        <div class="muted-note" data-when="empty">未载入影像时不提供测量工具。</div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">能力与降级</div>
+        <div class="rows">
+          <div class="row"><span class="k">渲染后端</span><span class="v num">WebGL2</span></div>
+          <div class="row"><span class="k">GPU</span><span class="v">软件回退（SwiftShader）</span></div>
+          <div class="row"><span class="k">体绘制</span><span class="v" style="color:var(--color-disabled)">不可用 · 已隐藏入口</span></div>
+          <div class="row"><span class="k">MPR</span><span class="v" style="color:var(--color-disabled)">不可用 · 已隐藏入口</span></div>
+        </div>
+        <div class="muted-note">降级一律显式：入口置灰或隐藏，并在此说明原因（ARCHITECTURE §5.3）。</div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<!-- ══ 模态：导入中 ══ -->
+<div class="scrim" hidden data-when="importing">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="正在导入">
+    <h3>正在读取影像数据</h3>
+    <div class="sub num">已扫描 812 / 1024 个文件 · 已识别 2 个序列</div>
+    <div class="progress"><i></i></div>
+    <div class="sub">正在执行魔数探测、DICOMDIR 校验与几何构建</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost">取消导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 模态：部分失败 ══ -->
+<div class="scrim" hidden data-when="partial">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="部分文件导入失败">
+    <h3>部分文件未能导入</h3>
+    <div class="sub">成功 1022 · 失败 2 —— 失败项不影响其余影像浏览</div>
+    <div class="fail-list">
+      <div class="fail-item">
+        <span class="num">IMG_0731.dcm</span>
+        <span class="why">缺少 SOPInstanceUID (0008,0018)</span>
+      </div>
+      <div class="fail-item">
+        <span class="num">IMG_0899.dcm</span>
+        <span class="why">封装压缩传输语法暂不支持（JPEG-LS）</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost">查看全部失败项</button>
+      <button class="btn btn-primary">仅载入成功的 1022 个</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* 主题切换：mock 里的按钮文字与 html[data-theme] 双向同步 */
+const root = document.documentElement;
+const btnTheme = document.getElementById('btnTheme');
+function syncThemeLabel() {
+  btnTheme.textContent = root.dataset.theme === 'dark' ? '浅色' : '深色';
+}
+btnTheme.addEventListener('click', () => {
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  syncThemeLabel();
+});
+syncThemeLabel();
+
+/* 演示状态 */
+function setState(name) {
+  root.dataset.state = name;
+  document.querySelectorAll('.proto button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.set === name));
+  });
+  document.querySelectorAll('[data-when]').forEach((el) => {
+    el.hidden = el.dataset.when !== name;
+  });
+  // 空态下系列列表与视口内容整体隐藏
+  const empty = name === 'empty';
+  document.querySelectorAll('.only-loaded').forEach((el) => {
+    el.hidden = empty;
+  });
+  document.querySelector('.left-empty').hidden = !empty;
+  document.querySelector('.vp-placeholder').hidden = !empty;
+}
+document.querySelectorAll('.proto button').forEach((b) => {
+  b.addEventListener('click', () => setState(b.dataset.set));
+});
+
+/* 预设切换 */
+document.querySelectorAll('.chip[data-preset]').forEach((chip) => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip[data-preset]').forEach((c) =>
+      c.setAttribute('aria-pressed', String(c === chip)));
+    document.getElementById('wwVal').textContent = chip.dataset.ww;
+    document.getElementById('wlVal').textContent = chip.dataset.wl;
+    document.getElementById('presetTag').textContent = chip.dataset.preset;
+    const bl = document.querySelector('.corner.bl .num');
+    if (bl) bl.textContent = `窗 [${chip.dataset.preset}] WW ${chip.dataset.ww} / WL ${chip.dataset.wl}`;
+  });
+});
+
+/* 滑块与层数联动（只改数字，示意） */
+const range = document.getElementById('sliceRange');
+range.addEventListener('input', () => {
+  document.getElementById('sliceNow').textContent = range.value;
+});
+
+/* 示例按钮：从空态一键回到正常态 */
+document.getElementById('btnSample').addEventListener('click', () => setState('normal'));
+
+/* 首屏初始化：让 [data-when] 与 aria-pressed 从正确状态开始 */
+setState('normal');
+</script>
+</body>
+</html>

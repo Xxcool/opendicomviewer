@@ -12,6 +12,7 @@ import type {
   MeasurementRecord,
   PixelFrame,
   SeriesMeta,
+  SeriesSummary,
   StudyMeta,
   VOIRange,
 } from '../domain/types';
@@ -48,6 +49,8 @@ export interface DataSourcePort {
   readonly kind: 'local' | 'dicomweb';
   /** 扫描探测文件集合，产出 Study 摘要列表，支持中止取消 (N9) */
   probe(input: ImportInput, signal?: AbortSignal): Promise<readonly StudyMeta[]>;
+  /** 枚举指定 Study 或所有 Study 下已索引的序列摘要清单 */
+  listSeries(studyInstanceUid?: string): Promise<readonly SeriesSummary[]>;
   /** 加载指定序列并排好序返回 SeriesHandle */
   openSeries(ref: SeriesRef, signal?: AbortSignal): Promise<SeriesHandle>;
 }
@@ -175,6 +178,50 @@ export interface StoragePort {
   removeAnnotation(id: string): Promise<void>;
   purgeAll(): Promise<void>;
 }
+
+/**
+ * 当前激活的测量工具。`none` 表示"只定位、不绘制"——这是**默认态**，
+ * 左键在默认态下不产生任何测量（见 ADR-014 与 ARCHITECTURE §10.2）。
+ */
+export type MeasurementTool = 'none' | MeasurementRecord['type'];
+
+/**
+ * 测量端口：**测量数据的唯一真源**（ADR-014）
+ *
+ * 为什么不让渲染层持有：CS3D 的 annotation state 是渲染器私有结构，
+ * 换后端即失效，且无法直接持久化/导出。因此由本端口持有 `MeasurementRecord`，
+ * 渲染层订阅 `subscribe` 后负责绘制；用户拖拽结束时，渲染层把换算好的
+ * 世界坐标/像素值写回 `add()`。
+ *
+ * 与 `StoragePort` 的分工：本端口管**运行时状态**（内存模型 + 变更广播），
+ * 持久化由 `StoragePort` 落库，两者不合并（前者要同步、后者要异步）。
+ */
+export interface MeasurementPort {
+  readonly activeTool: MeasurementTool;
+  setActiveTool(tool: MeasurementTool): void;
+  /** 按序列过滤；不传则返回全部 */
+  list(seriesInstanceUid?: string): readonly MeasurementRecord[];
+  add(record: MeasurementRecord): void;
+  update(record: MeasurementRecord): void;
+  remove(id: string): void;
+  clear(seriesInstanceUid?: string): void;
+  /** 变更订阅，返回取消订阅函数（渲染层据此重绘，UI 据此刷新右栏） */
+  subscribe(listener: (records: readonly MeasurementRecord[]) => void): () => void;
+}
+
+/**
+ * 空测量实现（尚未接入测量工具时的默认注入，避免 UI 判空）
+ */
+export const NullMeasurementPort: MeasurementPort = {
+  activeTool: 'none',
+  setActiveTool: () => {},
+  list: () => [],
+  add: () => {},
+  update: () => {},
+  remove: () => {},
+  clear: () => {},
+  subscribe: () => () => {},
+};
 
 export interface TelemetrySpan {
   end(): void;
