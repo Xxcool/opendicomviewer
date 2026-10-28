@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import type {
   DataWarning,
+  RendererCapabilities,
   SeriesHandle,
   StudyMeta,
 } from '@opendicomviewer/core';
@@ -27,11 +28,14 @@ export interface ViewerState {
   readonly activeSeriesHandle: SeriesHandle | null;
   readonly importStatus: ImportStatus;
   readonly warnings: readonly DataWarning[];
+  /** 渲染器运行时能力（挂载成功后写入），供右栏「能力与降级」展示 */
+  readonly rendererCapabilities: RendererCapabilities | null;
 
   setStudies: (studies: readonly StudyMeta[]) => void;
   setActiveSeries: (handle: SeriesHandle) => void;
   setImportStatus: (status: ImportStatus) => void;
   setWarnings: (warnings: readonly DataWarning[]) => void;
+  setRendererCapabilities: (caps: RendererCapabilities) => void;
   reset: () => void;
 }
 
@@ -42,6 +46,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   activeSeriesHandle: null,
   importStatus: { loading: false },
   warnings: [],
+  rendererCapabilities: null,
 
   setStudies: (studies) => {
     set({
@@ -69,6 +74,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
   setImportStatus: (status) => set({ importStatus: status }),
   setWarnings: (warnings) => set({ warnings }),
+  setRendererCapabilities: (caps) => set({ rendererCapabilities: caps }),
 
   reset: () => {
     const currentHandle = get().activeSeriesHandle;
@@ -82,6 +88,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       activeSeriesHandle: null,
       importStatus: { loading: false },
       warnings: [],
+      rendererCapabilities: null,
     });
   },
 }));

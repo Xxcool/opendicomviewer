@@ -20,7 +20,8 @@ export function App() {
   const dataSource = useMemo(() => new LocalDataSource(), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { importStatus, setImportStatus } = useViewerStore();
+  const { importStatus, setImportStatus, setRendererCapabilities } =
+    useViewerStore();
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
     pendingFailures,
@@ -47,6 +48,7 @@ export function App() {
         );
         if (!cancelled) {
           setRenderer(r);
+          setRendererCapabilities(r.capabilities());
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -67,7 +69,7 @@ export function App() {
       r.destroy();
       setRenderer(null);
     };
-  }, [setImportStatus]);
+  }, [setImportStatus, setRendererCapabilities]);
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
