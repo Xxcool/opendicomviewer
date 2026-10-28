@@ -886,6 +886,23 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 1. **CS3D 版本基线改为 `4.22.x`（配 vtk.js 34.x）**。5.13.2 依赖的 `@kitware/vtk.js@36.4.1` 是 Rolldown 产物，经 Rollup（build）或 esbuild（dev）处理后必现 `Class extends value undefined`，dev 与 prod 皆然；已排除重复安装、摇树副作用、单纯 exclude 预打包三种假设。**在 Spike S2 之前不得升级到 5.x**。
 2. **codec wasm 必须按需动态加载**。空壳实测：主包 1.45 MB（gzip 406 KB），且 5 个 codec 的 wasm（合计 1.98 MB，其中 JPEGXL 1.09 MB）被静态打进产物——即使本次只读未压缩 DICOM。§11 的包体积预算成立的前提就是这条纪律。
 
+#### 14.1.2 Spike B（裸缓冲 → MPR 体积）已完成 · 2026-10-28
+
+代码与复现步骤见 `spikes/cs3d-volume/`。四个结论：
+
+| 问题 | 结论 |
+| --- | --- |
+| 降采样缓冲能否不经 DICOM imageIds 直接建体积 | **能。** `volumeLoader.createLocalVolume(volumeId, { metadata, dimensions, spacing, origin, direction, scalarData })`，192³ Uint8 构建 16.5 ms、自动派生 192 条 slice imageId、进 cache。注意 `sizeInBytes` 为 null，内存要自己按 `dims × 字节数` 算 |
+| 三向 MPR 能否同时出图 | **能。** 三格 ORTHOGRAPHIC + `setOrientation('axial'\|'coronal'\|'sagittal')`，截图四象限均出图且互不相同（`meanSpread 30.14`） |
+| 端口新增方法是否可落地 | `setVolumes` / `getSliceIndex` / `getNumberOfSlices` / `jumpToWorld` 全部存在；**额外发现 `setOrientation()` 存在**，方向不必手算相机 |
+| 帧时间能否在这里测 | **不能**，同 Spike A：SwiftShader + 虚拟时间，且 `render()` 只做提交（同步耗时恒 0） |
+
+**三条必须写进适配器的坑**：
+
+1. **首个 ORTHOGRAPHIC 视口不预热必然全黑**：`enableElement` 后直接挂体积，第一个视口画面全黑（相机读数却正常）。`mount()` 里必须先对每个视口空 `render()` 一次。
+2. **`getSliceIndex()` 与世界 z 反向**：CS3D 把轴向相机放在体积下方，层号沿相机方向计数，实测 `sliceIndex ≈ (numberOfSlices-1) - z/spacing`。直接拿它当层号显示是**静默错**，适配器必须按视口方向翻转。
+3. **STACK 视口没有 `setVolumes`**：2×2 里的"原始轴位"格必须走 `setStack(imageIds)`，与三个 ORTHOGRAPHIC 格是两条通路，`mount()` 要支持同一次挂载混用两种 viewport type。
+
 ### 14.2 阶段总览
 
 ```mermaid

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spike B · 体素缓冲 → ImageVolume → 三向 MPR</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0b0d10;
+        color: #d7dde5;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      /* 固定的 2×2 网格：截图脚本按四象限采样，尺寸不能变 */
+      #grid {
+        width: 640px;
+        height: 640px;
+        display: grid;
+        grid-template-columns: 320px 320px;
+        grid-template-rows: 320px 320px;
+        gap: 0;
+        background: #000;
+      }
+      .cell {
+        position: relative;
+        width: 320px;
+        height: 320px;
+        background: #000;
+      }
+      .cell > span {
+        position: absolute;
+        left: 6px;
+        top: 4px;
+        z-index: 2;
+        color: #7fb0ff;
+        font-size: 11px;
+        pointer-events: none;
+      }
+      .vp {
+        width: 320px;
+        height: 320px;
+      }
+      #report {
+        margin: 0;
+        padding: 10px;
+        white-space: pre-wrap;
+        color: #9ef0a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="grid">
+      <div class="cell"><span>AXIAL</span><div class="vp" id="vp-ax"></div></div>
+      <div class="cell"><span>CORONAL</span><div class="vp" id="vp-cor"></div></div>
+      <div class="cell"><span>SAGITTAL</span><div class="vp" id="vp-sag"></div></div>
+      <div class="cell"><span>STACK</span><div class="vp" id="vp-stack"></div></div>
+    </div>
+    <pre id="report">pending</pre>
+    <script>
+      (function () {
+        function write(msg) {
+          var el = document.getElementById('report');
+          if (el) el.textContent = msg;
+        }
+        window.addEventListener('error', function (e) {
+          var stack = e.error && e.error.stack ? e.error.stack : '';
+          write('WINDOW_ERROR: ' + (e.message || '') + '\n' + (e.filename || '') + ':' + (e.lineno || 0) + '\n' + stack);
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e.reason;
+          write('UNHANDLED_REJECTION: ' + (r && r.message ? r.message : String(r)));
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
