@@ -15,5 +15,10 @@
   },
   "peerDependencies": {
     "@cornerstonejs/core": "4.22.13"
+  },
+  "peerDependenciesMeta": {
+    "@cornerstonejs/core": {
+      "optional": true
+    }
   }
 }
