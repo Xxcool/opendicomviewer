@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  type ChangeEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
 import type { VOIRange } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
@@ -8,6 +13,13 @@ import {
   severityLabel,
   warningBannerClass,
 } from './warning-presentation';
+import {
+  clampLayer,
+  hasSliceNavigation,
+  isDraggableSlider,
+  nextLayerIndex,
+  parseLayerInput,
+} from './slice-navigation';
 
 interface ViewportProps {
   readonly renderer: CornerstoneRenderer | null;
@@ -23,6 +35,9 @@ const PRESETS: readonly { readonly name: string; readonly voi: VOIRange }[] = [
   { name: '软组织', voi: { windowWidth: 400, windowCenter: 40 } },
 ];
 
+/** 翻页键步长：与 Shift+滚轮 对齐（§3.3 / §8 键位表） */
+const PAGE_STEP = 10;
+
 export function Viewport({
   renderer,
   viewportId = 'default-viewport',
@@ -31,7 +46,13 @@ export function Viewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const sliceTextRef = useRef<HTMLSpanElement>(null);
   const voiTextRef = useRef<HTMLSpanElement>(null);
+
+  // 层号导航相关 DOM 一律走 ref：翻页是高频操作，不能每帧 setState (R4)
+  const layerInputRef = useRef<HTMLInputElement>(null);
+  const progressFillRef = useRef<HTMLDivElement>(null);
   const sliderRef = useRef<HTMLInputElement>(null);
+  const prevLayerRef = useRef<HTMLButtonElement>(null);
+  const nextLayerRef = useRef<HTMLButtonElement>(null);
 
   const currentSliceIndexRef = useRef<number>(0);
   const draggingRef = useRef<boolean>(false);
@@ -41,7 +62,30 @@ export function Viewport({
   const { activeSeriesHandle, warnings, setImportStatus } = useViewerStore();
   const topWarning = primaryWarning(warnings);
   const restWarningCount = Math.max(0, warnings.length - 1);
-  const [sliceIndex, setSliceIndex] = useState(0);
+
+  const totalFrames = activeSeriesHandle?.meta.planes.length ?? 0;
+  const showNav = hasSliceNavigation(totalFrames);
+  const sliderDraggable = isDraggableSlider(totalFrames);
+
+  /**
+   * 把导航控件的显示同步到指定层号。
+   * 只写 DOM、不触发 React 渲染：这些节点在 JSX 里都不受控（无 value / style / disabled），
+   * 因此 React 重渲染不会把命令式写入的值冲掉。
+   */
+  const syncSliceUi = (index: number, total: number) => {
+    if (layerInputRef.current) {
+      layerInputRef.current.value = String(index + 1);
+    }
+    if (progressFillRef.current) {
+      const pct = total > 1 ? (index / (total - 1)) * 100 : 0;
+      progressFillRef.current.style.width = `${pct}%`;
+    }
+    if (sliderRef.current && sliderRef.current.value !== String(index)) {
+      sliderRef.current.value = String(index);
+    }
+    if (prevLayerRef.current) prevLayerRef.current.disabled = index <= 0;
+    if (nextLayerRef.current) nextLayerRef.current.disabled = index >= total - 1;
+  };
 
   // 1. 装载序列与切换序列（错误可见性遵循 P1-1）
   useEffect(() => {
@@ -56,14 +100,10 @@ export function Viewport({
         if (cancelled) return;
 
         const count = activeSeriesHandle!.meta.planes.length;
-        setSliceIndex(0);
         if (sliceTextRef.current) {
           sliceTextRef.current.textContent = `1 / ${count}`;
         }
-        if (sliderRef.current) {
-          sliderRef.current.max = String(Math.max(0, count - 1));
-          sliderRef.current.value = '0';
-        }
+        syncSliceUi(0, count);
 
         try {
           const currentVoi = renderer!.getVOI(viewportId);
@@ -105,21 +145,20 @@ export function Viewport({
       const total = activeSeriesHandle.meta.planes.length;
       if (total <= 1) return;
 
-      const delta = Math.sign(e.deltaY);
-      const nextIndex = Math.min(
-        Math.max(0, currentSliceIndexRef.current + delta),
-        total - 1,
+      // Shift+滚轮步长 10：大序列下逐层滚到目标层不现实（§3.3）
+      const step = e.shiftKey ? PAGE_STEP : 1;
+      const nextIndex = nextLayerIndex(
+        currentSliceIndexRef.current,
+        Math.sign(e.deltaY) * step,
+        total,
       );
 
       if (nextIndex !== currentSliceIndexRef.current) {
         currentSliceIndexRef.current = nextIndex;
-        setSliceIndex(nextIndex);
         if (sliceTextRef.current) {
           sliceTextRef.current.textContent = `${nextIndex + 1} / ${total}`;
         }
-        if (sliderRef.current) {
-          sliderRef.current.value = String(nextIndex);
-        }
+        syncSliceUi(nextIndex, total);
         void renderer.setStackIndex(viewportId, nextIndex);
       }
     };
@@ -200,7 +239,7 @@ export function Viewport({
     };
   }, [renderer, viewportId, activeSeriesHandle]);
 
-  // 3. 键盘快捷键（1-5 预设，R 复位，上下键切片）
+  // 3. 键盘快捷键（1-5 预设，R 复位，方向键/翻页键切片）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!activeSeriesHandle || !renderer) return;
@@ -221,14 +260,18 @@ export function Viewport({
       const total = activeSeriesHandle.meta.planes.length;
       if (total <= 1) return;
 
-      if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+      if (e.key === 'ArrowUp') {
         e.preventDefault();
-        const nextIndex = Math.max(0, currentSliceIndexRef.current - 1);
-        jumpToSlice(nextIndex, total);
-      } else if (e.key === 'ArrowDown' || e.key === 'PageDown') {
+        jumpToSlice(currentSliceIndexRef.current - 1, total);
+      } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        const nextIndex = Math.min(total - 1, currentSliceIndexRef.current + 1);
-        jumpToSlice(nextIndex, total);
+        jumpToSlice(currentSliceIndexRef.current + 1, total);
+      } else if (e.key === 'PageUp') {
+        e.preventDefault();
+        jumpToSlice(currentSliceIndexRef.current - PAGE_STEP, total);
+      } else if (e.key === 'PageDown') {
+        e.preventDefault();
+        jumpToSlice(currentSliceIndexRef.current + PAGE_STEP, total);
       }
     };
 
@@ -246,26 +289,38 @@ export function Viewport({
   };
 
   const jumpToSlice = (index: number, total: number) => {
-    if (!renderer || index === currentSliceIndexRef.current) return;
-    currentSliceIndexRef.current = index;
-    setSliceIndex(index);
+    if (!renderer) return;
+    const target = clampLayer(index, total);
+    if (target === currentSliceIndexRef.current) {
+      // 即便层号没变也要同步 UI：输入框可能刚被用户改成非法值，需要恢复
+      syncSliceUi(target, total);
+      return;
+    }
+    currentSliceIndexRef.current = target;
     if (sliceTextRef.current) {
-      sliceTextRef.current.textContent = `${index + 1} / ${total}`;
+      sliceTextRef.current.textContent = `${target + 1} / ${total}`;
     }
-    if (sliderRef.current) {
-      sliderRef.current.value = String(index);
+    syncSliceUi(target, total);
+    void renderer.setStackIndex(viewportId, target);
+  };
+
+  const handleLayerInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    const total = activeSeriesHandle?.meta.planes.length ?? 0;
+    const parsed = parseLayerInput(e.currentTarget.value, total);
+    if (parsed === null) {
+      // 非法输入恢复原值（§3.3）
+      syncSliceUi(currentSliceIndexRef.current, total);
+      return;
     }
-    void renderer.setStackIndex(viewportId, index);
+    jumpToSlice(parsed, total);
   };
 
   const handleSliderChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (!activeSeriesHandle) return;
-    const targetIndex = Number(e.target.value);
     const total = activeSeriesHandle.meta.planes.length;
-    jumpToSlice(targetIndex, total);
+    jumpToSlice(Number(e.target.value), total);
   };
-
-  const totalFrames = activeSeriesHandle?.meta.planes.length ?? 0;
 
   return (
     <div className="flex-1 flex flex-col bg-[#080B11] relative overflow-hidden select-none">
@@ -278,9 +333,7 @@ export function Viewport({
               : '就绪'}
           </span>
           {activeSeriesHandle && (
-            <span ref={sliceTextRef} className="font-mono text-gray-300">
-              {sliceIndex + 1} / {totalFrames}
-            </span>
+            <span ref={sliceTextRef} className="font-mono text-gray-300" />
           )}
         </div>
 
@@ -353,28 +406,89 @@ export function Viewport({
         ) : null}
       </div>
 
-      {/* 视口底部控制栏（滑块与快捷调窗预设） */}
+      {/* 视口底部控制栏：层号导航 + 快捷调窗预设 */}
       {activeSeriesHandle && (
         <div className="h-12 px-4 bg-[#0D111A] border-t border-gray-800 flex items-center justify-between z-10 space-x-4">
-          {/* 切片滑动条 (N9: 统一受控同步) */}
-          <div className="flex items-center space-x-2 flex-1 max-w-sm">
-            <span className="text-[11px] text-gray-400 font-mono">1</span>
-            <input
-              ref={sliderRef}
-              type="range"
-              min="0"
-              max={Math.max(0, totalFrames - 1)}
-              value={sliceIndex}
-              onChange={handleSliderChange}
-              className="w-full accent-blue-500 cursor-pointer h-1.5 bg-gray-700 rounded-lg"
-            />
-            <span className="text-[11px] text-gray-400 font-mono">
-              {totalFrames}
-            </span>
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            {showNav && (
+              <>
+                {/* 上一层 / 下一层：单帧序列整组隐藏 (§3.3) */}
+                <div className="flex items-center space-x-1 shrink-0">
+                  <button
+                    ref={prevLayerRef}
+                    type="button"
+                    onClick={() =>
+                      jumpToSlice(currentSliceIndexRef.current - 1, totalFrames)
+                    }
+                    title="上一层 (↑)"
+                    aria-label="上一层"
+                    className="w-6 h-6 flex items-center justify-center rounded bg-gray-800/80 hover:bg-gray-700 active:bg-blue-600 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-[11px]"
+                  >
+                    ◀
+                  </button>
+                  <button
+                    ref={nextLayerRef}
+                    type="button"
+                    onClick={() =>
+                      jumpToSlice(currentSliceIndexRef.current + 1, totalFrames)
+                    }
+                    title="下一层 (↓)"
+                    aria-label="下一层"
+                    className="w-6 h-6 flex items-center justify-center rounded bg-gray-800/80 hover:bg-gray-700 active:bg-blue-600 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-[11px]"
+                  >
+                    ▶
+                  </button>
+                </div>
+
+                {/* 层号输入框：回车跳转，越界钳到 [1, N]，非法输入恢复原值 */}
+                <div className="flex items-center space-x-1.5 shrink-0 font-mono text-[11px] text-gray-400">
+                  <input
+                    ref={layerInputRef}
+                    type="text"
+                    inputMode="numeric"
+                    aria-label="层号"
+                    title="输入层号后回车跳转"
+                    onKeyDown={handleLayerInputKeyDown}
+                    onBlur={() =>
+                      syncSliceUi(currentSliceIndexRef.current, totalFrames)
+                    }
+                    className="w-12 px-1.5 py-0.5 text-center rounded bg-gray-800 border border-gray-700 text-gray-200 focus:outline-none focus:border-blue-500 tabular-nums"
+                  />
+                  <span>/ {totalFrames}</span>
+                </div>
+
+                {/* 进度：默认只读；≤200 帧的小序列升级为可拖动滑块 (§3.3) */}
+                {sliderDraggable ? (
+                  <input
+                    ref={sliderRef}
+                    type="range"
+                    min="0"
+                    max={totalFrames - 1}
+                    defaultValue={0}
+                    onChange={handleSliderChange}
+                    aria-label="切片进度"
+                    className="flex-1 min-w-0 accent-blue-500 cursor-pointer h-1.5 bg-gray-700 rounded-lg"
+                  />
+                ) : (
+                  <div
+                    className="flex-1 min-w-0 h-[3px] bg-gray-700/80 rounded overflow-hidden"
+                    role="progressbar"
+                    aria-label="切片进度"
+                    aria-valuemin={1}
+                    aria-valuemax={totalFrames}
+                  >
+                    <div
+                      ref={progressFillRef}
+                      className="h-full bg-blue-500 rounded"
+                    />
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* 常用调窗预设 */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-1.5 shrink-0">
             <span className="text-[11px] text-gray-500 mr-1">预设:</span>
             {PRESETS.map((preset, idx) => (
               <button
