@@ -263,19 +263,66 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* 底栏：滑块 + 预设 */
 .vp-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
   padding: 0 var(--space-4);
   background: var(--bg-panel); border-top: var(--border-width) solid var(--border);
   font-size: var(--text-xs);
+  position: relative;
 }
-.slider { display: flex; align-items: center; gap: var(--space-3); flex: 1; max-width: 420px; }
-.slider input { flex: 1; accent-color: var(--accent); }
-.presets { display: flex; align-items: center; gap: var(--space-1); }
+/* 层号导航：帧数多（>200）时滑块无法精确定位，改为「输入框 + 步进 + 只读进度」 */
+.slice-nav { display: flex; align-items: center; gap: var(--space-2); flex: 0 0 auto; }
+.step-btn {
+  width: 24px; height: 24px; display: grid; place-items: center;
+  background: var(--bg-elevated); border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-secondary); font-size: var(--text-2xs);
+}
+.step-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.slice-input {
+  width: 52px; height: 24px; text-align: right;
+  background: var(--bg-app); border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-size: var(--text-xs); padding: 0 var(--space-2);
+}
+.slice-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+.slice-total { color: var(--text-muted); font-size: var(--text-2xs); }
+.progress-track {
+  flex: 0 0 56px; height: 3px; background: var(--bg-active);
+  border-radius: 999px; overflow: hidden; min-width: 80px;
+}
+.progress-track > i { display: block; height: 100%; background: var(--accent); }
+
+.presets { display: flex; align-items: center; gap: var(--space-1); flex: 0 1 auto; min-width: 0; }
+.presets #presetChips { display: flex; gap: var(--space-1); flex-wrap: nowrap; overflow: hidden; }
 .presets .lbl { font-size: var(--text-2xs); color: var(--text-muted); margin-right: var(--space-2); }
+.bodypart-select {
+  height: 22px; background: var(--bg-elevated);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-secondary); font-size: var(--text-2xs); padding: 0 var(--space-1);
+}
+/* 降级入口：不是 disabled，点了要给出可见原因 */
+.chip-degraded { color: var(--color-disabled); border-style: dashed; }
+.chip-degraded:hover { color: var(--text-secondary); }
+.cap-link {
+  background: transparent; border: 0; padding: 0;
+  color: var(--color-disabled); font-size: var(--text-xs);
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.cap-link:hover { color: var(--text-secondary); }
+.cap-link[aria-expanded="true"] { color: var(--text-primary); }
+.cap-hint {
+  margin: 0 var(--space-4) var(--space-3);
+  max-width: none;
+  background: var(--bg-elevated); border: var(--border-width) solid var(--border-strong);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-3);
+  font-size: var(--text-2xs); color: var(--text-secondary); line-height: 1.6;
+  background: var(--bg-app);
+}
+.cap-hint b { color: var(--text-primary); }
 .chip {
   background: var(--bg-elevated); border: var(--border-width) solid var(--border);
   color: var(--text-secondary); border-radius: var(--radius-sm);
-  padding: 3px var(--space-3); font-size: var(--text-2xs);
+  padding: 3px 6px; font-size: var(--text-2xs);
+  white-space: nowrap; flex-shrink: 0;
 }
 .chip:hover { background: var(--bg-hover); color: var(--text-primary); }
 .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -461,19 +508,25 @@ button { font: inherit; color: inherit; cursor: pointer; }
       </div>
 
       <div class="vp-foot">
-        <div class="slider only-loaded">
-          <span class="num">1</span>
-          <input type="range" min="1" max="1024" value="512" id="sliceRange" aria-label="切片位置" />
-          <span class="num">1024</span>
+        <div class="slice-nav only-loaded">
+          <button class="step-btn" data-step="-1" title="上一层（滚轮上；Shift+滚轮 = 10 层）">◀</button>
+          <input class="slice-input num" id="sliceInput" value="512" inputmode="numeric" aria-label="跳到指定层" />
+          <span class="slice-total num">/ 1024</span>
+          <button class="step-btn" data-step="1" title="下一层（滚轮下；Shift+滚轮 = 10 层）">▶</button>
+          <div class="progress-track" title="当前位置（只读；≤200 帧时变为可拖动滑块）">
+            <i id="progressFill" style="width: 50%"></i>
+          </div>
         </div>
+
         <div class="presets only-loaded">
-          <span class="lbl">快捷预设</span>
-          <button class="chip" data-preset="肺窗" data-ww="1500" data-wl="-600" aria-pressed="true">肺</button>
-          <button class="chip" data-preset="纵隔窗" data-ww="350" data-wl="40" aria-pressed="false">纵隔</button>
-          <button class="chip" data-preset="骨窗" data-ww="2000" data-wl="350" aria-pressed="false">骨</button>
-          <button class="chip" data-preset="脑窗" data-ww="80" data-wl="40" aria-pressed="false">脑</button>
-          <button class="chip" data-preset="软组织" data-ww="400" data-wl="40" aria-pressed="false">软组织</button>
-          <button class="chip" disabled title="体绘制需要降采样 Volume 通路，当前设备能力探测未通过（降级入口置灰并说明）">3D 体绘制</button>
+          <select class="bodypart-select" id="bodyPart" aria-label="部位（来自 BodyPartExamined 0018,0015）">
+            <option value="胸部" selected>胸部</option>
+            <option value="头颅">头颅</option>
+            <option value="四肢">四肢/骨关节</option>
+            <option value="未识别">未识别</option>
+          </select>
+          <span class="lbl" title="预设集按 BodyPartExamined 分组；自适应 = DICOM 自带窗值或直方图推算">预设</span>
+          <span id="presetChips" style="display:flex;gap:var(--space-1)"></span>
         </div>
       </div>
     </main>
@@ -521,8 +574,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
         <div class="rows">
           <div class="row"><span class="k">渲染后端</span><span class="v num">WebGL2</span></div>
           <div class="row"><span class="k">GPU</span><span class="v">软件回退（SwiftShader）</span></div>
-          <div class="row"><span class="k">体绘制</span><span class="v" style="color:var(--color-disabled)">不可用 · 已隐藏入口</span></div>
-          <div class="row"><span class="k">MPR</span><span class="v" style="color:var(--color-disabled)">不可用 · 已隐藏入口</span></div>
+          <div class="row">
+            <span class="k">体绘制</span>
+            <button class="cap-link" id="btnVolume" aria-expanded="false">不可用 · 查看原因</button>
+          </div>
+          <div class="row"><span class="k">MPR</span><span class="v" style="color:var(--color-disabled)">不可用 · Phase 2</span></div>
+        </div>
+        <div class="cap-hint" id="capHint" hidden>
+          <b>为什么不能做 3D 体绘制</b><br />
+          ① 需要降采样 Volume 通路，该能力属 Phase 2；<br />
+          ② 当前 GPU 为 <span class="num" id="capReason">软件渲染回退（SwiftShader）</span>，
+          体绘制帧率无法保证；<br />
+          ③ 按 §5.3 降级矩阵，入口隐藏而不是给半残体验。<br />
+          轴向浏览、调窗与测量不受影响。
         </div>
         <div class="muted-note">降级一律显式：入口置灰或隐藏，并在此说明原因（ARCHITECTURE §5.3）。</div>
       </section>
@@ -599,23 +663,83 @@ document.querySelectorAll('.proto button').forEach((b) => {
   b.addEventListener('click', () => setState(b.dataset.set));
 });
 
-/* 预设切换 */
-document.querySelectorAll('.chip[data-preset]').forEach((chip) => {
-  chip.addEventListener('click', () => {
-    document.querySelectorAll('.chip[data-preset]').forEach((c) =>
-      c.setAttribute('aria-pressed', String(c === chip)));
-    document.getElementById('wwVal').textContent = chip.dataset.ww;
-    document.getElementById('wlVal').textContent = chip.dataset.wl;
-    document.getElementById('presetTag').textContent = chip.dataset.preset;
-    const bl = document.querySelector('.corner.bl .num');
-    if (bl) bl.textContent = `窗 [${chip.dataset.preset}] WW ${chip.dataset.ww} / WL ${chip.dataset.wl}`;
-  });
-});
+/* ── 预设：按部位分组的窗口集（回答问题：头颅/四肢影像怎么办） ──
+   真实实现应由 core 提供 WINDOW_PRESETS_BY_BODYPART + pickAdaptiveVOI()，
+   UI 只负责渲染；部位来自 BodyPartExamined (0018,0015)。 */
+const PRESETS = {
+  胸部: [['肺', 1500, -600], ['纵隔', 350, 40], ['骨', 2000, 400]],
+  头颅: [['脑', 80, 40], ['骨', 2000, 400], ['卒中', 30, 30]],
+  四肢: [['骨', 2000, 400], ['软组织', 400, 40], ['关节', 1200, 300]],
+  未识别: [['骨', 2000, 400], ['软组织', 400, 40], ['肺', 1500, -600]],
+};
 
-/* 滑块与层数联动（只改数字，示意） */
-const range = document.getElementById('sliceRange');
-range.addEventListener('input', () => {
-  document.getElementById('sliceNow').textContent = range.value;
+const chipsHost = document.getElementById('presetChips');
+const TOTAL = 1024;
+let currentSlice = 512;
+
+function applyVOI(name, ww, wl) {
+  document.getElementById('wwVal').textContent = ww;
+  document.getElementById('wlVal').textContent = wl;
+  document.getElementById('presetTag').textContent = name;
+  document.querySelectorAll('#presetChips .chip').forEach((c) =>
+    c.setAttribute('aria-pressed', String(c.dataset.preset === name)));
+  const bl = document.querySelector('.corner.bl .num');
+  if (bl) bl.textContent = `窗 [${name}] WW ${ww} / WL ${wl}`;
+}
+
+function renderPresets(bodyPart) {
+  chipsHost.innerHTML = '';
+  // 「自适应」永远排第一：DICOM 自带 (0028,1050/1051) 优先，没有则按直方图 2–98 分位
+  const list = [['自动', 480, 45], ...PRESETS[bodyPart]];
+  list.forEach(([name, ww, wl], i) => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.dataset.preset = name;
+    b.dataset.ww = ww;
+    b.dataset.wl = wl;
+    b.setAttribute('aria-pressed', String(i === 0));
+    b.textContent = name;
+    b.title = name === '自适应'
+      ? '优先采用 DICOM 自带窗值 (0028,1050/1051)；缺失时按像素直方图 2%–98% 分位推算'
+      : `WW ${ww} · WL ${wl}`;
+    b.addEventListener('click', () => applyVOI(name, ww, wl));
+    chipsHost.appendChild(b);
+  });
+  applyVOI(list[0][0], list[0][1], list[0][2]);
+}
+
+document.getElementById('bodyPart').addEventListener('change', (e) => {
+  renderPresets(e.target.value);
+});
+renderPresets('胸部');
+
+/* ── 层号导航：帧数多时滑块无法精确，改用输入框 + 步进 ── */
+const sliceInput = document.getElementById('sliceInput');
+const progressFill = document.getElementById('progressFill');
+
+function setSlice(n) {
+  currentSlice = Math.min(TOTAL, Math.max(1, n));
+  sliceInput.value = String(currentSlice);
+  document.getElementById('sliceNow').textContent = String(currentSlice);
+  progressFill.style.width = `${(currentSlice / TOTAL) * 100}%`;
+}
+
+document.querySelectorAll('.step-btn').forEach((b) => {
+  b.addEventListener('click', () => setSlice(currentSlice + Number(b.dataset.step)));
+});
+sliceInput.addEventListener('change', () => {
+  const n = Number(sliceInput.value);
+  setSlice(Number.isFinite(n) && n > 0 ? n : currentSlice);
+});
+setSlice(512);
+
+/* ── 降级入口：可点击，但必须给出可见原因（不能 disabled 让人猜） ── */
+const capHint = document.getElementById('capHint');
+const btnVolume = document.getElementById('btnVolume');
+btnVolume.addEventListener('click', () => {
+  const open = capHint.hidden;
+  capHint.hidden = !open;
+  btnVolume.setAttribute('aria-expanded', String(open));
 });
 
 /* 示例按钮：从空态一键回到正常态 */
