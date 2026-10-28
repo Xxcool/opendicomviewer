@@ -88,7 +88,9 @@ export class CornerstoneRenderer implements RendererPort {
   public capabilities(): RendererCapabilities {
     return {
       backend: this.backend,
-      supportsVolume: true,
+      // 默认不承诺 Volume：原则 5「诚实的边界」——没探测过就说支持，等于把降级矩阵
+      // 变成一句空话。组合根在确认真实能力后显式覆盖。
+      supportsVolume: false,
       isSoftwareFallback: false,
       ...this.capabilityOverrides,
     };
@@ -111,10 +113,16 @@ export class CornerstoneRenderer implements RendererPort {
       );
     }
 
-    // 并发 mount 时只让最后一次生效，避免建出两个引擎
+    // 并发 mount 时只让最后一次生效，避免建出两个引擎。
+    // 失败必须**抛错**而不是 return：静默返回会让调用方以为挂载成功（R7）。
     const token = ++this.mountToken;
     await this.cs3d.init();
-    if (token !== this.mountToken || this.destroyed) return;
+    if (this.destroyed) {
+      throw new Error('mount 过程中渲染器被销毁，本次挂载未生效');
+    }
+    if (token !== this.mountToken) {
+      throw new Error('已存在更新的 mount 请求，本次挂载被放弃');
+    }
 
     const engine = new this.cs3d.RenderingEngine(this.engineId);
     this.engine = engine;
@@ -155,22 +163,53 @@ export class CornerstoneRenderer implements RendererPort {
     initialIndex = 0,
   ): Promise<void> {
     const viewport = this.viewportOf(viewportId);
+    const nextSeriesUid = handle.meta.seriesInstanceUid;
+    const frameCount = handle.meta.planes.length;
+
+    // 先校验再登记：否则越界抛错时帧已经进了登记表，而 viewportSeries 没更新，
+    // 这条序列之后谁都释放不掉（错误路径上的泄漏）。
+    if (frameCount === 0) {
+      throw new Error(`序列 ${nextSeriesUid} 没有可渲染切片，拒绝装载空序列`);
+    }
+    if (
+      !Number.isInteger(initialIndex) ||
+      initialIndex < 0 ||
+      initialIndex >= frameCount
+    ) {
+      throw new Error(
+        `初始切片索引越界：${initialIndex} 不在 [0, ${frameCount - 1}] 内`,
+      );
+    }
+
+    const previousSeriesUid = this.viewportSeries.get(viewportId);
+    const previousFrameCount = this.viewportFrameCounts.get(viewportId);
+
     const imageIds = this.frames.register(handle);
-
-    if (imageIds.length === 0) {
-      throw new Error(
-        `序列 ${handle.meta.seriesInstanceUid} 没有可渲染切片，拒绝装载空序列`,
-      );
+    try {
+      await viewport.setStack(imageIds, initialIndex);
+    } catch (err: unknown) {
+      // CS3D 装载失败时必须回滚登记表，否则这个视口"看起来装着 B、实际还是 A"，
+      // 而 B 的帧再也没人释放。
+      if (
+        nextSeriesUid !== previousSeriesUid &&
+        !this.isSeriesInUse(nextSeriesUid, viewportId)
+      ) {
+        this.frames.release(nextSeriesUid);
+      }
+      this.restoreViewportSeries(viewportId, previousSeriesUid, previousFrameCount);
+      throw err instanceof Error ? err : new Error(String(err));
     }
-    if (!Number.isInteger(initialIndex) || initialIndex < 0 || initialIndex >= imageIds.length) {
-      throw new Error(
-        `初始切片索引越界：${initialIndex} 不在 [0, ${imageIds.length - 1}] 内`,
-      );
-    }
 
-    this.viewportSeries.set(viewportId, handle.meta.seriesInstanceUid);
-    this.viewportFrameCounts.set(viewportId, imageIds.length);
-    await viewport.setStack(imageIds, initialIndex);
+    // 成功之后才切归属，并释放已经没有任何视口在用的旧序列。
+    if (
+      previousSeriesUid &&
+      previousSeriesUid !== nextSeriesUid &&
+      !this.isSeriesInUse(previousSeriesUid, viewportId)
+    ) {
+      this.frames.release(previousSeriesUid);
+    }
+    this.viewportSeries.set(viewportId, nextSeriesUid);
+    this.viewportFrameCounts.set(viewportId, frameCount);
   }
 
   public async setStackIndex(viewportId: string, index: number): Promise<void> {
@@ -274,10 +313,7 @@ export class CornerstoneRenderer implements RendererPort {
     const seriesUid = this.viewportSeries.get(viewportId);
     if (seriesUid) {
       // 仅当没有别的视口还在用同一条序列时才释放（多视口对比同序列是常见场景）
-      const stillUsed = [...this.viewportSeries.entries()].some(
-        ([id, uid]) => id !== viewportId && uid === seriesUid,
-      );
-      if (!stillUsed) {
+      if (!this.isSeriesInUse(seriesUid, viewportId)) {
         this.frames.release(seriesUid);
       }
       this.viewportSeries.delete(viewportId);
@@ -303,6 +339,33 @@ export class CornerstoneRenderer implements RendererPort {
   }
 
   // ── 内部断言 ──────────────────────────────────────────────
+
+  /** 该序列是否仍被"除 exceptViewportId 之外"的视口使用 */
+  private isSeriesInUse(seriesInstanceUid: string, exceptViewportId: string): boolean {
+    for (const [viewportId, uid] of this.viewportSeries.entries()) {
+      if (viewportId !== exceptViewportId && uid === seriesInstanceUid) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private restoreViewportSeries(
+    viewportId: string,
+    previousSeriesUid: string | undefined,
+    previousFrameCount: number | undefined,
+  ): void {
+    if (previousSeriesUid === undefined) {
+      this.viewportSeries.delete(viewportId);
+    } else {
+      this.viewportSeries.set(viewportId, previousSeriesUid);
+    }
+    if (previousFrameCount === undefined) {
+      this.viewportFrameCounts.delete(viewportId);
+    } else {
+      this.viewportFrameCounts.set(viewportId, previousFrameCount);
+    }
+  }
 
   private assertAlive(): void {
     if (this.destroyed) {

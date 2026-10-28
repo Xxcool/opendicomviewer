@@ -31,6 +31,8 @@ class FakeViewport implements Cs3dViewportLike {
   public stackDelayMs = 0;
   public indexDelayMs = 0;
   public onStackDone: (() => void) | null = null;
+  /** 模拟 CS3D 装载失败，用于验证适配器的回滚路径 */
+  public stackShouldFail = false;
   public onIndexDone: (() => void) | null = null;
   private properties: Cs3dViewportPropertiesLike = {
     voiRange: { lower: -160, upper: 239 },
@@ -42,6 +44,9 @@ class FakeViewport implements Cs3dViewportLike {
   ): Promise<void> {
     if (this.stackDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.stackDelayMs));
+    }
+    if (this.stackShouldFail) {
+      throw new Error('模拟 CS3D 装载失败');
     }
     this.stackCalls.push({ imageIds, index: currentImageIdIndex });
     this.onStackDone?.();
@@ -191,6 +196,19 @@ function makeHandle(frameCount: number, seriesUid = '1.2.3'): SeriesHandle {
 }
 
 const ELEMENT = { id: 'el' };
+
+/** 可手动放行的 Promise，用于构造 mount 竞态 */
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let release: () => void = () => {
+    throw new Error('deferred 尚未初始化');
+  };
+  const promise = new Promise<void>((resolve) => {
+    release = () => {
+      resolve();
+    };
+  });
+  return { promise, resolve: release };
+}
 
 function makeRenderer(
   overrides: Partial<ConstructorParameters<typeof CornerstoneRenderer>[0]> = {},
@@ -592,21 +610,151 @@ describe('CornerstoneRenderer · whenIdle 与销毁', () => {
 });
 
 describe('CornerstoneRenderer · 能力探测', () => {
-  it('默认声明 webgl2 且支持 Volume，可被组合根覆盖', () => {
+  it('默认不承诺 Volume（未探测前不吹能力），由组合根显式开启', () => {
     const { renderer } = makeRenderer();
     expect(renderer.backend).toBe('webgl2');
+    // 原则 5「诚实的边界」：没探测过就说支持，降级矩阵等于空话
     expect(renderer.capabilities()).toMatchObject({
       backend: 'webgl2',
-      supportsVolume: true,
+      supportsVolume: false,
       isSoftwareFallback: false,
     });
 
+    const { renderer: enabled } = makeRenderer({
+      capabilities: { supportsVolume: true },
+    });
+    expect(enabled.capabilities().supportsVolume).toBe(true);
+
     const { renderer: degraded } = makeRenderer({
-      capabilities: { supportsVolume: false, isSoftwareFallback: true },
+      capabilities: { isSoftwareFallback: true },
     });
-    expect(degraded.capabilities()).toMatchObject({
-      supportsVolume: false,
-      isSoftwareFallback: true,
+    expect(degraded.capabilities().isSoftwareFallback).toBe(true);
+  });
+});
+
+describe('CornerstoneRenderer · 生命周期泄漏防护', () => {
+  async function mountedViewports(
+    viewportIds: string[],
+  ): Promise<{ renderer: CornerstoneRenderer; engine: FakeEngine }> {
+    const { renderer, engine } = makeRenderer({
+      resolveElements: () => viewportIds.map((id) => ({ id })),
     });
+    await renderer.mount(
+      { containerId: 'root' },
+      { rows: 1, cols: viewportIds.length, viewportIds },
+    );
+    return { renderer, engine };
+  }
+
+  it('同一视口换序列时释放旧序列，登记表不随切换增长', async () => {
+    const { renderer } = await mountedViewports(['vp']);
+    await renderer.setStack('vp', makeHandle(3, '1.1.1'));
+    expect(renderer.frameRegistry.size).toBe(3);
+
+    await renderer.setStack('vp', makeHandle(2, '2.2.2'));
+    // 旧序列 3 帧必须被释放，只剩新序列 2 帧
+    expect(renderer.frameRegistry.size).toBe(2);
+    expect(renderer.frameRegistry.imageIdsOf('1.1.1')).toHaveLength(0);
+    expect(renderer.frameRegistry.imageIdsOf('2.2.2')).toHaveLength(2);
+  });
+
+  it('旧序列仍被另一视口使用时不得释放（多视口对比同序列）', async () => {
+    const { renderer } = await mountedViewports(['vp-1', 'vp-2']);
+    const shared = makeHandle(3, '3.3.3');
+    await renderer.setStack('vp-1', shared);
+    await renderer.setStack('vp-2', shared);
+
+    await renderer.setStack('vp-1', makeHandle(1, '4.4.4'));
+    // vp-2 还在看 3.3.3，它的 3 帧不能动
+    expect(renderer.frameRegistry.imageIdsOf('3.3.3')).toHaveLength(3);
+    expect(renderer.frameRegistry.size).toBe(4);
+  });
+
+  it('初始索引越界时登记表保持干净（错误路径不得留残留）', async () => {
+    const { renderer } = await mountedViewports(['vp']);
+    await renderer.setStack('vp', makeHandle(2, '5.5.5'));
+    const sizeBefore = renderer.frameRegistry.size;
+
+    await expect(renderer.setStack('vp', makeHandle(3, '6.6.6'), 9)).rejects.toThrow(
+      /初始切片索引越界/,
+    );
+    expect(renderer.frameRegistry.size).toBe(sizeBefore);
+    expect(renderer.frameRegistry.imageIdsOf('6.6.6')).toHaveLength(0);
+  });
+
+  it('CS3D 装载失败时回滚：登记表与视口归属都回到调用前', async () => {
+    const { renderer, engine } = await mountedViewports(['vp']);
+    const viewport = engine.viewportOf('vp');
+
+    await renderer.setStack('vp', makeHandle(3, '7.7.7'));
+    const sizeBefore = renderer.frameRegistry.size;
+
+    viewport.stackShouldFail = true;
+    await expect(renderer.setStack('vp', makeHandle(2, '8.8.8'))).rejects.toThrow(
+      /模拟 CS3D 装载失败/,
+    );
+
+    // 新序列必须被回滚掉，旧序列原样保留
+    expect(renderer.frameRegistry.size).toBe(sizeBefore);
+    expect(renderer.frameRegistry.imageIdsOf('8.8.8')).toHaveLength(0);
+    expect(renderer.frameRegistry.imageIdsOf('7.7.7')).toHaveLength(3);
+
+    // 视口归属仍是旧序列：越界判断继续按旧帧数生效
+    viewport.stackShouldFail = false;
+    await expect(renderer.setStackIndex('vp', 3)).rejects.toThrow(/切片索引越界/);
+  });
+});
+
+describe('CornerstoneRenderer · mount 竞态', () => {
+  it('并发 mount 只允许一次成功，被取代的那次必须抛错而不是静默返回', async () => {
+    const initGate = deferred();
+
+    const { cs3d } = makeCs3dModule();
+    const gatedCs3d: Cs3dModuleLike = {
+      ...cs3d,
+      init: async () => {
+        await initGate.promise;
+      },
+    };
+    const renderer = new CornerstoneRenderer({
+      cs3d: gatedCs3d,
+      resolveElements: () => [ELEMENT],
+      idleTimeoutMs: 20,
+    });
+
+    const layout = { rows: 1, cols: 1, viewportIds: ['vp'] } as const;
+    const first = renderer.mount({ containerId: 'root' }, layout);
+    const second = renderer.mount({ containerId: 'root' }, layout);
+
+    initGate.resolve();
+
+    await expect(second).resolves.toBeUndefined();
+    await expect(first).rejects.toThrow(/更新的 mount 请求/);
+  });
+
+  it('mount 进行中被 destroy 时必须抛错，不能假装挂载成功', async () => {
+    const initGate = deferred();
+
+    const { cs3d } = makeCs3dModule();
+    const renderer = new CornerstoneRenderer({
+      cs3d: {
+        ...cs3d,
+        init: async () => {
+          await initGate.promise;
+        },
+      },
+      resolveElements: () => [ELEMENT],
+      idleTimeoutMs: 20,
+    });
+
+    const mounting = renderer.mount(
+      { containerId: 'root' },
+      { rows: 1, cols: 1, viewportIds: ['vp'] },
+    );
+    renderer.destroy();
+    initGate.resolve();
+
+    await expect(mounting).rejects.toThrow(/被销毁/);
+    expect(() => renderer.render()).toThrow(/已销毁/);
   });
 });
