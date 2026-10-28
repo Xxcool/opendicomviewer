@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { DataSourcePort, SeriesSummary } from '@opendicomviewer/core';
+import type {
+  DataSourcePort,
+  DataWarning,
+  SeriesSummary,
+} from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
+import { badgeClass, seriesBadge } from './warning-presentation';
 import { LayersIcon, SpinnerIcon } from './Icons';
 
 interface SeriesListProps {
@@ -13,6 +18,7 @@ export function SeriesList({ dataSource }: SeriesListProps) {
     activeSeriesUid,
     setActiveSeries,
     setImportStatus,
+    warnings: activeWarnings,
   } = useViewerStore();
 
   const [seriesList, setSeriesList] = useState<readonly SeriesSummary[]>([]);
@@ -21,6 +27,15 @@ export function SeriesList({ dataSource }: SeriesListProps) {
   );
   /** 点击"当前已选中"的序列时给一次短暂高亮，避免用户以为点击无效 */
   const [pulseUid, setPulseUid] = useState<string | null>(null);
+  /**
+   * 已打开过的序列告警缓存。
+   *
+   * `SeriesSummary` 不含告警，告警只有 `openSeries()` 排序后才知道，
+   * 因此未打开过的序列无法预判——对应项显示"未检测"而不是假装没问题。
+   */
+  const [warningsBySeries, setWarningsBySeries] = useState<
+    Record<string, readonly DataWarning[]>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +106,10 @@ export function SeriesList({ dataSource }: SeriesListProps) {
         seriesInstanceUid: summary.seriesInstanceUid,
       });
       setActiveSeries(handle);
+      setWarningsBySeries((prev) => ({
+        ...prev,
+        [summary.seriesInstanceUid]: handle.warnings,
+      }));
     } catch (err: unknown) {
       setImportStatus({
         loading: false,
@@ -173,6 +192,34 @@ export function SeriesList({ dataSource }: SeriesListProps) {
               <div className="text-xs font-medium truncate w-full text-txt">
                 {item.seriesDescription || '未命名序列'}
               </div>
+
+              {/* 告警徽标（ui-spec §2：徽标必须在列表项里，用户先在这里挑序列） */}
+              {(() => {
+                const seriesWarnings = isActive
+                  ? activeWarnings
+                  : warningsBySeries[item.seriesInstanceUid];
+                const badge = seriesWarnings
+                  ? seriesBadge(seriesWarnings)
+                  : undefined;
+                if (badge) {
+                  return (
+                    <span
+                      className={`self-start text-[10px] px-1.5 py-0.5 rounded border ${badgeClass(badge.severity)}`}
+                    >
+                      {badge.text}
+                    </span>
+                  );
+                }
+                // 未打开过的序列还没有排序结果，不能默认"没问题"
+                if (!seriesWarnings) {
+                  return (
+                    <span className="self-start text-[10px] text-txt-muted">
+                      未检测
+                    </span>
+                  );
+                }
+                return null;
+              })()}
 
               {isSwitching && (
                 <div className="flex items-center space-x-1 text-[11px] text-accent pt-1">

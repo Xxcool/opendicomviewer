@@ -50,3 +50,48 @@ export function severityLabel(severity: Severity): string {
 export function primaryWarning(warnings: readonly DataWarning[]): DataWarning | undefined {
   return sortBySeverity(warnings)[0];
 }
+
+/**
+ * 列表项徽标文案（ui-spec §6.2 映射表）
+ *
+ * 徽标必须出现在列表项里——用户是先在左栏挑序列的，
+ * 只把告警放在视口顶部等于让人先点进去才知道有问题。
+ */
+const BADGE_LABEL: Record<DataWarning['code'], string> = {
+  SLICE_GAP: '⚠ 缺层',
+  IRREGULAR_SPACING: '⚠ 层距异常',
+  DUPLICATE_SLICE: '⚠ 重复切片',
+  ORIENTATION_MISMATCH: '⚠ 朝向不一致',
+  NON_AXIAL_ORIENTATION: '⚠ 非轴位',
+  MISSING_GEOMETRY: '⚠ 几何缺失',
+  BURNED_IN_INFO: '⚠ 含烧录信息',
+  UNSUPPORTED_TRANSFER_SYNTAX: '⚠ 语法不支持',
+  DECODE_PARTIAL_FAILURE: '⚠ 部分解码失败',
+};
+
+export interface SeriesBadge {
+  readonly text: string;
+  readonly severity: Severity;
+}
+
+/** 只取最高级一条；多条用 `+N` 收口，避免徽标把序列项撑变形 */
+export function seriesBadge(
+  warnings: readonly DataWarning[],
+): SeriesBadge | undefined {
+  const sorted = sortBySeverity(warnings);
+  const first = sorted[0];
+  if (!first) return undefined;
+  const label = BADGE_LABEL[first.code] ?? '⚠ 数据告警';
+  const extra = sorted.length - 1;
+  return {
+    text: extra > 0 ? `${label} +${extra}` : label,
+    severity: first.severity,
+  };
+}
+
+/** 徽标配色：与右栏清单同一套语义色 */
+export function badgeClass(severity: Severity): string {
+  if (severity === 'error') return 'bg-danger/10 border-danger/40 text-danger';
+  if (severity === 'warning') return 'bg-warn/10 border-warn/40 text-warn';
+  return 'bg-info/10 border-info/40 text-info';
+}
