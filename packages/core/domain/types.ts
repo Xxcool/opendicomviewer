@@ -89,7 +89,13 @@ export interface DataWarning {
     | 'DECODE_PARTIAL_FAILURE';
   /** 面向用户的自然语言中文提示（R7） */
   readonly message: string;
-  readonly severity: 'warning' | 'error';
+  /**
+   * 严重度：
+   * - info：值不值得知道，但不影响当前操作（如轻度斜切采集，轴向浏览无影响）
+   * - warning：可能影响判读精度，需要用户知情（缺层、层距不均、重复切片）
+   * - error：数据不可用或被剔除，必须让用户看到（朝向不一致剔除、传输语法不支持）
+   */
+  readonly severity: 'info' | 'warning' | 'error';
   readonly details?: Record<string, string | number | boolean>;
 }
 

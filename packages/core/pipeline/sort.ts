@@ -166,12 +166,20 @@ export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
     Math.abs(baseNormal[1]),
     Math.abs(baseNormal[2]),
   );
-  if (maxAxisAlignment < 0.999) {
+  // 按倾角分档（2026-10-28 调整）：
+  // 真实 MR 常见 5–10° 的摆位/斜切，早期用 0.999（≈2.6°）一律报 warning，
+  // 导致每份正常数据都挂一条"异常"，告警随即被用户忽略。
+  // 现在：≤5° 不报；5–15° 记 info 并说明不影响轴向浏览；>15° 才是 warning。
+  const tiltDeg = (Math.acos(Math.min(1, Math.max(0, maxAxisAlignment))) * 180) / Math.PI;
+  if (tiltDeg > 5) {
+    const severe = tiltDeg > 15;
     warnings.push({
       code: 'NON_AXIAL_ORIENTATION',
-      message: `序列采集方向非标准轴对齐（主法向轴对齐余弦 ${maxAxisAlignment.toFixed(4)}），可能存在机架倾斜或斜切采集，三维重建需进行仿射变换`,
-      severity: 'warning',
-      details: { maxAxisAlignment },
+      message: severe
+        ? `采集方向偏离标准轴位 ${tiltDeg.toFixed(1)}°，轴向浏览仍可用，但三维重建与多序列配准需要仿射变换`
+        : `采集方向与标准轴位相差 ${tiltDeg.toFixed(1)}°（常见于摆位/斜切采集），不影响轴向浏览与测量`,
+      severity: severe ? 'warning' : 'info',
+      details: { maxAxisAlignment, tiltDeg: Number(tiltDeg.toFixed(2)) },
     });
   }
 
@@ -254,36 +262,61 @@ export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
   }
 
   // 缺层与异常层距双向判定（S4）
+  //
+  // 聚合而非逐处上报（2026-10-28 调整）：真实 MR 一次能出现 7 处层间距跳跃，
+  // 逐条上报会把右栏刷满、把"影像信息"挤出屏幕，用户反而看不到真正重要的告警。
+  // 现在同类问题合并为一条，逐处细节放进 details.gaps 摘要供展开查看。
   if (expectedSpacing > 1e-4) {
+    const gapSites: string[] = [];
+    let estimatedMissing = 0;
+    let maxGap = 0;
+
+    const narrowSites: string[] = [];
+    let minNarrow = Number.POSITIVE_INFINITY;
+
     for (let i = 0; i < sliceDistances.length; i++) {
       const dist = sliceDistances[i];
       if (dist === undefined) continue;
 
       if (dist > 1.5 * expectedSpacing) {
-        warnings.push({
-          code: 'SLICE_GAP',
-          message: `切片第 ${i + 1} 层与第 ${i + 2} 层之间存在疑似缺层：物理间距 ${dist.toFixed(2)} mm（基准间距 ${expectedSpacing.toFixed(2)} mm）`,
-          severity: 'warning',
-          details: {
-            indexBefore: i,
-            indexAfter: i + 1,
-            actualDistance: dist,
-            expectedSpacing,
-          },
-        });
+        gapSites.push(`${i + 1}-${i + 2}:${dist.toFixed(2)}`);
+        estimatedMissing += Math.max(1, Math.round(dist / expectedSpacing) - 1);
+        if (dist > maxGap) maxGap = dist;
       } else if (dist < 0.7 * expectedSpacing && dist >= 1e-3) {
-        warnings.push({
-          code: 'IRREGULAR_SPACING',
-          message: `切片第 ${i + 1} 层与第 ${i + 2} 层之间层距偏窄：物理间距 ${dist.toFixed(2)} mm（基准间距 ${expectedSpacing.toFixed(2)} mm）`,
-          severity: 'warning',
-          details: {
-            indexBefore: i,
-            indexAfter: i + 1,
-            actualDistance: dist,
-            expectedSpacing,
-          },
-        });
+        narrowSites.push(`${i + 1}-${i + 2}:${dist.toFixed(2)}`);
+        if (dist < minNarrow) minNarrow = dist;
       }
+    }
+
+    if (gapSites.length > 0) {
+      warnings.push({
+        code: 'SLICE_GAP',
+        message:
+          `检测到 ${gapSites.length} 处层间距跳跃（基准 ${expectedSpacing.toFixed(2)} mm，最大 ${maxGap.toFixed(2)} mm），` +
+          `按基准估算缺少约 ${estimatedMissing} 层；测量与三维重建精度可能受影响`,
+        severity: 'warning',
+        details: {
+          gapCount: gapSites.length,
+          maxGap,
+          expectedSpacing,
+          estimatedMissingLayers: estimatedMissing,
+          gaps: gapSites.join(', '),
+        },
+      });
+    }
+
+    if (narrowSites.length > 0) {
+      warnings.push({
+        code: 'IRREGULAR_SPACING',
+        message: `检测到 ${narrowSites.length} 处层距偏窄（最小 ${minNarrow.toFixed(2)} mm，基准 ${expectedSpacing.toFixed(2)} mm）`,
+        severity: 'warning',
+        details: {
+          narrowCount: narrowSites.length,
+          minSpacing: minNarrow,
+          expectedSpacing,
+          gaps: narrowSites.join(', '),
+        },
+      });
     }
   } else {
     // 无法确定间距时必须告警，严禁静默跳过（R7）

@@ -187,17 +187,35 @@
 
 ## 6. 告警码 → 文案映射（`DataWarning.code`）
 
-| code | 列表徽标 | 视口告警条 | 颜色 |
+### 6.1 严重度分档（2026-10-28 修订）
+
+真实 MR 数据（36 层、7 处层间距跳跃、7° 斜切）首次接入后，界面一次冒出 10 条同色告警，
+把"影像信息"挤出屏幕，用户直接忽略——**告警全部同色同权，等于没有告警**。
+
+| severity | 含义 | 颜色 | 展示 |
 | --- | --- | --- | --- |
-| `SLICE_GAP` | `⚠ 缺 N 层` | `检测到 N 处层缺失（层间距 1.0 → 2.0 mm），测量结果可能受影响` | `--color-warn` |
-| `IRREGULAR_SPACING` | `⚠ 层距异常` | `层间距不均匀（最小 0.8 / 最大 2.0 mm）` | `--color-warn` |
-| `DUPLICATE_SLICE` | `⚠ 重复切片` | `检测到 N 张位置重复的切片，已按 SOPInstanceUID 去重` | `--color-warn` |
-| `ORIENTATION_MISMATCH` | `⚠ 朝向不一致` | `N 张切片朝向与主序列不同，已排除（可在列表中单独查看）` | `--color-warn` |
-| `NON_AXIAL_ORIENTATION` | `⚠ 非轴位` | `该序列非标准轴位，轴向浏览与测量需谨慎` | `--color-warn` |
-| `MISSING_GEOMETRY` | `⚠ 几何缺失` | `切片缺少位置/朝向信息，无法保证层序与测量精度` | `--color-warn` |
-| `BURNED_IN_INFO` | `⚠ 烧录信息` | `图像中疑似含烧录文字，脱敏无法覆盖像素内容` | `--color-warn` |
-| `UNSUPPORTED_TRANSFER_SYNTAX` | `⚠ 格式不支持` | `压缩传输语法 <UID> 暂不支持，该文件未载入` | `--color-danger` |
-| `DECODE_PARTIAL_FAILURE` | `⚠ 部分帧失败` | `N 帧解码失败，其余可正常浏览` | `--color-danger` |
+| `info` | 值得知道但不影响当前操作 | `--color-info`（灰蓝） | 右栏清单，措辞明确写"不影响…" |
+| `warning` | 可能影响判读精度，需知情 | `--color-warn`（琥珀） | 右栏 + 视口顶条（取最高级一条） |
+| `error` | 数据不可用或被剔除 | `--color-danger`（红） | 同上，且优先展示 |
+
+两条呈现规则：
+1. **同类聚合**：`SLICE_GAP` / `IRREGULAR_SPACING` 多处发生时只报一条，
+   消息里带"N 处、最大 X mm、按基准估算缺约 M 层"，逐处索引放进 `details.gaps` 供展开；
+2. **顶条只显示最高级一条**，其余以"另有 N 条见右侧"提示，禁止把所有消息拼成一行。
+
+### 6.2 映射表
+
+| code | severity | 列表徽标 | 视口告警条 | 颜色 |
+| --- | --- | --- | --- | --- |
+| `SLICE_GAP` | `warning` | `⚠ 缺 N 层` | `检测到 N 处层缺失（层间距 1.0 → 2.0 mm），测量结果可能受影响` | `--color-warn` |
+| `IRREGULAR_SPACING` | `warning` | `⚠ 层距异常` | `层间距不均匀（最小 0.8 / 最大 2.0 mm）` | `--color-warn` |
+| `DUPLICATE_SLICE` | `warning` | `⚠ 重复切片` | `检测到 N 张位置重复的切片，已按 SOPInstanceUID 去重` | `--color-warn` |
+| `ORIENTATION_MISMATCH` | `error` | `⚠ 朝向不一致` | `N 张切片朝向与主序列不同，已排除（可在列表中单独查看）` | `--color-warn` |
+| `NON_AXIAL_ORIENTATION` | `info`（>15° 升为 `warning`） | `⚠ 非轴位` | `该序列非标准轴位，轴向浏览与测量需谨慎` | `--color-warn` |
+| `MISSING_GEOMETRY` | `warning` | `⚠ 几何缺失` | `切片缺少位置/朝向信息，无法保证层序与测量精度` | `--color-warn` |
+| `BURNED_IN_INFO` | `warning` | `⚠ 烧录信息` | `图像中疑似含烧录文字，脱敏无法覆盖像素内容` | `--color-warn` |
+| `UNSUPPORTED_TRANSFER_SYNTAX` | `error` | `⚠ 格式不支持` | `压缩传输语法 <UID> 暂不支持，该文件未载入` | `--color-danger` |
+| `DECODE_PARTIAL_FAILURE` | `error` | `⚠ 部分帧失败` | `N 帧解码失败，其余可正常浏览` | `--color-danger` |
 
 > 新增 `DataWarning.code` 必须同时更新本表，否则该告警在界面上无处显示。
 

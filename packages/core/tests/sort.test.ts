@@ -100,6 +100,72 @@ describe('sortByPosition 几何与层序排序', () => {
     expect(result.warnings.some((w) => w.code === 'ORIENTATION_MISMATCH')).toBe(true);
   });
 
+  /**
+   * 2026-10-28：真实 MR（36 层，层厚 3mm）一次产生 7 处层间距跳跃，
+   * 早期逐处上报会把右栏刷满、把影像信息挤出屏幕。改为同类聚合为一条。
+   */
+  it('缺层多处发生时聚合为一条告警，并给出缺层估算', () => {
+    // 间距 3mm：3→9 跳 1 层（6mm）、15→30 跳 4 层（15mm）、33→39 跳 1 层（6mm）
+    const zs = [0, 3, 9, 12, 15, 30, 33, 39, 42];
+    const planes = zs.map((z, i) =>
+      createPlane(z, i + 1, { sliceThickness: 3, spacingBetweenSlices: 3 }),
+    );
+
+    const result = sortByPosition(planes);
+    const gaps = result.warnings.filter((w) => w.code === 'SLICE_GAP');
+
+    expect(gaps).toHaveLength(1); // 聚合：3 处跳跃只报一条
+    expect(gaps[0]?.message).toContain('3 处层间距跳跃');
+    expect(gaps[0]?.details?.gapCount).toBe(3);
+    expect(gaps[0]?.details?.maxGap).toBeCloseTo(15, 1);
+    // 缺层估算：1 + 4 + 1 = 6 层
+    expect(gaps[0]?.details?.estimatedMissingLayers).toBe(6);
+  });
+
+  /**
+   * 2026-10-28：真实 MR 的采集方向与 +Z 相差 7.0°（摆位/斜切），
+   * 早期阈值 0.999（≈2.6°）把它判成 warning，导致正常数据也挂"异常"。
+   */
+  it('轻度斜切（7°）只记 info，且明确说明不影响轴向浏览', () => {
+    const rad = (deg: number) => (deg * Math.PI) / 180;
+    const tilt = 7;
+    const iop: [number, number, number, number, number, number] = [
+      1, 0, 0, 0, Math.cos(rad(tilt)), Math.sin(rad(tilt)),
+    ];
+    const planes = [0, 3, 6, 9].map((z, i) =>
+      createPlane(z, i + 1, { imageOrientationPatient: iop }),
+    );
+
+    const result = sortByPosition(planes);
+    const nonAxial = result.warnings.find((w) => w.code === 'NON_AXIAL_ORIENTATION');
+
+    expect(nonAxial).toBeDefined();
+    expect(nonAxial?.severity).toBe('info');
+    expect(nonAxial?.message).toContain('不影响轴向浏览');
+    expect(nonAxial?.details?.tiltDeg).toBeCloseTo(7, 0);
+  });
+
+  it('大角度斜切（20°）仍然是 warning，并提示需要仿射变换', () => {
+    const rad = (deg: number) => (deg * Math.PI) / 180;
+    const iop: [number, number, number, number, number, number] = [
+      1, 0, 0, 0, Math.cos(rad(20)), Math.sin(rad(20)),
+    ];
+    const planes = [0, 3, 6, 9].map((z, i) =>
+      createPlane(z, i + 1, { imageOrientationPatient: iop }),
+    );
+
+    const result = sortByPosition(planes);
+    const nonAxial = result.warnings.find((w) => w.code === 'NON_AXIAL_ORIENTATION');
+    expect(nonAxial?.severity).toBe('warning');
+    expect(nonAxial?.message).toContain('仿射变换');
+  });
+
+  it('严格轴位（0°）不产生任何非轴位告警', () => {
+    const planes = [0, 3, 6, 9].map((z, i) => createPlane(z, i + 1));
+    const result = sortByPosition(planes);
+    expect(result.warnings.some((w) => w.code === 'NON_AXIAL_ORIENTATION')).toBe(false);
+  });
+
   it('S6：非轴对齐与机架倾斜应产生 NON_AXIAL_ORIENTATION 告警', () => {
     // 倾斜 30 度角
     const cos30 = Math.cos(Math.PI / 6);

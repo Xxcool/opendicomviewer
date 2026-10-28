@@ -1,9 +1,17 @@
 import { useViewerStore } from '../state/viewer-store';
+import {
+  countBySeverity,
+  sortBySeverity,
+  warningBoxClass,
+} from './warning-presentation';
 import { InfoIcon, WarningIcon } from './Icons';
 
 export function MetadataPanel() {
   const { studies, activeStudyUid, activeSeriesHandle, warnings } =
     useViewerStore();
+
+  const sortedWarnings = sortBySeverity(warnings);
+  const counts = countBySeverity(warnings);
 
   const currentStudy = studies.find(
     (s) => s.studyInstanceUid === activeStudyUid,
@@ -84,18 +92,25 @@ export function MetadataPanel() {
         </div>
       )}
 
-      {/* 数据告警清单 */}
+      {/* 数据告警清单：按严重度排序，error/warning/info 分档配色 */}
       {warnings.length > 0 && (
         <div className="space-y-2 mt-auto pt-4 border-t border-gray-800">
-          <div className="flex items-center space-x-1.5 text-amber-400 font-semibold">
-            <WarningIcon className="w-3.5 h-3.5" />
-            <span>数据异常提醒 ({warnings.length})</span>
+          <div className="flex items-center justify-between text-gray-300 font-semibold">
+            <span className="flex items-center space-x-1.5">
+              <WarningIcon className="w-3.5 h-3.5" />
+              <span>数据提醒 ({warnings.length})</span>
+            </span>
+            <span className="text-[10px] font-normal text-gray-500 font-mono">
+              {counts.error > 0 && `${counts.error} 错误 `}
+              {counts.warning > 0 && `${counts.warning} 告警 `}
+              {counts.info > 0 && `${counts.info} 提示`}
+            </span>
           </div>
           <div className="space-y-1.5">
-            {warnings.map((w, idx) => (
+            {sortedWarnings.map((w, idx) => (
               <div
-                key={idx}
-                className="p-2 rounded bg-amber-950/40 border border-amber-900/60 text-amber-300 text-[11px] leading-relaxed"
+                key={`${w.code}-${idx}`}
+                className={`p-2 rounded border text-[11px] leading-relaxed ${warningBoxClass(w.severity)}`}
               >
                 {w.message}
               </div>

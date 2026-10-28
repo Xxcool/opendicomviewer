@@ -3,6 +3,11 @@ import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
 import type { VOIRange } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
 import { ResetIcon, WarningIcon, SpinnerIcon } from './Icons';
+import {
+  primaryWarning,
+  severityLabel,
+  warningBannerClass,
+} from './warning-presentation';
 
 interface ViewportProps {
   readonly renderer: CornerstoneRenderer | null;
@@ -34,6 +39,8 @@ export function Viewport({
   const startVoiRef = useRef<VOIRange | null>(null);
 
   const { activeSeriesHandle, warnings, setImportStatus } = useViewerStore();
+  const topWarning = primaryWarning(warnings);
+  const restWarningCount = Math.max(0, warnings.length - 1);
   const [sliceIndex, setSliceIndex] = useState(0);
 
   // 1. 装载序列与切换序列（错误可见性遵循 P1-1）
@@ -295,14 +302,18 @@ export function Viewport({
         </div>
       </div>
 
-      {/* 数据告警提示（R7: 禁止静默降级） */}
-      {warnings.length > 0 && (
-        <div className="bg-amber-950/70 border-b border-amber-600/50 px-4 py-1.5 flex items-center space-x-2 text-xs text-amber-200 z-10">
-          <WarningIcon className="w-4 h-4 text-amber-400 shrink-0" />
-          <div className="truncate">
-            <span className="font-semibold">影像数据告警：</span>
-            {warnings.map((w) => w.message).join('；')}
-          </div>
+      {/* 数据告警提示（R7: 禁止静默降级）
+          只展示最严重的一条 + 剩余条数：真实数据下逐条拼接会把顶条撑成好几行并溢出 */}
+      {topWarning && (
+        <div
+          className={`${warningBannerClass(topWarning.severity)} border-b px-4 py-1.5 flex items-center space-x-2 text-xs z-10`}
+        >
+          <WarningIcon className="w-4 h-4 shrink-0" />
+          <span className="font-semibold shrink-0">{severityLabel(topWarning.severity)}：</span>
+          <span className="truncate">{topWarning.message}</span>
+          {restWarningCount > 0 && (
+            <span className="shrink-0 opacity-70">· 另有 {restWarningCount} 条见右侧</span>
+          )}
         </div>
       )}
 
