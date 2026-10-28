@@ -77,28 +77,93 @@ export interface ViewportLayout {
 }
 
 export interface RenderMountTarget {
-  /** 宿主挂载容器唯一标识或容器句柄（具体 Adapter 转为 HTMLDivElement 等） */
+  /** 宿主挂载容器唯一标识（找不到元素时的回退查找键） */
   readonly containerId: string;
+  /** 宿主元素句柄（具体 Adapter 自行收窄为 HTMLDivElement），优先于 containerId */
   readonly element?: unknown;
 }
 
+/**
+ * 渲染器能力与降级信息（§5.3 设备 × 功能降级矩阵的运行时依据）
+ */
+export interface RendererCapabilities {
+  readonly backend: RenderBackendType;
+  /** 是否支持降采样 Volume 通路（MPR / 体绘制）。false 时 UI 必须隐藏对应入口 */
+  readonly supportsVolume: boolean;
+  /** GPU 最大纹理边长；未知为 undefined。超大矩阵需据此决定是否分块 */
+  readonly maxTextureSize?: number;
+  /** 是否落了软件渲染回退；为 true 时禁止对外宣传性能指标 */
+  readonly isSoftwareFallback: boolean;
+}
+
+export interface CanvasPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/** 患者坐标 [x, y, z]，单位 mm（LPS） */
+export type WorldPoint = readonly [number, number, number];
+
+/**
+ * 渲染端口
+ *
+ * 契约（违反即视为 Adapter 缺陷，Spike A 已实测确认以下语义）：
+ *
+ * 1. **渲染器不解析 DICOM**。它只消费 `SeriesHandle.pixel()` 产出的 `PixelFrame`
+ *    与 `SeriesMeta.planes` 的几何，不得引入 DICOM 解析库（见 GEMINI.md 层级规则）。
+ * 2. **`render()` 只提交，不代表已呈现**。CS3D 内部走 requestAnimationFrame，
+ *    `render()` 返回后同步计时常为 0。需要"画面已更新"时必须 `await whenIdle()`。
+ * 3. **`setStackIndex()` 必须 await**。切换切片可能触发异步解码，返回 void 会让
+ *    调用方在旧帧上做测量。
+ * 4. **调窗走 `setVOI()` 的上下限语义，不走窗宽窗位语义**。Adapter 内部用
+ *    `voiToRange()` 换算，`getVOI()` 用 `rangeToVOI()` 逆变换，保证与 core 的
+ *    像素映射同一口径（Spike A 实测 CS3D 读回值与该公式一致）。
+ * 5. **不得在渲染循环里触发状态管理**（R4）。
+ */
 export interface RendererPort {
   readonly backend: RenderBackendType;
-  /** 初始化并挂载渲染画布至目标容器 */
-  mount(target: RenderMountTarget, layout: ViewportLayout): void;
+  /** 运行时能力探测，mount 之前也应可调用 */
+  capabilities(): RendererCapabilities;
+
+  /** 初始化并挂载渲染画布至目标容器，按 layout 建立各视口 */
+  mount(target: RenderMountTarget, layout: ViewportLayout): Promise<void>;
+  /** 调整视口网格布局（已挂载的前提下） */
+  setLayout(layout: ViewportLayout): Promise<void>;
+
   /** 设置视口显示全分辨率 Stack 序列切片 */
-  setStack(viewportId: string, handle: SeriesHandle, initialIndex?: number): Promise<void>;
-  /** 切换全分辨率切片索引（滚动切片翻页） */
-  setStackIndex(viewportId: string, index: number): void;
+  setStack(
+    viewportId: string,
+    handle: SeriesHandle,
+    initialIndex?: number,
+  ): Promise<void>;
+  /** 切换全分辨率切片索引（滚动翻页），必须 await */
+  setStackIndex(viewportId: string, index: number): Promise<void>;
   /** 设置视口显示降采样 3D Volume（MPR 通路，严禁作测量依据） */
   setVolume(viewportId: string, volumeId: string): Promise<void>;
+
   /** 显存直通调窗（更新片元着色器 uniform） */
   setVOI(viewportId: string, range: VOIRange): void;
-  /** 调整视口网格布局 */
-  setLayout(layout: ViewportLayout): void;
-  /** 重绘视口 */
+  /** 读回当前调窗（用于预设切换与"复位到默认窗"） */
+  getVOI(viewportId: string): VOIRange;
+  /** 复位相机与缩放（不改 VOI） */
+  resetView(viewportId: string): void;
+
+  /** 患者坐标 → 画布像素坐标（测量工具绘制用） */
+  worldToCanvas(viewportId: string, world: WorldPoint): CanvasPoint;
+  /** 画布像素坐标 → 患者坐标（点击取点用） */
+  canvasToWorld(viewportId: string, canvas: CanvasPoint): WorldPoint;
+
+  /** 提交重绘。返回不代表已呈现，见契约第 2 条 */
   render(viewportId?: string): void;
-  /** 销毁渲染引擎，释放 GPU 纹理与上下文（避免内存泄漏） */
+  /**
+   * 等待画面真正呈现（双帧 + 超时兜底的尽力而为实现）。
+   * 性能埋点、截图断言、导出图像之前必须 await；超时也 resolve，不抛错。
+   */
+  whenIdle(viewportId?: string): Promise<void>;
+
+  /** 释放单个视口（多视口布局下关闭某个格子） */
+  disposeViewport(viewportId: string): void;
+  /** 销毁渲染引擎，释放 GPU 纹理与上下文（幂等） */
   destroy(): void;
 }
 

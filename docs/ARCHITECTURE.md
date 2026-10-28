@@ -902,6 +902,14 @@ export interface RendererPort {
   destroy(): void;
 }
 
+// ☝️ 以上是**早期草案，已作废**。正式定义以 packages/core/ports/index.ts 为准，
+//    两处差异（都是 Spike A 实测后修正的，不要再按草案写代码）：
+//    1. setStackIndex / whenIdle 是 Promise——CS3D 的切片切换与帧提交都是异步的；
+//    2. setVOI 收 VOIRange（窗宽窗位）而不是 lower/upper，Adapter 内部用 core 的
+//       voiToRange()/rangeToVOI() 与 CS3D 的上下限语义互转，保证同一口径。
+//    RendererPort 同时新增 capabilities / getVOI / resetView / worldToCanvas /
+//    canvasToWorld / disposeViewport，详见代码里的契约注释。
+
 export interface StoragePort {
   putAnnotation(a: AnnotationRecord): Promise<void>;
   listAnnotations(studyUid: string): Promise<AnnotationRecord[]>;
@@ -935,6 +943,8 @@ export const NullTelemetry: TelemetryPort = { /* 全空实现，默认注入 */ 
 | ADR-009 | Telemetry 默认空实现，永不加第三方 SDK |
 | ADR-010 | 不做 PACS / C-STORE，保持非诊断定位 |
 | ADR-011 | 项目名采用描述型（OpenDicomViewer）而非品牌型，优先 SEO 与零理解成本 |
+| ADR-012 | **CS3D 锁 4.22.13（vtk.js 34.x）**：5.x 依赖的 vtk.js 36 是 Rolldown 产物，经 Rollup/esbuild 处理后必现 `Class extends value undefined`（Spike A 实测，dev 与 build 皆然） |
+| ADR-013 | **渲染适配器不引入 `@cornerstonejs/dicom-image-loader`**：改用自定义 imageLoader 消费 `SeriesHandle.pixel()` 的 `PixelFrame`，避免 5 个 codec 的 wasm（1.98 MB）被静态打进产物；CS3D 模块由组合根注入，Adapter 不直接 import 它 |
 
 ---
 

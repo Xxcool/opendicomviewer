@@ -123,6 +123,11 @@ app-web / app-tauri  →  adapters  →  core
 ```
 
 > `packages/core` 里**不允许** `import '@cornerstonejs/...'`。core 不知道 CS3D 的存在，只认 `RendererPort`。
+>
+> **`renderer-cs3d` 的额外纪律**（已落进 eslint）：允许 `@cornerstonejs/*`，但**禁止 `dicom-parser` 与任何网络/存储 API**。
+> 渲染适配器不解析 DICOM，只消费 `SeriesHandle.pixel()` 的 `PixelFrame`（ADR-013）；
+> CS3D 模块由组合根注入（`cs3d-surface.ts` 的 `Cs3dModuleLike`），Adapter 自身不 `import` CS3D，
+> 这样它能在没有 200 个包和 wasm 的环境里跑单测。
 
 ---
 
