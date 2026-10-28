@@ -182,6 +182,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   display: grid; gap: var(--space-1); cursor: pointer;
 }
 .series:hover { background: var(--bg-hover); }
+.series.pulse { animation: pulse .28s ease-out; }
+@keyframes pulse { 0% { background: var(--bg-active); } 100% { background: transparent; } }
+.series-switching { opacity: .55; }
 .series[aria-selected="true"] { background: var(--bg-active); box-shadow: inset 2px 0 0 var(--accent); }
 .series-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .series-title { font-size: var(--text-sm); font-weight: 500; }
@@ -409,30 +412,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <!-- ══ 左栏 ══ -->
     <aside class="left">
       <div class="panel-head"><span>序列列表</span><span class="num only-loaded">2</span></div>
-      <div class="series-list only-loaded">
-        <div class="series" aria-selected="true">
-          <div class="series-top">
-            <span class="series-title">CT · 胸部平扫</span>
-            <span class="warn-pill" title="按 IPP 投影检测到层间距异常：缺 3 层">⚠ 缺 3 层</span>
-          </div>
-          <div class="series-desc">肺窗重建 · 1.0 mm</div>
-          <div class="series-frames num">1024 帧</div>
-        </div>
-        <div class="series">
-          <div class="series-top">
-            <span class="series-title">CT · 纵隔窗</span>
-          </div>
-          <div class="series-desc">软组织重建 · 2.5 mm</div>
-          <div class="series-frames num">512 帧</div>
-        </div>
-        <div class="series">
-          <div class="series-top">
-            <span class="series-title">CT · 定位像</span>
-          </div>
-          <div class="series-desc">Scout · 非轴位</div>
-          <div class="series-frames num">1 帧</div>
-        </div>
-      </div>
+      <div class="series-list only-loaded" id="seriesList"></div>
       <div class="left-empty" hidden data-when="empty">
         尚未载入影像。<br />
         拖入文件夹、点击「打开文件夹」，或先用「载入示例」看看效果。
@@ -443,7 +423,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <main class="center">
       <div class="vp-bar">
         <div class="grp">
-          <span class="vp-title only-loaded">横断面 (Axial)</span>
+          <span class="vp-title only-loaded" id="vpTitle">横断面 (Axial)</span>
           <span class="preset-tag only-loaded" id="presetTag">肺窗</span>
         </div>
         <div class="grp">
@@ -455,7 +435,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
       <div class="canvas-wrap">
         <!-- 模拟 CT（真实实现由 CS3D WebGL 绘制；此处仅示意观感与叠加层布局） -->
-        <svg class="only-loaded" viewBox="0 0 512 512" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <svg class="only-loaded" id="svgAxial" viewBox="0 0 512 512" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
           <defs>
             <radialGradient id="body" cx="50%" cy="48%" r="52%">
               <stop offset="0%" stop-color="#8a8f96" />
@@ -495,6 +475,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
           <div class="orient l">L</div>
           <div class="scalebar"><div class="bar"></div>5 cm</div>
         </div>
+
+        <svg class="only-loaded" id="svgScout" viewBox="0 0 512 512" preserveAspectRatio="xMidYMid meet" aria-hidden="true" hidden>
+          <rect width="512" height="512" fill="#000" />
+          <rect x="120" y="40" width="272" height="432" rx="10" fill="#3c434b" />
+          <ellipse cx="256" cy="120" rx="96" ry="52" fill="#7d848c" />
+          <rect x="150" y="190" width="212" height="250" rx="6" fill="#585f67" />
+          <rect x="196" y="230" width="120" height="60" fill="#8f969e" opacity=".7" />
+          <rect x="196" y="320" width="120" height="70" fill="#8f969e" opacity=".45" />
+        </svg>
 
         <div class="vp-warn only-loaded" id="vpWarn">
           ⚠ 检测到 3 处层缺失（层间距 1.0 → 2.0 mm），测量结果可能受影响
@@ -549,11 +538,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
       <section class="sec">
         <div class="sec-head">当前序列</div>
         <div class="rows">
-          <div class="row"><span class="k">Modality</span><span class="v num only-loaded">CT</span></div>
-          <div class="row"><span class="k">切片数</span><span class="v num only-loaded">1024</span></div>
-          <div class="row"><span class="k">矩阵</span><span class="v num only-loaded">512 × 512</span></div>
-          <div class="row"><span class="k">像素间距</span><span class="v num only-loaded">0.70 / 0.70 mm</span></div>
-          <div class="row"><span class="k">层间距</span><span class="v num only-loaded privacy-warn">1.00 → 2.00 mm</span></div>
+          <div class="row"><span class="k">Modality</span><span class="v num only-loaded" id="metaModality">CT</span></div>
+          <div class="row"><span class="k">切片数</span><span class="v num only-loaded" id="metaFrames">1024</span></div>
+          <div class="row"><span class="k">矩阵</span><span class="v num only-loaded" id="metaMatrix">512 × 512</span></div>
+          <div class="row"><span class="k">像素间距</span><span class="v num only-loaded" id="metaSpacing">0.70 / 0.70 mm</span></div>
+          <div class="row"><span class="k">层间距</span><span class="v num only-loaded" id="metaSliceGap">1.00 → 2.00 mm</span></div>
         </div>
       </section>
 
@@ -654,7 +643,12 @@ function setState(name) {
   // 空态下系列列表与视口内容整体隐藏
   const empty = name === 'empty';
   document.querySelectorAll('.only-loaded').forEach((el) => {
-    el.hidden = empty;
+    // SVG 用 attribute，HTML 用 property
+    if (el instanceof SVGElement) {
+      el.toggleAttribute('hidden', empty);
+    } else {
+      el.hidden = empty;
+    }
   });
   document.querySelector('.left-empty').hidden = !empty;
   document.querySelector('.vp-placeholder').hidden = !empty;
@@ -662,6 +656,101 @@ function setState(name) {
 document.querySelectorAll('.proto button').forEach((b) => {
   b.addEventListener('click', () => setState(b.dataset.set));
 });
+
+/* ── 序列列表：点击切换并联动视口/右栏（原型必须可点，否则无法验收交互） ── */
+const SERIES = {
+  chest: {
+    title: 'CT · 胸部平扫', desc: '肺窗重建 · 1.0 mm', frames: 1024,
+    warn: '⚠ 缺 3 层', warnTip: '按 IPP 投影检测到层间距异常：缺 3 层',
+    bodyPart: '胸部', modality: 'CT', matrix: '512 × 512',
+    spacing: '0.70 / 0.70 mm', sliceGap: '1.00 → 2.00 mm', gapWarn: true,
+    viewTitle: '横断面 (Axial)', scout: false,
+    vpWarn: '⚠ 检测到 3 处层缺失（层间距 1.0 → 2.0 mm），测量结果可能受影响',
+  },
+  mediastinum: {
+    title: 'CT · 纵隔窗', desc: '软组织重建 · 2.5 mm', frames: 512,
+    warn: '', warnTip: '',
+    bodyPart: '胸部', modality: 'CT', matrix: '512 × 512',
+    spacing: '0.78 / 0.78 mm', sliceGap: '2.50 mm', gapWarn: false,
+    viewTitle: '横断面 (Axial)', scout: false,
+    vpWarn: '',
+  },
+  scout: {
+    title: 'CT · 定位像', desc: 'Scout · 非轴位', frames: 1,
+    warn: '⚠ 非轴位', warnTip: '该序列非标准轴位，轴向浏览与测量需谨慎',
+    bodyPart: '未识别', modality: 'CT', matrix: '512 × 512',
+    spacing: '1.20 / 1.20 mm', sliceGap: '—', gapWarn: false,
+    viewTitle: '定位像 (Scout · 非轴位)', scout: true,
+    vpWarn: '⚠ 该序列非标准轴位，轴向浏览与测量需谨慎',
+  },
+};
+
+let activeSeriesKey = 'chest';
+const seriesHost = document.getElementById('seriesList');
+
+function renderSeriesList() {
+  seriesHost.innerHTML = '';
+  Object.entries(SERIES).forEach(([key, it]) => {
+    const el = document.createElement('div');
+    el.className = 'series';
+    el.dataset.key = key;
+    el.setAttribute('aria-selected', String(key === activeSeriesKey));
+    el.innerHTML = `
+      <div class="series-top">
+        <span class="series-title">${it.title}</span>
+        ${it.warn ? `<span class="warn-pill" title="${it.warnTip}">${it.warn}</span>` : ''}
+      </div>
+      <div class="series-desc">${it.desc}</div>
+      <div class="series-frames num">${it.frames} 帧</div>`;
+    el.addEventListener('click', () => selectSeries(key, el));
+    seriesHost.appendChild(el);
+  });
+}
+
+function selectSeries(key, el) {
+  if (key === activeSeriesKey) {
+    // 点已选中的项：给一次可见反馈，避免"点了没反应=程序坏了"的误解
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+    return;
+  }
+  activeSeriesKey = key;
+  const it = SERIES[key];
+
+  document.querySelectorAll('#seriesList .series').forEach((n) =>
+    n.setAttribute('aria-selected', String(n.dataset.key === key)));
+
+  // 顶部状态条
+  document.getElementById('vpTitle').textContent = it.viewTitle;
+  document.getElementById('sliceNow').textContent = '1';
+  // 右栏
+  document.getElementById('metaModality').textContent = it.modality;
+  document.getElementById('metaFrames').textContent = String(it.frames);
+  document.getElementById('metaMatrix').textContent = it.matrix;
+  document.getElementById('metaSpacing').textContent = it.spacing;
+  const gap = document.getElementById('metaSliceGap');
+  gap.textContent = it.sliceGap;
+  gap.style.color = it.gapWarn ? 'var(--color-warn)' : 'var(--text-primary)';
+  // 视口图形与告警
+  // 注意：SVGElement 没有 HTML 的 hidden 反射属性，必须操作 attribute，否则画面不切
+  document.getElementById('svgAxial').toggleAttribute('hidden', it.scout);
+  document.getElementById('svgScout').toggleAttribute('hidden', !it.scout);
+  // 轴位方位标记与比例尺对定位像不适用
+  document.querySelectorAll('.orient, .scalebar').forEach((n) => {
+    n.toggleAttribute('hidden', it.scout);
+  });
+  const warn = document.getElementById('vpWarn');
+  warn.hidden = !it.vpWarn;
+  warn.textContent = it.vpWarn;
+  // 层数上限跟随该序列
+  setSliceRange(it.frames);
+  // 预设组跟随部位
+  document.getElementById('bodyPart').value = it.bodyPart;
+  renderPresets(it.bodyPart);
+}
+
+renderSeriesList();
 
 /* ── 预设：按部位分组的窗口集（回答问题：头颅/四肢影像怎么办） ──
    真实实现应由 core 提供 WINDOW_PRESETS_BY_BODYPART + pickAdaptiveVOI()，
@@ -674,8 +763,8 @@ const PRESETS = {
 };
 
 const chipsHost = document.getElementById('presetChips');
-const TOTAL = 1024;
-let currentSlice = 512;
+let TOTAL = 1024;
+let currentSlice = 1;
 
 function applyVOI(name, ww, wl) {
   document.getElementById('wwVal').textContent = ww;
@@ -722,6 +811,16 @@ function setSlice(n) {
   sliceInput.value = String(currentSlice);
   document.getElementById('sliceNow').textContent = String(currentSlice);
   progressFill.style.width = `${(currentSlice / TOTAL) * 100}%`;
+}
+
+/* 切序列时更新总层数与可用控件（1 帧的定位像应隐藏翻页组） */
+function setSliceRange(frames) {
+  TOTAL = frames;
+  document.querySelector('.slice-total').textContent = `/ ${frames}`;
+  const single = frames <= 1;
+  document.querySelectorAll('.step-btn').forEach((b) => { b.disabled = single; });
+  sliceInput.disabled = single;
+  setSlice(1);
 }
 
 document.querySelectorAll('.step-btn').forEach((b) => {
