@@ -33,6 +33,17 @@ export interface DicomFixtureOptions {
   readonly transferSyntaxUid?: string;
   readonly omitImagePositionPatient?: boolean;
   readonly omitImageOrientationPatient?: boolean;
+  /** 原始像素字节（小端、逐像素紧排）。提供后才会写入完整 Image Pixel 模块与 (7FE0,0010) */
+  readonly pixelData?: Uint8Array;
+  readonly bitsAllocated?: number;
+  readonly bitsStored?: number;
+  readonly pixelRepresentation?: number;
+  readonly samplesPerPixel?: number;
+  readonly photometricInterpretation?: string;
+  readonly rescaleSlope?: number;
+  readonly rescaleIntercept?: number;
+  readonly windowCenter?: number;
+  readonly windowWidth?: number;
   readonly extraElements?: readonly DicomFixtureElement[];
 }
 
@@ -87,9 +98,13 @@ export function encodeElement(
     if (b !== undefined) bytes.push(b);
   }
 
-  // 奇数长度根据 DICOM 规范填充
+  // 奇数长度根据 DICOM 规范填充：文本 VR 填 0x20，二进制 VR 必须填 0x00
   if (isOdd) {
-    bytes.push(vr === 'UI' ? 0x00 : 0x20); // UI 填 0x00，文本填空格 0x20
+    const isTextVr = vr === 'UI' || vr === 'CS' || vr === 'LO' || vr === 'PN' ||
+      vr === 'DS' || vr === 'IS' || vr === 'SH' || vr === 'LT' || vr === 'ST' ||
+      vr === 'UT' || vr === 'AE' || vr === 'AS' || vr === 'DA' || vr === 'TM' ||
+      vr === 'DT' || vr === 'TM';
+    bytes.push(isTextVr ? 0x20 : 0x00);
   }
 
   return bytes;
@@ -291,6 +306,49 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
     ...encodeElement(0x0028, 0x0030, 'DS', stringToBytes(`${ps[0]}\\${ps[1]}`)),
   );
 
+  // Image Pixel 模块：仅在提供像素数据时写入，避免影响纯元数据用例
+  if (options.pixelData) {
+    const pushUS = (element: number, value: number): void => {
+      const b: number[] = [];
+      writeUint16LE(b, value);
+      dsElements.push(...encodeElement(0x0028, element, 'US', new Uint8Array(b)));
+    };
+    const pushDS = (element: number, value: number): void => {
+      dsElements.push(
+        ...encodeElement(0x0028, element, 'DS', stringToBytes(String(value))),
+      );
+    };
+
+    pushUS(0x0002, options.samplesPerPixel ?? 1);
+    dsElements.push(
+      ...encodeElement(
+        0x0028,
+        0x0004,
+        'CS',
+        stringToBytes(options.photometricInterpretation ?? 'MONOCHROME2'),
+      ),
+    );
+
+    const bitsAllocated = options.bitsAllocated ?? 16;
+    pushUS(0x0100, bitsAllocated);
+    pushUS(0x0101, options.bitsStored ?? bitsAllocated);
+    pushUS(0x0102, (options.bitsStored ?? bitsAllocated) - 1);
+    pushUS(0x0103, options.pixelRepresentation ?? 0);
+
+    if (options.rescaleIntercept !== undefined) {
+      pushDS(0x1052, options.rescaleIntercept);
+    }
+    if (options.rescaleSlope !== undefined) {
+      pushDS(0x1053, options.rescaleSlope);
+    }
+    if (options.windowCenter !== undefined) {
+      pushDS(0x1050, options.windowCenter);
+    }
+    if (options.windowWidth !== undefined) {
+      pushDS(0x1051, options.windowWidth);
+    }
+  }
+
   // 用户额外指定的元素
   if (options.extraElements) {
     for (const elem of options.extraElements) {
@@ -309,6 +367,18 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
       }
       dsElements.push(...encodeElement(elem.tag[0], elem.tag[1], elem.vr, valBytes));
     }
+  }
+
+  // (7FE0,0010) Pixel Data 必须排在最后
+  if (options.pixelData) {
+    dsElements.push(
+      ...encodeElement(
+        0x7fe0,
+        0x0010,
+        (options.bitsAllocated ?? 16) > 8 ? 'OW' : 'OB',
+        options.pixelData,
+      ),
+    );
   }
 
   result.push(...dsElements);

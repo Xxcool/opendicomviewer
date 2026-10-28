@@ -151,6 +151,47 @@ describe('Dicom Fixture Builder 与 dicom-parser 集成验证', () => {
     expect(dataSet.uint16('x00280011')).toBe(256);
   });
 
+  it('fixture 支持写入像素数据与灰度换算标签（供 golden 与 Spike A 复用）', () => {
+    const rows = 4;
+    const columns = 4;
+    const pixels = new Uint16Array(rows * columns);
+    for (let i = 0; i < pixels.length; i++) pixels[i] = 1024 + i; // 1024 对应 HU 0
+
+    const bytes = buildDicomBuffer({
+      rows,
+      columns,
+      pixelData: new Uint8Array(pixels.buffer),
+      bitsAllocated: 16,
+      bitsStored: 16,
+      pixelRepresentation: 0,
+      photometricInterpretation: 'MONOCHROME2',
+      rescaleIntercept: -1024,
+      rescaleSlope: 1,
+      windowCenter: 40,
+      windowWidth: 400,
+    });
+
+    const dataSet = dicomParser.parseDicom(bytes);
+    const pixelElement = dataSet.elements.x7fe00010;
+    expect(pixelElement).toBeDefined();
+    expect(pixelElement?.length).toBe(rows * columns * 2);
+    expect(dataSet.uint16('x00280100')).toBe(16);
+    expect(dataSet.uint16('x00280102')).toBe(15); // HighBit = BitsStored - 1
+    expect(dataSet.uint16('x00280002')).toBe(1); // SamplesPerPixel
+    expect(dataSet.string('x00280004')).toBe('MONOCHROME2');
+    expect(dataSet.floatString('x00281052')).toBe(-1024);
+    expect(dataSet.floatString('x00281053')).toBe(1);
+    expect(dataSet.floatString('x00281050')).toBe(40);
+    expect(dataSet.floatString('x00281051')).toBe(400);
+
+    // 未传 pixelData 时不得写入像素模块，避免影响既有纯元数据用例
+    const noPixel = dicomParser.parseDicom(
+      buildDicomBuffer({ rows: 4, columns: 4 }),
+    );
+    expect(noPixel.elements.x7fe00010).toBeUndefined();
+    expect(noPixel.elements.x00280100).toBeUndefined();
+  });
+
   it('P1-7 验证：DICOMDIR 记录物理乱序时，通过 offset 链树状遍历正确解析出层级关系', async () => {
     const { parseDicomdir } = await import('../src/dicomdir');
     const { buildDicomdirBuffer } = await import('../testing/dicom-fixture');
