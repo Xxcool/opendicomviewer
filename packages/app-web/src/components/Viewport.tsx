@@ -20,6 +20,7 @@ import {
   nextLayerIndex,
   parseLayerInput,
 } from './slice-navigation';
+import { sliceProjection } from './slice-geometry';
 
 interface ViewportProps {
   readonly renderer: CornerstoneRenderer | null;
@@ -46,6 +47,9 @@ export function Viewport({
   const containerRef = useRef<HTMLDivElement>(null);
   const sliceTextRef = useRef<HTMLSpanElement>(null);
   const voiTextRef = useRef<HTMLSpanElement>(null);
+  /** 画布左下「当前窗」与右下「物理位置」：随翻页/调窗高频变化，同样只写 DOM (R4) */
+  const voiCornerRef = useRef<HTMLDivElement>(null);
+  const posCornerRef = useRef<HTMLDivElement>(null);
 
   // 层号导航相关 DOM 一律走 ref：翻页是高频操作，不能每帧 setState (R4)
   const layerInputRef = useRef<HTMLInputElement>(null);
@@ -66,6 +70,56 @@ export function Viewport({
   const totalFrames = activeSeriesHandle?.meta.planes.length ?? 0;
   const showNav = hasSliceNavigation(totalFrames);
   const sliderDraggable = isDraggableSlider(totalFrames);
+  /**
+   * 层厚取首帧：它是重建参数，同一序列各帧共用。
+   * 翻页不触发 React 重渲染，放进每帧同步反而要多写一次 DOM。
+   */
+  const sliceThickness = activeSeriesHandle?.meta.planes[0]?.sliceThickness;
+
+  /**
+   * 同步调窗显示：顶部状态条与画布左下角共用同一口径，
+   * 避免两处各写一套格式后出现"同一次调窗两个数值"。
+   */
+  const syncVoiUi = (voi: VOIRange, presetName?: string) => {
+    const text = `WW ${Math.round(voi.windowWidth)} · WL ${Math.round(voi.windowCenter)}`;
+    if (voiTextRef.current) voiTextRef.current.textContent = text;
+    if (voiCornerRef.current) {
+      voiCornerRef.current.textContent = presetName
+        ? `${presetName} · ${text}`
+        : text;
+    }
+  };
+
+  /**
+   * 右下角物理位置：IPP 沿切面法向的投影值。
+   *
+   * 用法向投影而不是直接读 z：斜切序列的 IPP 三个分量都在变，
+   * 只有沿法向的距离才等距，才是"第几层"的真实物理位置。
+   * 几何缺失时不编造数字，直接显示告警文案（P1-5 / R7）。
+   */
+  const updatePositionCorner = (index: number) => {
+    const el = posCornerRef.current;
+    const plane = activeSeriesHandle?.meta.planes[index];
+    if (!el) return;
+    if (!plane) {
+      el.textContent = '--';
+      return;
+    }
+    if (plane.hasMissingGeometry) {
+      el.textContent = '⚠ 几何缺失';
+      return;
+    }
+
+    const projection = sliceProjection(
+      plane.imagePositionPatient,
+      plane.imageOrientationPatient,
+    );
+
+    const spacing = activeSeriesHandle?.meta.spacing?.[2];
+    el.textContent =
+      `Z ${projection.toFixed(1)} mm` +
+      (spacing === undefined ? '' : ` · ${spacing.toFixed(2)} mm/层`);
+  };
 
   /**
    * 把导航控件的显示同步到指定层号。
@@ -85,6 +139,7 @@ export function Viewport({
     }
     if (prevLayerRef.current) prevLayerRef.current.disabled = index <= 0;
     if (nextLayerRef.current) nextLayerRef.current.disabled = index >= total - 1;
+    updatePositionCorner(index);
   };
 
   // 1. 装载序列与切换序列（错误可见性遵循 P1-1）
@@ -107,9 +162,7 @@ export function Viewport({
 
         try {
           const currentVoi = renderer!.getVOI(viewportId);
-          if (voiTextRef.current) {
-            voiTextRef.current.textContent = `WW: ${Math.round(currentVoi.windowWidth)} WL: ${Math.round(currentVoi.windowCenter)}`;
-          }
+          syncVoiUi(currentVoi);
         } catch {
           // 首帧尚未提交时静默跳过
         }
@@ -201,9 +254,7 @@ export function Viewport({
           if (pendingVOI) {
             renderer.setVOI(viewportId, pendingVOI);
             // 直接更新 DOM ref，零 React setState 开销 (R4)
-            if (voiTextRef.current) {
-              voiTextRef.current.textContent = `WW: ${pendingVOI.windowWidth} WL: ${pendingVOI.windowCenter}`;
-            }
+            syncVoiUi(pendingVOI, '自定义');
           }
           rafId = null;
         });
@@ -247,7 +298,7 @@ export function Viewport({
       const num = Number(e.key);
       if (num >= 1 && num <= PRESETS.length) {
         const preset = PRESETS[num - 1]!;
-        applyPreset(preset.voi);
+        applyPreset(preset.voi, preset.name);
         return;
       }
 
@@ -279,13 +330,11 @@ export function Viewport({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [renderer, viewportId, activeSeriesHandle]);
 
-  const applyPreset = (voi: VOIRange) => {
+  const applyPreset = (voi: VOIRange, presetName?: string) => {
     if (!renderer) return;
     // setVOI 内部已包含 render 提交，去除外层冗余 render (N3)
     renderer.setVOI(viewportId, voi);
-    if (voiTextRef.current) {
-      voiTextRef.current.textContent = `WW: ${voi.windowWidth} WL: ${voi.windowCenter}`;
-    }
+    syncVoiUi(voi, presetName);
   };
 
   const jumpToSlice = (index: number, total: number) => {
@@ -378,6 +427,54 @@ export function Viewport({
           ref={containerRef}
           className="w-full h-full relative cursor-crosshair touch-none"
         />
+
+        {/* 四角信息 + 方位标记（ui-spec §3.2）
+            pointer-events-none：只是读数，不能挡住画布的滚轮翻页与右键调窗 */}
+        {activeSeriesHandle && (
+          <div className="absolute inset-0 pointer-events-none select-none z-10 text-[11px] text-overlay">
+            {/* 左上：隐私状态 + Modality。脱敏判定未接入，按保守默认标「含身份信息」 */}
+            <div className="absolute top-2 left-3 px-1.5 py-0.5 rounded bg-canvas/65 font-medium">
+              含身份信息 · {activeSeriesHandle.meta.modality}
+            </div>
+
+            {/* 右上：层厚。KVP/mAs 尚未解析，缺就整行省略，不写 `--` 占位 */}
+            {sliceThickness !== undefined && (
+              <div className="absolute top-2 right-3 px-1.5 py-0.5 rounded bg-canvas/65 font-mono">
+                层厚 {sliceThickness.toFixed(1)} mm
+              </div>
+            )}
+
+            {/* 左下：当前窗（预设名 + WW/WL），由 syncVoiUi 命令式更新 */}
+            <div
+              ref={voiCornerRef}
+              className="absolute bottom-2 left-3 px-1.5 py-0.5 rounded bg-canvas/65 font-mono"
+            >
+              WW -- · WL --
+            </div>
+
+            {/* 右下：IPP 沿法向的投影值 + 层间距，由 updatePositionCorner 命令式更新 */}
+            <div
+              ref={posCornerRef}
+              className="absolute bottom-2 right-3 px-1.5 py-0.5 rounded bg-canvas/65 font-mono"
+            >
+              Z -- mm
+            </div>
+
+            {/* 方位标记：轴位固定；放射学惯例——图像左侧为患者右侧 */}
+            <span className="absolute top-1 left-1/2 -translate-x-1/2 font-semibold text-overlay/90">
+              A
+            </span>
+            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 font-semibold text-overlay/90">
+              P
+            </span>
+            <span className="absolute left-1 top-1/2 -translate-y-1/2 font-semibold text-overlay/90">
+              R
+            </span>
+            <span className="absolute right-1 top-1/2 -translate-y-1/2 font-semibold text-overlay/90">
+              L
+            </span>
+          </div>
+        )}
 
         {/* 视口状态与空状态覆盖层：绝对定位居中，不干扰 CS3D 内部 DOM 布局 */}
         {!renderer ? (
@@ -494,7 +591,7 @@ export function Viewport({
               <button
                 key={preset.name}
                 type="button"
-                onClick={() => applyPreset(preset.voi)}
+                onClick={() => applyPreset(preset.voi, preset.name)}
                 className="px-2 py-1 text-xs rounded bg-hover hover:bg-active active:bg-accent text-txt-dim hover:text-txt transition cursor-pointer font-medium"
                 title={`${preset.name} (快捷键 ${idx + 1}): WW ${preset.voi.windowWidth}, WL ${preset.voi.windowCenter}`}
               >
