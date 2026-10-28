@@ -34,6 +34,8 @@ class FakeViewport implements Cs3dViewportLike {
   /** 模拟 CS3D 装载失败，用于验证适配器的回滚路径 */
   public stackShouldFail = false;
   public onIndexDone: (() => void) | null = null;
+  /** 按 imageId 决定本次装载耗时，用于构造"慢请求被快请求超越"的并发场景 */
+  public stackDelayFor: ((imageIds: readonly string[]) => number) | null = null;
   private properties: Cs3dViewportPropertiesLike = {
     voiRange: { lower: -160, upper: 239 },
   };
@@ -42,8 +44,10 @@ class FakeViewport implements Cs3dViewportLike {
     imageIds: readonly string[],
     currentImageIdIndex?: number,
   ): Promise<void> {
-    if (this.stackDelayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, this.stackDelayMs));
+    const extraDelay = this.stackDelayFor ? this.stackDelayFor(imageIds) : 0;
+    const totalDelay = Math.max(this.stackDelayMs, extraDelay);
+    if (totalDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, totalDelay));
     }
     if (this.stackShouldFail) {
       throw new Error('模拟 CS3D 装载失败');
@@ -352,6 +356,25 @@ describe('CornerstoneRenderer · 挂载与状态', () => {
     await expect(
       renderer.mount({ containerId: 'root' }, { rows: 1, cols: 2, viewportIds: ['a', 'b'] }),
     ).rejects.toThrow(/视口元素数量与布局不符/);
+  });
+
+  it('N5（交叉评审）：mount 中途失败必须回滚已启用的视口与引擎', async () => {
+    const { renderer, engine } = makeRenderer({
+      // 第二个视口拿不到元素 → 循环中途抛错
+      resolveElements: () => [ELEMENT, undefined],
+    });
+
+    await expect(
+      renderer.mount(
+        { containerId: 'root' },
+        { rows: 1, cols: 2, viewportIds: ['vp-1', 'vp-2'] },
+      ),
+    ).rejects.toThrow(/缺少挂载元素/);
+
+    // 已启用的 vp-1 必须被 disable，engine 必须被销毁，否则每次失败都漏一个上下文
+    expect(engine.disabled).toEqual(['vp-1']);
+    expect(engine.destroyCount).toBe(1);
+    expect(() => renderer.render()).toThrow(/尚未 mount/);
   });
 
   it('未知视口要报错，不能落到别的格子上', async () => {
@@ -680,6 +703,32 @@ describe('CornerstoneRenderer · 生命周期泄漏防护', () => {
     );
     expect(renderer.frameRegistry.size).toBe(sizeBefore);
     expect(renderer.frameRegistry.imageIdsOf('6.6.6')).toHaveLength(0);
+  });
+
+  /**
+   * P1-1（交叉评审 CR-2026-10-28-selfcode）：并发 setStack 缺视口级版本控制。
+   * 慢请求 A 在快请求 B 之后归来时，会把归属写回 A，并导致 B 的帧无人释放。
+   */
+  it('并发 setStack：慢请求不得覆盖快请求，也不得留下无法释放的帧', async () => {
+    const { renderer, engine } = await mountedViewports(['vp']);
+    const viewport = engine.viewportOf('vp');
+    viewport.stackDelayFor = (imageIds: readonly string[]) =>
+      imageIds[0]?.includes('series-A') ? 15 : 2;
+
+    const slowA = renderer.setStack('vp', makeHandle(3, 'series-A'));
+    const fastB = renderer.setStack('vp', makeHandle(3, 'series-B'));
+
+    // 被取代的那次必须明确拒绝，而不是悄悄把状态改回去
+    await expect(slowA).rejects.toThrow(/被更新的装载请求取代/);
+    await expect(fastB).resolves.toBeUndefined();
+
+    // 只有胜出的 B 留在登记表；A 的帧必须被清掉
+    expect(renderer.frameRegistry.imageIdsOf('series-A')).toHaveLength(0);
+    expect(renderer.frameRegistry.imageIdsOf('series-B')).toHaveLength(3);
+    expect(renderer.frameRegistry.size).toBe(3);
+
+    // 越界判断按 B 的帧数生效（3 帧 → 索引 2 合法）
+    await expect(renderer.setStackIndex('vp', 2)).resolves.toBeUndefined();
   });
 
   it('CS3D 装载失败时回滚：登记表与视口归属都回到调用前', async () => {

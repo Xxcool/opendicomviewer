@@ -69,6 +69,24 @@ function writeString(bytes: number[], str: string): void {
 const LONG_VRS = new Set(['OB', 'OW', 'OF', 'SQ', 'UT', 'UN', 'UC', 'UR']);
 
 /**
+ * 奇数长度时用 0x00 填充的 VR（PS3.5 Table 6.2-1）。
+ * 注意 UI 虽然在语义上是"文本"，但规范明确要求填 NULL 而不是空格；
+ * 此前把它并进文本 VR 是错的（交叉评审 P1-2）。
+ */
+const PAD_WITH_NULL = new Set([
+  'UI',
+  'OB',
+  'OW',
+  'OF',
+  'OD',
+  'OL',
+  'OV',
+  'UN',
+  'AT',
+  'SQ',
+]);
+
+/**
  * 编码单个 Explicit VR 小端元素
  */
 export function encodeElement(
@@ -98,13 +116,11 @@ export function encodeElement(
     if (b !== undefined) bytes.push(b);
   }
 
-  // 奇数长度根据 DICOM 规范填充：文本 VR 填 0x20，二进制 VR 必须填 0x00
+  // 奇数长度填充，严格按 DICOM PS3.5 Table 6.2-1：
+  // - UI 与二进制 VR 必须填 0x00（NULL）；UI 若填空格会让 UID 含非法字符、破坏字符串比较
+  // - 其余文本 VR（PN/LO/CS/DS…）填 0x20（SPACE）
   if (isOdd) {
-    const isTextVr = vr === 'UI' || vr === 'CS' || vr === 'LO' || vr === 'PN' ||
-      vr === 'DS' || vr === 'IS' || vr === 'SH' || vr === 'LT' || vr === 'ST' ||
-      vr === 'UT' || vr === 'AE' || vr === 'AS' || vr === 'DA' || vr === 'TM' ||
-      vr === 'DT' || vr === 'TM';
-    bytes.push(isTextVr ? 0x20 : 0x00);
+    bytes.push(PAD_WITH_NULL.has(vr) ? 0x00 : 0x20);
   }
 
   return bytes;

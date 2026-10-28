@@ -175,15 +175,27 @@ export class ParserPool {
 
     const id = `req-${++this.requestIdCounter}`;
     return new Promise<ParsedWorkerResult>((resolve, reject) => {
-      this.queue.push({
+      const task: PendingTask = {
         id,
         buffer,
         candidate,
         resolve,
         reject,
         settled: false,
-      });
-      this.pump();
+      };
+      this.queue.push(task);
+      try {
+        this.pump();
+      } catch (err: unknown) {
+        // createWorker 同步抛错（CSP 拦截、线程数超限等）时，任务已经入队但从未派发。
+        // 必须把它摘出来，否则下一次 pump 会把这个已 reject 的任务当正常任务派发，
+        // 顶掉真正的新请求（交叉评审 P1-3 的僵尸任务）。
+        const index = this.queue.indexOf(task);
+        if (index >= 0) this.queue.splice(index, 1);
+        this.settle(task, () => {
+          task.reject(err instanceof Error ? err : new Error(String(err)));
+        });
+      }
     });
   }
 

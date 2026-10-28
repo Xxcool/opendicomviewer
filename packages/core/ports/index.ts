@@ -115,9 +115,11 @@ export type WorldPoint = readonly [number, number, number];
  *    `render()` 返回后同步计时常为 0。需要"画面已更新"时必须 `await whenIdle()`。
  * 3. **`setStackIndex()` 必须 await**。切换切片可能触发异步解码，返回 void 会让
  *    调用方在旧帧上做测量。
- * 4. **调窗走 `setVOI()` 的上下限语义，不走窗宽窗位语义**。Adapter 内部用
- *    `voiToRange()` 换算，`getVOI()` 用 `rangeToVOI()` 逆变换，保证与 core 的
- *    像素映射同一口径（Spike A 实测 CS3D 读回值与该公式一致）。
+ * 4. **端口层的调窗口径统一是 `VOIRange`（窗宽/窗位），不是上下限**。
+ *    Adapter 内部用 `voiToRange()` 换算成渲染器需要的 lower/upper，
+ *    `getVOI()` 再用 `rangeToVOI()` 逆变换回来，保证与 core 的像素映射同一口径
+ *    （Spike A 实测 CS3D 读回值与该公式一致）。上下限只存在于 Adapter 内部，
+ *    不得出现在端口签名里。
  * 5. **不得在渲染循环里触发状态管理**（R4）。
  */
 export interface RendererPort {

@@ -167,11 +167,17 @@ export async function extractZipEntriesFromCandidate(
     if (eocdRelOffset >= 0) {
       const cdSize = tailView.getUint32(eocdRelOffset + 12, true);
       const cdOffset = tailView.getUint32(eocdRelOffset + 16, true);
+      // 条目数超 65535 时这里也是占位值 0xFFFF，只看 cdSize/cdOffset 会漏判（交叉评审 N4）
+      const totalEntries = tailView.getUint16(eocdRelOffset + 10, true);
 
       // N6：ZIP64 在经典 EOCD 里把大小/偏移写成 0xFFFFFFFF 占位值。
       // 若照抄这个占位值去 read()，中央目录解析会在第一个条目处 break，
       // 最终返回空数组——用户看到"导入成功但 0 个序列"，完全无从判断原因。
-      if (cdSize === ZIP64_PLACEHOLDER || cdOffset === ZIP64_PLACEHOLDER) {
+      if (
+        cdSize === ZIP64_PLACEHOLDER ||
+        cdOffset === ZIP64_PLACEHOLDER ||
+        totalEntries === 0xffff
+      ) {
         throw new Error(
           '该压缩包为 ZIP64 格式（超过 4 GB 或条目数超过 65535），暂不支持直接读取。请先解压，再导入解压后的文件夹。',
         );

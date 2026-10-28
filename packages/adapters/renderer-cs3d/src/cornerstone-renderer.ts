@@ -65,6 +65,8 @@ export class CornerstoneRenderer implements RendererPort {
   private readonly viewports = new Map<string, Cs3dViewportLike>();
   private readonly viewportSeries = new Map<string, string>();
   private readonly viewportFrameCounts = new Map<string, number>();
+  /** 视口级装载版本号：慢请求归来时用它判断自己是否已被新请求取代 */
+  private readonly viewportTokens = new Map<string, number>();
   private readonly frames = new SeriesFrameRegistry();
 
   private engine: Cs3dEngineLike | null = null;
@@ -128,19 +130,32 @@ export class CornerstoneRenderer implements RendererPort {
     this.engine = engine;
 
     const stackType = this.cs3d.Enums.ViewportType.STACK;
-    layout.viewportIds.forEach((viewportId, index) => {
-      const element = elements[index];
-      if (element === undefined) {
-        throw new Error(`视口 ${viewportId} 缺少挂载元素`);
-      }
-      engine.enableElement({
-        viewportId,
-        element,
-        type: stackType,
-        defaultOptions: { background: [0, 0, 0] },
+    const enabled: string[] = [];
+    try {
+      layout.viewportIds.forEach((viewportId, index) => {
+        const element = elements[index];
+        if (element === undefined) {
+          throw new Error(`视口 ${viewportId} 缺少挂载元素`);
+        }
+        engine.enableElement({
+          viewportId,
+          element,
+          type: stackType,
+          defaultOptions: { background: [0, 0, 0] },
+        });
+        enabled.push(viewportId);
+        this.viewports.set(viewportId, engine.getViewport(viewportId));
       });
-      this.viewports.set(viewportId, engine.getViewport(viewportId));
-    });
+    } catch (err: unknown) {
+      // 中途失败必须回滚：否则已启用的视口与 engine 泄漏（交叉评审 N5）
+      for (const viewportId of enabled) {
+        engine.disableElement?.(viewportId);
+      }
+      this.viewports.clear();
+      engine.destroy();
+      this.engine = null;
+      throw err instanceof Error ? err : new Error(String(err));
+    }
 
     this.mounted = true;
   }
@@ -184,20 +199,30 @@ export class CornerstoneRenderer implements RendererPort {
     const previousSeriesUid = this.viewportSeries.get(viewportId);
     const previousFrameCount = this.viewportFrameCounts.get(viewportId);
 
+    // 视口级版本号：并发 setStack 时只让最后一次生效。
+    // 没有它的话，慢请求 A 会在快请求 B 之后归来并把归属写回 A，
+    // 导致 B 的帧再也没人释放（内存泄漏）+ 越界判断用错帧数（状态串扰）。
+    const token = (this.viewportTokens.get(viewportId) ?? 0) + 1;
+    this.viewportTokens.set(viewportId, token);
+
     const imageIds = this.frames.register(handle);
     try {
       await viewport.setStack(imageIds, initialIndex);
     } catch (err: unknown) {
       // CS3D 装载失败时必须回滚登记表，否则这个视口"看起来装着 B、实际还是 A"，
       // 而 B 的帧再也没人释放。
-      if (
-        nextSeriesUid !== previousSeriesUid &&
-        !this.isSeriesInUse(nextSeriesUid, viewportId)
-      ) {
-        this.frames.release(nextSeriesUid);
-      }
+      this.discardRegistration(nextSeriesUid, viewportId);
       this.restoreViewportSeries(viewportId, previousSeriesUid, previousFrameCount);
       throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    // await 归来后先查版本号：被更新的请求取代时，本次登记作废、归属一律不动。
+    // 注意这里是"写入归属之前"的最后一道闸，顺序不能调。
+    if (token !== this.viewportTokens.get(viewportId)) {
+      this.discardRegistration(nextSeriesUid, viewportId);
+      throw new Error(
+        `装载 ${nextSeriesUid} 被更新的装载请求取代，本次结果已丢弃`,
+      );
     }
 
     // 成功之后才切归属，并释放已经没有任何视口在用的旧序列。
@@ -302,7 +327,18 @@ export class CornerstoneRenderer implements RendererPort {
       return;
     }
 
-    await Promise.race([twoFrames(raf), delay(this.idleTimeoutMs)]);
+    // 必须显式清掉落败的定时器：高频调窗/翻页时 Promise.race 会留下大量孤儿 timer
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        twoFrames(raf),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, this.idleTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   public disposeViewport(viewportId: string): void {
@@ -319,6 +355,9 @@ export class CornerstoneRenderer implements RendererPort {
       this.viewportSeries.delete(viewportId);
     }
     this.viewportFrameCounts.delete(viewportId);
+    // 版本号也清掉，但先自增一次：让仍在 await 的旧请求明确作废
+    this.viewportTokens.set(viewportId, (this.viewportTokens.get(viewportId) ?? 0) + 1);
+    this.viewportTokens.delete(viewportId);
   }
 
   public destroy(): void {
@@ -332,6 +371,7 @@ export class CornerstoneRenderer implements RendererPort {
     this.viewports.clear();
     this.viewportSeries.clear();
     this.viewportFrameCounts.clear();
+    this.viewportTokens.clear();
     this.frames.clear();
 
     this.engine?.destroy();
@@ -348,6 +388,17 @@ export class CornerstoneRenderer implements RendererPort {
       }
     }
     return false;
+  }
+
+  /**
+   * 丢弃一次"未生效"的登记。
+   * 两道保护：①当前归属就是它时不能删（同序列并发时，赢家已经写入了）；
+   * ②别的视口还在用它时不能删（多视口对比同序列）。
+   */
+  private discardRegistration(seriesInstanceUid: string, viewportId: string): void {
+    if (this.viewportSeries.get(viewportId) === seriesInstanceUid) return;
+    if (this.isSeriesInUse(seriesInstanceUid, viewportId)) return;
+    this.frames.release(seriesInstanceUid);
   }
 
   private restoreViewportSeries(

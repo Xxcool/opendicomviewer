@@ -151,6 +151,39 @@ describe('Dicom Fixture Builder 与 dicom-parser 集成验证', () => {
     expect(dataSet.uint16('x00280011')).toBe(256);
   });
 
+  it('P1-2（交叉评审）：UID 奇数长度必须填 0x00，文本 VR 仍填 0x20', () => {
+    const findBytes = (haystack: Uint8Array, needle: Uint8Array): number => {
+      for (let i = 0; i <= haystack.length - needle.length; i++) {
+        let hit = true;
+        for (let k = 0; k < needle.length; k++) {
+          if (haystack[i + k] !== needle[k]) {
+            hit = false;
+            break;
+          }
+        }
+        if (hit) return i;
+      }
+      return -1;
+    };
+
+    // 9 字符 = 奇数长度 UID
+    const oddUid = '1.2.3.4.5';
+    const oddName = 'ABC'; // 3 字符 PN，同样奇数
+    const bytes = buildDicomBuffer({ sopInstanceUid: oddUid, patientName: oddName });
+
+    const uidNeedle = new TextEncoder().encode(oddUid);
+    const uidAt = findBytes(bytes, uidNeedle);
+    expect(uidAt).toBeGreaterThan(-1);
+    // PS3.5 Table 6.2-1：UI 必须以 NULL 补齐，填空格会让 UID 非法
+    expect(bytes[uidAt + uidNeedle.length]).toBe(0x00);
+
+    const nameNeedle = new TextEncoder().encode(oddName);
+    const nameAt = findBytes(bytes, nameNeedle);
+    expect(nameAt).toBeGreaterThan(-1);
+    // 文本 VR 反过来必须是空格，别把它们一起改坏
+    expect(bytes[nameAt + nameNeedle.length]).toBe(0x20);
+  });
+
   it('fixture 支持写入像素数据与灰度换算标签（供 golden 与 Spike A 复用）', () => {
     const rows = 4;
     const columns = 4;
@@ -475,6 +508,41 @@ describe('解析线程池 (parser-pool.ts)', () => {
     ).rejects.toThrow(/解析超时/);
   });
 
+  /**
+   * P1-3（交叉评审 CR-2026-10-28-selfcode）：createWorker 抛错时任务残留队列。
+   * 不直接读私有 queue，而是用"下一次解析被谁顶掉"来观测。
+   */
+  it('Worker 构造抛错后队列必须干净，下一次解析不能被僵尸任务顶掉', async () => {
+    const created: FakeWorker[] = [];
+    let shouldFail = true;
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      timeoutMs: 0,
+      createWorker: () => {
+        if (shouldFail) throw new Error('Worker spawn failed');
+        const worker = new FakeWorker();
+        created.push(worker);
+        return worker;
+      },
+    });
+
+    const bytes = buildDicomBuffer({});
+    await expect(
+      pool.parse(toArrayBuffer(bytes), makeCandidate('first', bytes)),
+    ).rejects.toThrow(/Worker spawn failed/);
+
+    shouldFail = false;
+    const second = pool.parse(toArrayBuffer(bytes), makeCandidate('second', bytes));
+
+    // 修复后：派发给新 worker 的第一条任务必须是 second，而不是残留的 first
+    expect(created).toHaveLength(1);
+    expect(created[0]?.posted[0]?.candidateInfo.id).toBe('second');
+
+    created[0]?.respondWith(makeMeta());
+    await expect(second).resolves.toBeDefined();
+    pool.terminate();
+  });
+
   it('P1-1 用例 6：队列超过上限时明确拒绝，避免 1000 帧全量排队拉满内存', async () => {
     const fake = new FakeWorker();
     const pool = new ParserPool({
@@ -549,6 +617,22 @@ describe('ZIP 条目解析 (zip.ts)', () => {
       makeSliceCandidate('utf8', zip),
     );
     expect(entries[0]?.filename).toBe('胸片/CT0001.dcm');
+  });
+
+  it('N4（交叉评审）：条目数占位值 0xFFFF 也要判定为 ZIP64', async () => {
+    const zip = buildZip([
+      { nameBytes: new TextEncoder().encode('CT0001.dcm'), data: payload },
+    ]);
+    const eocdStart = zip.length - 22;
+    const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+    expect(view.getUint32(eocdStart, true)).toBe(0x06054b50);
+    // 只改条目数（总条目 / 本盘条目），cdSize 与 cdOffset 保持合法值
+    view.setUint16(eocdStart + 8, 0xffff, true);
+    view.setUint16(eocdStart + 10, 0xffff, true);
+
+    await expect(
+      extractZipEntriesFromCandidate(makeSliceCandidate('many', zip)),
+    ).rejects.toThrow(/ZIP64/);
   });
 
   it('N6：ZIP64 占位值必须显式报错，不允许静默返回空条目', async () => {
