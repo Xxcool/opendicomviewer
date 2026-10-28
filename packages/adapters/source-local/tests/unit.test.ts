@@ -1,13 +1,30 @@
 import dicomParser from 'dicom-parser';
 import { describe, expect, it } from 'vitest';
+import type { ImportCandidate } from '@opendicomviewer/core';
 import {
   decodeDicomText,
-  decodeFilenameForDisplay,
+  decodeFilenameBytes,
   scoreCjk,
   stripIso2022Escapes,
 } from '../src/charset';
 import { hasDicomPrefix, isDicomdirCandidate } from '../src/magic';
 import { buildDicomBuffer } from '../testing/dicom-fixture';
+import {
+  GBK_CHEST_CT_FILENAME,
+  buildZip,
+  buildZip64PlaceholderZip,
+} from '../testing/zip-fixture';
+import { extractZipEntriesFromCandidate } from '../src/zip';
+import {
+  ParserPool,
+  isWorkerRuntimeAvailable,
+  type WorkerLike,
+} from '../src/worker/parser-pool';
+import type {
+  WorkerParseRequest,
+  WorkerParseResponse,
+} from '../src/worker/types';
+import type { ParsedDicomMeta } from '../src/parse';
 
 describe('魔数识别与文件名判定 (magic.ts)', () => {
   it('用例 1：无扩展名的 DICOM 文件能仅靠魔数正确识别', () => {
@@ -44,23 +61,31 @@ describe('魔数识别与文件名判定 (magic.ts)', () => {
 });
 
 describe('字符集与编码解码 (charset.ts)', () => {
-  it('用例 3：GBK 编码文件名在展示层不乱码（线 1：文件名启发式还原）', () => {
-    // "胸部CT平扫" GBK 编码: 0xD0 0xD8 0xB2 0xBF 0x43 0x54 0xC6 0xBD 0xC9 0xA8
-    const gbkBytes = [0xd0, 0xd8, 0xb2, 0xbf, 0x43, 0x54, 0xc6, 0xbd, 0xc9, 0xa8];
-    // 浏览器拿到的 latin-1 字符串乱码
-    const latin1Name = String.fromCharCode(...gbkBytes) + '.dcm';
+  it('用例 3（N5）：ZIP 中央目录里的 GBK 文件名能按字节正确还原', () => {
+    // "胸部CT平扫" 的 GBK 字节
+    const gbkBytes = new Uint8Array([
+      0xd0, 0xd8, 0xb2, 0xbf, 0x43, 0x54, 0xc6, 0xbd, 0xc9, 0xa8,
+    ]);
 
-    const restored = decodeFilenameForDisplay(latin1Name);
-    expect(restored).toBe('胸部CT平扫.dcm');
+    // 关键场景：打包工具没置 bit 11，但写入的确实是 GBK 字节。
+    // 旧实现无条件 new TextDecoder()（宽松 UTF-8）会得到一堆 U+FFFD，信息直接丢失。
+    expect(decodeFilenameBytes(gbkBytes, false)).toBe('胸部CT平扫');
 
-    // N3 验证：0x80-0x9F 区间经 Windows-1252 转换后仍能精准逆向反推（例如 0x91 映射为 \u2018）
-    // 0x91 0x50 在 GBK/GB18030 中为有效汉字
-    const gbkSpecial = new TextDecoder('gb18030').decode(new Uint8Array([0x91, 0x50]));
-    const win1252String = '\u2018P.dcm'; // 0x2018 对应 0x91, 'P' 对应 0x50
-    expect(decodeFilenameForDisplay(win1252String)).toBe(`${gbkSpecial}.dcm`);
+    // 打包工具撒谎：声称 UTF-8 实际是 GBK，仍要尽力还原
+    expect(decodeFilenameBytes(gbkBytes, true)).toBe('胸部CT平扫');
 
-    // 常规纯英文文件名不受影响
-    expect(decodeFilenameForDisplay('NORMAL_SCAN_001.dcm')).toBe('NORMAL_SCAN_001.dcm');
+    // 声明 UTF-8 且确实是 UTF-8
+    const utf8Bytes = new TextEncoder().encode('胸部CT平扫');
+    expect(decodeFilenameBytes(utf8Bytes, true)).toBe('胸部CT平扫');
+
+    // 纯 ASCII 文件名不能被改写（绝大多数光盘都是这种）
+    const asciiBytes = new TextEncoder().encode('CT0001.DCM');
+    expect(decodeFilenameBytes(asciiBytes, false)).toBe('CT0001.DCM');
+
+    // 任何输入都不得返回替换字符 U+FFFD
+    expect(decodeFilenameBytes(new Uint8Array([0xff, 0xfe, 0x80]), false)).not.toContain(
+      '\uFFFD',
+    );
   });
 
   it('用例 4：SpecificCharacterSet 缺失时，中文标签值仍能靠 gb18030 兜底正确解码（线 2：标签值解码）', () => {
@@ -213,26 +238,282 @@ describe('Dicom Fixture Builder 与 dicom-parser 集成验证', () => {
     expect(result[0]?.series[0]?.images[0]?.referencedFileId).toBe('DICOM\\IMG001');
   });
 
-  it('P1-1 验证：ParserPool 支持 Worker 解析通道与生命周期管理', async () => {
-    const { ParserPool } = await import('../src/worker/parser-pool');
-    const pool = new ParserPool(2);
-    const buf = buildDicomBuffer({
-      patientId: 'POOL-TEST-001',
+});
+
+/**
+ * ParserPool 用例（GEMINI §10.1）
+ *
+ * 前提事实：Node 没有全局 Worker（`typeof Worker === 'undefined'`），
+ * 所以**任何跑在 vitest 里的用例都不可能覆盖真实 Worker 分支**。
+ * 「解析是否真在独立线程执行」只能由浏览器断言（ARCHITECTURE §12.2 第 3 条）。
+ * 调度逻辑本身通过注入 `createWorker` 获得可测性，下面第 2~6 组用例均走 fake worker。
+ */
+class FakeWorker implements WorkerLike {
+  public readonly posted: WorkerParseRequest[] = [];
+  public terminateCount = 0;
+  private messageHandler: ((response: WorkerParseResponse) => void) | null = null;
+  private errorHandler: ((message: string) => void) | null = null;
+
+  public postMessage(message: WorkerParseRequest): void {
+    this.posted.push(message);
+  }
+
+  public onMessage(handler: (response: WorkerParseResponse) => void): void {
+    this.messageHandler = handler;
+  }
+
+  public onError(handler: (message: string) => void): void {
+    this.errorHandler = handler;
+  }
+
+  public terminate(): void {
+    this.terminateCount += 1;
+  }
+
+  /** 模拟 worker 回包（默认回最后一条已投递任务的 id） */
+  public respondWith(meta: ParsedDicomMeta): void {
+    const last = this.posted[this.posted.length - 1];
+    this.messageHandler?.({
+      id: last?.id ?? '',
+      success: true,
+      result: meta,
+    });
+  }
+
+  /** 模拟 worker 线程级错误（OOM / 脚本异常） */
+  public failWith(message: string): void {
+    this.errorHandler?.(message);
+  }
+}
+
+function makeMeta(overrides: Partial<ParsedDicomMeta> = {}): ParsedDicomMeta {
+  return {
+    plane: {
+      imageId: 'img',
+      sopInstanceUid: '1.2.3',
+      imagePositionPatient: [0, 0, 0],
+      imageOrientationPatient: [1, 0, 0, 0, 1, 0],
+      pixelSpacing: [1, 1],
+      rows: 2,
+      columns: 2,
+    },
+    studyUid: '1.2',
+    patientId: 'PID',
+    patientName: 'PN',
+    studyDescription: '',
+    seriesUid: '1.2.3',
+    seriesDescription: '',
+    modality: 'CT',
+    ...overrides,
+  };
+}
+
+function makeCandidate(id: string, bytes: Uint8Array): ImportCandidate {
+  return {
+    id,
+    name: `${id}.dcm`,
+    size: bytes.byteLength,
+    read: async (): Promise<ArrayBuffer> => new ArrayBuffer(bytes.byteLength),
+  };
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const out = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(out).set(bytes);
+  return out;
+}
+
+describe('解析线程池 (parser-pool.ts)', () => {
+  it('P1-1 用例 1：无 Worker 运行时走同步回退模式，解析结果正确', async () => {
+    // 这条断言同时起到守卫作用：Node 哪天补上全局 Worker，这里会失败并提醒改测试假设
+    expect(isWorkerRuntimeAvailable()).toBe(false);
+
+    const pool = new ParserPool({ createWorker: null });
+    expect(pool.isWorkerMode()).toBe(false);
+
+    const bytes = buildDicomBuffer({
+      patientId: 'POOL-FALLBACK-001',
       studyInstanceUid: '1.2.3.999',
     });
+    const parsed = await pool.parse(toArrayBuffer(bytes), makeCandidate('fb', bytes));
 
-    const parsed = await pool.parse(
-      buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
-      {
-        id: 'pool-test',
-        name: 'test.dcm',
-        size: buf.byteLength,
-        read: async () => buf.buffer,
-      },
-    );
-
-    expect(parsed.patientId).toBe('POOL-TEST-001');
+    expect(parsed.patientId).toBe('POOL-FALLBACK-001');
     expect(parsed.studyUid).toBe('1.2.3.999');
     pool.terminate();
+  });
+
+  it('P1-1 用例 2：Worker 模式正确投递任务，且不 detach 调用方的 ArrayBuffer', async () => {
+    const fake = new FakeWorker();
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      timeoutMs: 0,
+      createWorker: () => fake,
+    });
+    expect(pool.isWorkerMode()).toBe(true);
+
+    const bytes = buildDicomBuffer({ patientId: 'POOL-WORKER-001' });
+    const buffer = toArrayBuffer(bytes);
+    const pending = pool.parse(buffer, makeCandidate('w1', bytes));
+
+    expect(fake.posted).toHaveLength(1);
+    expect(fake.posted[0]?.candidateInfo.id).toBe('w1');
+
+    fake.respondWith(makeMeta({ patientId: 'POOL-WORKER-001' }));
+    await expect(pending).resolves.toMatchObject({ patientId: 'POOL-WORKER-001' });
+
+    // 缺陷 c 回归：若用 transfer list 转移所有权，调用方 buffer 会被 detach（byteLength = 0），
+    // 之后 source-local 复用同一个 buffer 就会抛 TypeError。
+    expect(buffer.byteLength).toBe(bytes.byteLength);
+    pool.terminate();
+  });
+
+  it('P1-1 用例 3：复用同一 Worker 时出错必须落到当前请求，而不是创建者', async () => {
+    const fake = new FakeWorker();
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      timeoutMs: 0,
+      createWorker: () => fake,
+    });
+
+    const bytesA = buildDicomBuffer({ patientId: 'A' });
+    const bytesB = buildDicomBuffer({ patientId: 'B' });
+
+    const first = pool.parse(toArrayBuffer(bytesA), makeCandidate('a', bytesA));
+    const second = pool.parse(toArrayBuffer(bytesB), makeCandidate('b', bytesB));
+
+    // 并发上限 1：第二个任务必须排队，不能被无脑 postMessage 出去
+    expect(fake.posted).toHaveLength(1);
+
+    fake.respondWith(makeMeta({ patientId: 'A' }));
+    await expect(first).resolves.toMatchObject({ patientId: 'A' });
+
+    // 队列里的第二个被派发到同一个 worker
+    expect(fake.posted).toHaveLength(2);
+
+    // 此时 worker 出错：老实现会把错误投给已 settle 的 first，second 永久挂起
+    fake.failWith('线程 OOM');
+    await expect(second).rejects.toThrow(/解析线程异常.*线程 OOM/);
+    pool.terminate();
+  });
+
+  it('P1-1 用例 4：terminate() 必须 reject 所有在途与排队任务，不能永久挂起', async () => {
+    const fake = new FakeWorker();
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      timeoutMs: 0,
+      createWorker: () => fake,
+    });
+
+    const bytes = buildDicomBuffer({});
+    const inFlight = pool.parse(toArrayBuffer(bytes), makeCandidate('t1', bytes));
+    const queued = pool.parse(toArrayBuffer(bytes), makeCandidate('t2', bytes));
+
+    pool.terminate();
+
+    await expect(inFlight).rejects.toThrow('解析线程池已终止');
+    await expect(queued).rejects.toThrow('解析线程池已终止');
+    expect(fake.terminateCount).toBe(1);
+
+    // 终止后再投递必须立即失败，而不是悄悄排队
+    await expect(
+      pool.parse(toArrayBuffer(bytes), makeCandidate('t3', bytes)),
+    ).rejects.toThrow('解析线程池已终止');
+  });
+
+  it('P1-1 用例 5：解析超时后明确报错，不让导入无声卡住', async () => {
+    const fake = new FakeWorker();
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      timeoutMs: 10,
+      createWorker: () => fake,
+    });
+
+    const bytes = buildDicomBuffer({});
+    await expect(
+      pool.parse(toArrayBuffer(bytes), makeCandidate('slow', bytes)),
+    ).rejects.toThrow(/解析超时/);
+  });
+
+  it('P1-1 用例 6：队列超过上限时明确拒绝，避免 1000 帧全量排队拉满内存', async () => {
+    const fake = new FakeWorker();
+    const pool = new ParserPool({
+      maxConcurrency: 1,
+      maxQueueSize: 1,
+      timeoutMs: 0,
+      createWorker: () => fake,
+    });
+
+    const bytes = buildDicomBuffer({});
+    const first = pool.parse(toArrayBuffer(bytes), makeCandidate('q1', bytes));
+    const second = pool.parse(toArrayBuffer(bytes), makeCandidate('q2', bytes));
+
+    await expect(
+      pool.parse(toArrayBuffer(bytes), makeCandidate('q3', bytes)),
+    ).rejects.toThrow(/解析队列已满/);
+
+    pool.terminate();
+    await expect(first).rejects.toThrow('解析线程池已终止');
+    await expect(second).rejects.toThrow('解析线程池已终止');
+  });
+});
+
+describe('ZIP 条目解析 (zip.ts)', () => {
+  function makeSliceCandidate(id: string, bytes: Uint8Array): ImportCandidate {
+    return {
+      id,
+      name: `${id}.zip`,
+      size: bytes.byteLength,
+      read: async (start?: number, end?: number): Promise<ArrayBuffer> => {
+        const from = start ?? 0;
+        const to = end ?? bytes.byteLength;
+        const out = new ArrayBuffer(Math.max(0, to - from));
+        new Uint8Array(out).set(bytes.subarray(from, to));
+        return out;
+      },
+    };
+  }
+
+  const payload = new Uint8Array([0x44, 0x49, 0x43, 0x4d, 0x01, 0x02]);
+
+  it('N5：中央目录里的 GBK 文件名（未置 bit 11）能正确解码，不再产出 U+FFFD', async () => {
+    const zip = buildZip([
+      { nameBytes: GBK_CHEST_CT_FILENAME, data: payload, utf8FilenameFlag: false },
+    ]);
+
+    const entries = await extractZipEntriesFromCandidate(
+      makeSliceCandidate('gbk', zip),
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.filename).toBe('胸部CT平扫.dcm');
+    expect(entries[0]?.filename).not.toContain('\uFFFD');
+    expect(entries[0]?.isDirectory).toBe(false);
+    expect(entries[0]?.uncompressedSize).toBe(payload.byteLength);
+
+    // 条目内容也要能按需取回（确认改动没破坏 Range 读取）
+    const data = await entries[0]?.read();
+    expect(new Uint8Array(data ?? new ArrayBuffer(0))).toEqual(payload);
+  });
+
+  it('N5：置了 bit 11 且确实是 UTF-8 的文件名同样正确', async () => {
+    const zip = buildZip([
+      {
+        nameBytes: new TextEncoder().encode('胸片/CT0001.dcm'),
+        data: payload,
+        utf8FilenameFlag: true,
+      },
+    ]);
+
+    const entries = await extractZipEntriesFromCandidate(
+      makeSliceCandidate('utf8', zip),
+    );
+    expect(entries[0]?.filename).toBe('胸片/CT0001.dcm');
+  });
+
+  it('N6：ZIP64 占位值必须显式报错，不允许静默返回空条目', async () => {
+    const zip64 = buildZip64PlaceholderZip();
+    await expect(
+      extractZipEntriesFromCandidate(makeSliceCandidate('zip64', zip64)),
+    ).rejects.toThrow(/ZIP64/);
   });
 });

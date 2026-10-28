@@ -1,4 +1,4 @@
-import type { ImagePlane, Modality } from '@opendicomviewer/core';
+import type { ParsedDicomMeta } from '../parse';
 
 export interface WorkerParseRequest {
   readonly id: string;
@@ -10,18 +10,11 @@ export interface WorkerParseRequest {
   };
 }
 
-export interface ParsedWorkerResult {
-  readonly plane: ImagePlane;
-  readonly studyUid: string;
-  readonly patientId: string;
-  readonly patientName: string;
-  readonly studyDate?: string;
-  readonly studyDescription: string;
-  readonly seriesUid: string;
-  readonly seriesNumber?: number;
-  readonly seriesDescription: string;
-  readonly modality: Modality;
-}
+/**
+ * 解析结果直接复用主线程的 `ParsedDicomMeta`。
+ * 原先此处手写了一份等价结构体，两份定义会随字段增减而漂移，已改为类型别名。
+ */
+export type ParsedWorkerResult = ParsedDicomMeta;
 
 export interface WorkerParseSuccessResponse {
   readonly id: string;

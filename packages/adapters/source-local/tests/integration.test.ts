@@ -5,6 +5,7 @@ import {
   buildDicomBuffer,
   buildDicomdirBuffer,
 } from '../testing/dicom-fixture';
+import { GBK_CHEST_CT_FILENAME, buildZip } from '../testing/zip-fixture';
 
 function createMockCandidate(
   name: string,
@@ -258,6 +259,42 @@ describe('LocalDataSource 综合集成与验收用例', () => {
         expect.objectContaining({ code: 'MISSING_GEOMETRY' }),
       ]),
     );
+  });
+
+  /**
+   * N5 端到端：ZIP 里用 GBK 文件名（未置 bit 11）打包的 DICOM，
+   * 必须能正常导入并归类成序列——不是"文件名能显示对了"就够，
+   * 而是候选 id 一路传到 SeriesRef 都不能是 U+FFFD。
+   */
+  it('N5 端到端：ZIP 内 GBK 文件名的 DICOM 能被正常导入并归类', async () => {
+    const inner = buildDicomBuffer({
+      studyInstanceUid: '1.2.3.880',
+      seriesInstanceUid: '1.2.3.880.1',
+      sopInstanceUid: '1.2.3.880.1.1',
+      patientId: 'PID-GBK-ZIP',
+    });
+
+    const zipBytes = buildZip([
+      { nameBytes: GBK_CHEST_CT_FILENAME, data: inner, utf8FilenameFlag: false },
+    ]);
+
+    const source = new LocalDataSource();
+    const studies = await source.probe({
+      files: [createMockCandidate('disc.zip', zipBytes)],
+    });
+
+    expect(studies).toHaveLength(1);
+    expect(studies[0]?.studyInstanceUid).toBe('1.2.3.880');
+    expect(studies[0]?.seriesCount).toBe(1);
+
+    const handle = await source.openSeries({
+      studyInstanceUid: '1.2.3.880',
+      seriesInstanceUid: '1.2.3.880.1',
+    });
+
+    expect(handle.meta.planes).toHaveLength(1);
+    expect(handle.meta.planes[0]?.imageId).toContain('胸部CT平扫.dcm');
+    expect(handle.meta.planes[0]?.imageId).not.toContain('\uFFFD');
   });
 
   it('P1-6 验证：DICOMDIR 损坏回退时产生明确 warning 告警', async () => {

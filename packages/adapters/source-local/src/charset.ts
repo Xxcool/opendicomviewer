@@ -69,63 +69,46 @@ export function stripIso2022Escapes(bytes: Uint8Array): Uint8Array {
 }
 
 /**
- * WHATWG 规范下 TextDecoder('iso-8859-1') 实际执行 windows-1252 映射。
- * 针对 0x80–0x9F 区间（GBK 首字节常见区间）建立精确反向码表，
- * 将被浏览器错误映射为特殊字符的码点准确还原为原始单字节值 (N3 修复)。
- */
-const WINDOWS_1252_REVERSE: Readonly<Record<number, number>> = {
-  0x20ac: 0x80, // €
-  0x201a: 0x82, // ‚
-  0x0192: 0x83, // ƒ
-  0x201e: 0x84, // „
-  0x2026: 0x85, // …
-  0x2020: 0x86, // †
-  0x2021: 0x87, // ‡
-  0x02c6: 0x88, // ˆ
-  0x2030: 0x89, // ‰
-  0x0160: 0x8a, // Š
-  0x2039: 0x8b, // ‹
-  0x0152: 0x8c, // Œ
-  0x017d: 0x8e, // Ž
-  0x2018: 0x91, // ‘
-  0x2019: 0x92, // ’
-  0x201c: 0x93, // “
-  0x201d: 0x94, // ”
-  0x2022: 0x95, // •
-  0x2013: 0x96, // –
-  0x2014: 0x97, // —
-  0x02dc: 0x98, // ˜
-  0x2122: 0x99, // ™
-  0x0161: 0x9a, // š
-  0x203a: 0x9b, // ›
-  0x0153: 0x9c, // œ
-  0x017e: 0x9e, // ž
-  0x0178: 0x9f, // Ÿ
-};
-
-/**
- * 【线 1：文件名】展示路径还原
+ * 【线 1：文件名】字节级解码（N5 修复）
  *
- * 仅在展示路径时做还原启发式：
- * 把字符串通过 Windows-1252 / Latin-1 反向映射回原始字节，再用 gb18030 解码。
- * 若解码后 CJK 占比/数量更高且不含替代字符，则采纳；否则保留原字符串。
- * 注意：文件能否打开与文件名完全无关，一律靠魔数判定。
+ * 适用场景：ZIP 中央目录里的文件名原始字节。
+ * ZIP 规范用 General Purpose Bit Flag 的 bit 11 声明"文件名是 UTF-8"，
+ * 中国医院光盘的打包工具**普遍不置位**，实际写入的是 GBK 字节。
+ *
+ * 判定顺序：
+ * 1. 严格 UTF-8（`fatal: true`）——声明置位时是首选；未置位的纯 ASCII 文件名也走这条
+ * 2. GB18030 —— 中文光盘包的实际编码；未声明时要求必须解出 CJK，避免把 CP437 重音字母误判
+ * 3. iso-8859-1 单字节无损兜底，保证绝不返回 U+FFFD
+ *
+ * 注意：一旦用宽松 UTF-8 解码，坏字节会变成 U+FFFD 而信息已丢失，
+ * 之后任何反查表都救不回来。所以探测阶段一律不宽松解码。
  */
-export function decodeFilenameForDisplay(filename: string): string {
+export function decodeFilenameBytes(
+  bytes: Uint8Array,
+  isUtf8Declared: boolean,
+): string {
+  // 1. 严格 UTF-8 优先：声明置位时是首选；未置位时纯 ASCII 文件名（绝大多数）也走这条
   try {
-    const rawBytes = new Uint8Array(filename.length);
-    for (let i = 0; i < filename.length; i++) {
-      const code = filename.charCodeAt(i);
-      rawBytes[i] = WINDOWS_1252_REVERSE[code] ?? (code & 0xff);
-    }
-    const decoded = new TextDecoder('gb18030').decode(rawBytes);
-    if (!decoded.includes('\uFFFD') && scoreCjk(decoded) > scoreCjk(filename)) {
-      return decoded;
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    // 落到下面继续探测
+  }
+
+  // 2. 中文包探测
+  //    声明了 UTF-8 却解不出来 = 打包工具撒谎，按 GBK 尽力还原（不再要求命中 CJK，
+  //    否则会把"声明错误但内容确实是 GBK 标点"的名字也丢掉）
+  //    未声明时可能是 CP437 欧洲字符名，要求必须能解出 CJK，避免把重音字母变成乱码汉字
+  try {
+    const gbk = new TextDecoder('gb18030').decode(bytes);
+    if (!gbk.includes('\uFFFD') && (isUtf8Declared || scoreCjk(gbk) > 0)) {
+      return gbk;
     }
   } catch {
-    // 启发式失败直接回退原文件名
+    // 继续兜底
   }
-  return filename;
+
+  // 3. 单字节无损兜底，保证绝不返回 U+FFFD
+  return new TextDecoder('iso-8859-1').decode(bytes);
 }
 
 /**

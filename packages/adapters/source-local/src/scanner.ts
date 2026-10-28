@@ -12,15 +12,13 @@
 import {
   type ImagePlane,
   type Modality,
-  type ModalityLUT,
   type SeriesMeta,
   type StudyMeta,
   sortByPosition,
 } from '@opendicomviewer/core';
 import type { ImportCandidate } from '@opendicomviewer/core';
-import dicomParser, { type ParseOptions } from 'dicom-parser';
-import { decodeDicomText } from './charset';
 import { hasDicomPrefix } from './magic';
+import { parseDicomMetadata } from './parse';
 import {
   extractZipEntriesFromCandidate,
   isZipBuffer,
@@ -33,6 +31,15 @@ export interface FileParseFailure {
   readonly name: string;
   readonly reason: string;
 }
+
+// 解析实现已迁至 ./parse：①解开 worker → scanner → pool → worker 的循环依赖；
+// ②worker 包只带 dicom-parser，不再把 zip 解包与扫描主流程重复打进去。
+// 此处保留原导出路径，调用方无需改动。
+export {
+  parseDicomMetadata,
+  parseFloats,
+  type ParsedDicomMeta,
+} from './parse';
 
 export interface InternalSeriesData {
   readonly studyInstanceUid: string;
@@ -48,148 +55,6 @@ export interface ScanResult {
   readonly studies: StudyMeta[];
   readonly seriesList: InternalSeriesData[];
   readonly failedFiles: FileParseFailure[];
-}
-
-function parseFloats(raw: string | undefined, expectedCount: number): number[] | undefined {
-  if (!raw) return undefined;
-  const parts = raw.split('\\').map((p) => parseFloat(p.trim()));
-  if (parts.length < expectedCount || parts.some((n) => isNaN(n))) {
-    return undefined;
-  }
-  return parts;
-}
-
-/**
- * 解析单个 DICOM 文件元数据（使用 untilTag: 'x7fe00010' 避免读取大像素数据，P1-2）
- */
-export function parseDicomMetadata(
-  bytes: Uint8Array,
-  candidate: Pick<ImportCandidate, 'id'>,
-  options: ParseOptions = { untilTag: 'x7fe00010' },
-): {
-  plane: ImagePlane;
-  studyUid: string;
-  patientId: string;
-  patientName: string;
-  studyDate?: string;
-  studyDescription: string;
-  seriesUid: string;
-  seriesNumber?: number;
-  seriesDescription: string;
-  modality: Modality;
-} {
-  const dataSet = dicomParser.parseDicom(bytes, options);
-
-  const sopInstanceUid = dataSet.string('x00080018');
-  if (!sopInstanceUid) {
-    throw new Error('缺少 SOPInstanceUID (0008,0018)');
-  }
-
-  const studyUid = dataSet.string('x0020000d') || 'UNKNOWN_STUDY';
-  const seriesUid = dataSet.string('x0020000e') || 'UNKNOWN_SERIES';
-  const modality = (dataSet.string('x00080060') || 'OT') as Modality;
-  const patientId = dataSet.string('x00100020') || 'ANONYMOUS';
-
-  const charset = dataSet.string('x00080005');
-  let patientName = patientId;
-  const pnElem = dataSet.elements.x00100010;
-  if (pnElem) {
-    const pnBytes = dataSet.byteArray.slice(
-      pnElem.dataOffset,
-      pnElem.dataOffset + pnElem.length,
-    );
-    patientName = decodeDicomText(pnBytes, charset);
-  }
-
-  // P1-5: 空间几何缺失校验，不得静默编造默认值
-  const ippFloats = parseFloats(dataSet.string('x00200032'), 3);
-  const iopFloats = parseFloats(dataSet.string('x00200037'), 6);
-  const hasMissingGeometry = !ippFloats || !iopFloats;
-
-  const ipp: [number, number, number] = ippFloats
-    ? [ippFloats[0] ?? 0, ippFloats[1] ?? 0, ippFloats[2] ?? 0]
-    : [0, 0, 0];
-
-  const iop: [number, number, number, number, number, number] = iopFloats
-    ? [
-        iopFloats[0] ?? 1,
-        iopFloats[1] ?? 0,
-        iopFloats[2] ?? 0,
-        iopFloats[3] ?? 0,
-        iopFloats[4] ?? 1,
-        iopFloats[5] ?? 0,
-      ]
-    : [1, 0, 0, 0, 1, 0];
-
-  const psFloats = parseFloats(dataSet.string('x00280030'), 2) ?? [1.0, 1.0];
-  const pixelSpacing: [number, number] = [
-    psFloats[0] ?? 1.0,
-    psFloats[1] ?? 1.0,
-  ];
-
-  // N1: 解析 ModalityLUTSequence (0028,3002)
-  let modalityLUT: ModalityLUT | undefined;
-  const lutSeq = dataSet.elements.x00283002;
-  if (lutSeq && lutSeq.items && lutSeq.items[0]) {
-    const itemDs = lutSeq.items[0].dataSet;
-    const desc = parseFloats(itemDs.string('x00283002'), 3);
-    const lutDataElem = itemDs.elements.x00283006;
-    if (desc && desc.length >= 3 && lutDataElem) {
-      const rawLutBytes = itemDs.byteArray.slice(
-        lutDataElem.dataOffset,
-        lutDataElem.dataOffset + lutDataElem.length,
-      );
-      const lutData = new Uint16Array(
-        rawLutBytes.buffer,
-        rawLutBytes.byteOffset,
-        rawLutBytes.byteLength / 2,
-      );
-      modalityLUT = {
-        firstMappedPixelValue: desc[1] ?? 0,
-        bitsStored: desc[2] ?? 16,
-        lutData,
-      };
-    }
-  }
-
-  const plane: ImagePlane = {
-    imageId: candidate.id,
-    sopInstanceUid,
-    instanceNumber: dataSet.intString('x00200013'),
-    imagePositionPatient: ipp,
-    imageOrientationPatient: iop,
-    pixelSpacing,
-    sliceThickness: dataSet.floatString('x00180050'),
-    spacingBetweenSlices: dataSet.floatString('x00180088'),
-    rows: dataSet.uint16('x00280010') ?? 512,
-    columns: dataSet.uint16('x00280011') ?? 512,
-    rescaleSlope: dataSet.floatString('x00281053') ?? 1.0,
-    rescaleIntercept: dataSet.floatString('x00281052') ?? 0.0,
-    modalityLUT,
-    windowCenter: dataSet.floatString('x00281050'),
-    windowWidth: dataSet.floatString('x00281051'),
-    bitsAllocated: dataSet.uint16('x00280100') ?? 16,
-    bitsStored: dataSet.uint16('x00280101') ?? 16,
-    pixelRepresentation: dataSet.uint16('x00280103') ?? 0,
-    photometricInterpretation: dataSet.string('x00280004') ?? 'MONOCHROME2',
-    frameOfReferenceUID: dataSet.string('x00200052'),
-    specificCharacterSet: charset,
-    transferSyntaxUid: dataSet.string('x00020010'),
-    hasMissingGeometry,
-  };
-
-  return {
-    plane,
-    studyUid,
-    patientId,
-    patientName,
-    studyDate: dataSet.string('x00080020'),
-    studyDescription: dataSet.string('x00081030') ?? '',
-    seriesUid,
-    seriesNumber: dataSet.intString('x00200011'),
-    seriesDescription: dataSet.string('x0008103e') ?? '',
-    modality,
-  };
 }
 
 /**

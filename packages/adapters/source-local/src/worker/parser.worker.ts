@@ -6,7 +6,7 @@
  * 通过 Transferable 传递 ArrayBuffer，避免结构化克隆拷贝。
  */
 
-import { parseDicomMetadata } from '../scanner';
+import { parseDicomMetadata } from '../parse';
 import type { WorkerParseRequest, WorkerParseResponse } from './types';
 
 // Web Worker 消息接收端

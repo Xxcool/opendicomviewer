@@ -199,4 +199,30 @@ describe('lut.ts 灰度换算与 DICOM PS3.3 C.11.2.1.2 VOI 映射', () => {
       ]),
     );
   });
+
+  /**
+   * 单切片序列走的是 sortByPosition 的独立提前返回分支。
+   * 该分支早先直接返回 `warnings: []`，把几何缺失告警整个丢掉——
+   * 一张"单层 CT 光盘"导入后既没有图像可信度提示，也没有任何告警，属于静默失败。
+   * 这条用例锁死该分支，防止再次回退。
+   */
+  it('P1-5：单切片序列（提前返回分支）同样必须产出 MISSING_GEOMETRY 警告', () => {
+    const single = sortByPosition([
+      createPlane(10, 1, { hasMissingGeometry: true }),
+    ]);
+
+    expect(single.sortedPlanes).toHaveLength(1);
+    expect(single.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'MISSING_GEOMETRY' }),
+      ]),
+    );
+  });
+
+  it('P1-5 反例：单切片且几何完整时不得误报 MISSING_GEOMETRY', () => {
+    const single = sortByPosition([createPlane(10, 1)]);
+    expect(
+      single.warnings.some((w) => w.code === 'MISSING_GEOMETRY'),
+    ).toBe(false);
+  });
 });
