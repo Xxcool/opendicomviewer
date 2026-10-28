@@ -20,6 +20,7 @@ import type {
   SeriesHandle,
   SeriesMeta,
   SeriesRef,
+  SeriesSummary,
   StudyMeta,
   VOIRange,
 } from '@opendicomviewer/core';
@@ -165,9 +166,52 @@ export class LocalDataSource implements DataSourcePort {
     return result.studies;
   }
 
+  /**
+   * 枚举指定 Study 或所有 Study 下已索引的序列清单（满足 DataSourcePort 契约）
+   */
+  async listSeries(studyInstanceUid?: string): Promise<readonly SeriesSummary[]> {
+    if (this.isDicomdirIndexed) {
+      const studies = studyInstanceUid
+        ? this.dicomdirStudies.filter((s) => s.studyInstanceUid === studyInstanceUid)
+        : this.dicomdirStudies;
+      return studies.flatMap((study) =>
+        study.series.map((s) => ({
+          studyInstanceUid: study.studyInstanceUid,
+          seriesInstanceUid: s.seriesInstanceUid,
+          seriesNumber: s.seriesNumber,
+          seriesDescription: s.seriesDescription ?? '',
+          modality: (s.modality ?? 'OT') as SeriesSummary['modality'],
+          numberOfFrames: s.images.length,
+        })),
+      );
+    }
+
+    if (!this.scanResult) return [];
+    const list = studyInstanceUid
+      ? this.scanResult.seriesList.filter(
+          (s) => s.studyInstanceUid === studyInstanceUid,
+        )
+      : this.scanResult.seriesList;
+
+    return list.map((s) => ({
+      studyInstanceUid: s.studyInstanceUid,
+      seriesInstanceUid: s.seriesInstanceUid,
+      seriesNumber: s.seriesNumber,
+      seriesDescription: s.seriesDescription ?? '',
+      modality: (s.modality ?? 'OT') as SeriesSummary['modality'],
+      numberOfFrames: s.planes.length,
+    }));
+  }
+
   async openSeries(ref: SeriesRef, signal?: AbortSignal): Promise<SeriesHandle> {
     if (signal?.aborted) {
       throw new DOMException('打开序列已由用户中断', 'AbortError');
+    }
+
+    if (!ref.studyInstanceUid || !ref.seriesInstanceUid) {
+      throw new Error(
+        `缺少必要的序列定位参数: studyInstanceUid="${ref.studyInstanceUid}", seriesInstanceUid="${ref.seriesInstanceUid}"`,
+      );
     }
 
     if (this.isDicomdirIndexed) {
@@ -200,12 +244,12 @@ export class LocalDataSource implements DataSourcePort {
     ref: SeriesRef,
     signal?: AbortSignal,
   ): Promise<SeriesHandle> {
-    const study = this.dicomdirStudies.find(
-      (s) => s.studyInstanceUid === ref.studyInstanceUid,
-    );
-    const series = study?.series.find(
-      (s) => s.seriesInstanceUid === ref.seriesInstanceUid,
-    );
+    const study = ref.studyInstanceUid
+      ? this.dicomdirStudies.find((s) => s.studyInstanceUid === ref.studyInstanceUid)
+      : this.dicomdirStudies[0];
+    const series = ref.seriesInstanceUid
+      ? study?.series.find((s) => s.seriesInstanceUid === ref.seriesInstanceUid)
+      : study?.series[0];
 
     if (!study || !series) {
       throw new Error(`DICOMDIR 索引中不存在序列: ${ref.seriesInstanceUid}`);

@@ -82,6 +82,7 @@ export function parseDicomdir(bytes: Uint8Array): DicomdirStudy[] {
   // 1. 建立 offset -> DataSet 映射表 (P1-7)
   const offsetMap = new Map<number, DataSet>();
   for (const item of recordSeq.items) {
+    if (!item.dataSet) continue;
     const offset = item.dataOffset ?? item.dataSet.elements.x00041430?.dataOffset;
     if (offset !== undefined) {
       // 兼容指向 Item Tag (dataOffset - 8) 或数据起始 (dataOffset) 的偏移指针
@@ -198,7 +199,7 @@ export function parseDicomdir(bytes: Uint8Array): DicomdirStudy[] {
 }
 
 function parseDicomdirSequential(
-  items: readonly { readonly dataSet: DataSet }[],
+  items: readonly { readonly dataSet?: DataSet }[],
 ): DicomdirStudy[] {
   const studies: DicomdirStudy[] = [];
   let currentPatientId = 'ANONYMOUS';
@@ -208,6 +209,7 @@ function parseDicomdirSequential(
 
   for (const item of items) {
     const ds = item.dataSet;
+    if (!ds) continue;
     const recordType = (ds.string('x00041430') ?? '').trim().toUpperCase();
 
     switch (recordType) {

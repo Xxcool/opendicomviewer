@@ -113,23 +113,25 @@ export function parseDicomMetadata(
   const lutSeq = dataSet.elements.x00283002;
   if (lutSeq && lutSeq.items && lutSeq.items[0]) {
     const itemDs = lutSeq.items[0].dataSet;
-    const desc = parseFloats(itemDs.string('x00283002'), 3);
-    const lutDataElem = itemDs.elements.x00283006;
-    if (desc && desc.length >= 3 && lutDataElem) {
-      const rawLutBytes = itemDs.byteArray.slice(
-        lutDataElem.dataOffset,
-        lutDataElem.dataOffset + lutDataElem.length,
-      );
-      const lutData = new Uint16Array(
-        rawLutBytes.buffer,
-        rawLutBytes.byteOffset,
-        rawLutBytes.byteLength / 2,
-      );
-      modalityLUT = {
-        firstMappedPixelValue: desc[1] ?? 0,
-        bitsStored: desc[2] ?? 16,
-        lutData,
-      };
+    if (itemDs) {
+      const desc = parseFloats(itemDs.string('x00283002'), 3);
+      const lutDataElem = itemDs.elements.x00283006;
+      if (desc && desc.length >= 3 && lutDataElem) {
+        const rawLutBytes = itemDs.byteArray.slice(
+          lutDataElem.dataOffset,
+          lutDataElem.dataOffset + lutDataElem.length,
+        );
+        const lutData = new Uint16Array(
+          rawLutBytes.buffer,
+          rawLutBytes.byteOffset,
+          rawLutBytes.byteLength / 2,
+        );
+        modalityLUT = {
+          firstMappedPixelValue: desc[1] ?? 0,
+          bitsStored: desc[2] ?? 16,
+          lutData,
+        };
+      }
     }
   }
 

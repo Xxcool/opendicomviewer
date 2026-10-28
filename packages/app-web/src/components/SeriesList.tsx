@@ -10,7 +10,6 @@ interface SeriesListProps {
 export function SeriesList({ dataSource }: SeriesListProps) {
   const {
     studies,
-    activeStudyUid,
     activeSeriesUid,
     setActiveSeries,
     setImportStatus,
@@ -32,7 +31,9 @@ export function SeriesList({ dataSource }: SeriesListProps) {
         return;
       }
       try {
-        const list = await dataSource.listSeries(activeStudyUid ?? undefined);
+        // 不按 activeStudyUid 过滤：多 study（如示例的 MR + CT）时按 study 分组列出，
+        // 否则另一个 study 的序列在左栏里根本看不到，等于无法切换。
+        const list = await dataSource.listSeries();
         if (!cancelled) {
           setSeriesList(list);
         }
@@ -54,7 +55,26 @@ export function SeriesList({ dataSource }: SeriesListProps) {
     return () => {
       cancelled = true;
     };
-  }, [studies, activeStudyUid, dataSource, setImportStatus]);
+  }, [studies, dataSource, setImportStatus]);
+
+  // 按 study 分组：只有一组时省略组标题（单 study 场景不增加视觉噪音）
+  const groups = (() => {
+    const byStudy = new Map<string, SeriesSummary[]>();
+    for (const item of seriesList) {
+      const list = byStudy.get(item.studyInstanceUid);
+      if (list) list.push(item);
+      else byStudy.set(item.studyInstanceUid, [item]);
+    }
+    return [...byStudy.entries()].map(([studyUid, items]) => {
+      const study = studies.find((s) => s.studyInstanceUid === studyUid);
+      return {
+        studyUid,
+        label: study?.studyDescription || study?.modalities?.join('/') || '未命名检查',
+        date: study?.studyDate,
+        items,
+      };
+    });
+  })();
 
   const handleSelectSeries = async (summary: SeriesSummary) => {
     if (summary.seriesInstanceUid === activeSeriesUid) {
@@ -110,7 +130,21 @@ export function SeriesList({ dataSource }: SeriesListProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-        {seriesList.map((item) => {
+        {groups.map((group) => (
+          <div key={group.studyUid} className="space-y-1.5">
+            {groups.length > 1 && (
+              <div className="px-1 pt-1.5 pb-0.5 flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-gray-400 truncate">
+                  {group.label}
+                </span>
+                {group.date && (
+                  <span className="text-[10px] text-gray-600 font-mono shrink-0 ml-2">
+                    {group.date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')}
+                  </span>
+                )}
+              </div>
+            )}
+            {group.items.map((item) => {
           const isActive = item.seriesInstanceUid === activeSeriesUid;
           const isSwitching = item.seriesInstanceUid === switchingSeriesUid;
 
@@ -148,7 +182,9 @@ export function SeriesList({ dataSource }: SeriesListProps) {
               )}
             </button>
           );
-        })}
+            })}
+          </div>
+        ))}
       </div>
     </aside>
   );

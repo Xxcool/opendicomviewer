@@ -6,8 +6,8 @@
   "license": "Apache-2.0",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core/tsconfig.json && tsc --noEmit -p packages/adapters/source-local/tsconfig.json && tsc --noEmit -p packages/adapters/renderer-cs3d/tsconfig.json",
-    "lint": "eslint packages/core packages/adapters/source-local packages/adapters/renderer-cs3d",
+    "typecheck": "tsc --noEmit -p packages/core/tsconfig.json && tsc --noEmit -p packages/adapters/source-local/tsconfig.json && tsc --noEmit -p packages/adapters/renderer-cs3d/tsconfig.json && tsc --noEmit -p packages/app-web/tsconfig.json",
+    "lint": "eslint packages/core packages/adapters/source-local packages/adapters/renderer-cs3d packages/app-web",
     "test:watch": "vitest"
   },
   "devDependencies": {

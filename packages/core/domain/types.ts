@@ -115,6 +115,15 @@ export interface SeriesMeta {
   readonly warnings: readonly DataWarning[];
 }
 
+export interface SeriesSummary {
+  readonly studyInstanceUid: string;
+  readonly seriesInstanceUid: string;
+  readonly seriesNumber?: number;
+  readonly seriesDescription: string;
+  readonly modality: Modality;
+  readonly numberOfFrames: number;
+}
+
 export interface StudyMeta {
   readonly studyInstanceUid: string;
   /**
