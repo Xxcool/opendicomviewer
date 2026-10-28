@@ -42,7 +42,7 @@
 | 样式 | TailwindCSS v4 | 锁 minor |
 | 组件 | Radix UI + `react-resizable-panels` + `dnd-kit` + `cmdk` | 锁 minor |
 | 状态 | Zustand（仅 UI 态与会话态） | 锁 minor |
-| 渲染 | `@cornerstonejs/core` + `@cornerstonejs/tools` | **锁精确版本**，升级需人工批准 |
+| 渲染 | `@cornerstonejs/core` + `@cornerstonejs/tools` | **锁精确 4.22.13**（vtk.js 34.x）。5.x 在 Vite 下必现 `Class extends value undefined`，见 ARCHITECTURE §14.1.1；升级需先过 Spike |
 | DICOM | `dcmjs` / `dicom-parser`（CS3D 自带） | 不额外引入 |
 | 桌面 | Tauri 2 | — |
 | 构建 | Vite | — |
@@ -67,6 +67,10 @@ three.js              → 仅 Phase 4 高质量 VR 阶段允许，需先批准
 | `packages/core` | **不允许任何 DICOM 解析库** | 只认已解析好的 `ImagePlane` / `PixelFrame`（R6） |
 | `packages/adapters/source-*` | **仅 `dicom-parser`** | MIT、纯 JS、可在 Node 运行（可单测）；CS3D 的 dicom-image-loader 本就依赖它 |
 | `packages/adapters/codec-*` | 允许 WASM 解码库（OpenJPEG / CharLS / RLE） | 仅解码像素，不做标签解析 |
+
+**codec wasm 必须按需动态加载（Spike A 实测）**：空壳工程里 5 个 codec 的 wasm（合计 1.98 MB，
+其中 JPEGXL 1.09 MB）会被静态打进产物，即便只读未压缩 DICOM。任何 `import` codec 包都必须包在
+`await import()` 里，禁止顶层静态导入，否则 §11 的包体积预算当场失效。
 | 其他任何位置 | 禁止，且**禁止再引入第二个 DICOM 解析库** | 两套解析器必然语义不一致 |
 
 **新增任何依赖前必须问。** 包括"很小很方便"的工具库。

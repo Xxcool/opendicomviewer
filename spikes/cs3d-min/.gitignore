@@ -1,0 +1,6 @@
+# spike 的依赖与产物不入库
+node_modules/
+dist/
+
+# 合成 DICOM 由 `npm run gen` 生成，属派生产物
+public/series/*.dcm

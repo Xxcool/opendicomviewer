@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Spike A · Cornerstone3D 最小渲染验证</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0d10;
+        color: #d7dde5;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      #viewport {
+        width: 640px;
+        height: 640px;
+        background: #000;
+        display: block;
+      }
+      #hint {
+        padding: 6px 10px;
+        color: #8b96a5;
+      }
+      #report {
+        margin: 0;
+        padding: 10px;
+        white-space: pre-wrap;
+        color: #9ef0a8;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="viewport"></div>
+    <div id="hint">右键拖动 = 调窗（不依赖 @cornerstonejs/tools，纯 setProperties 驱动）</div>
+    <pre id="report">pending</pre>
+    <script>
+      // 模块加载失败 / 未捕获异常时，把原因写进 #report，避免页面只停在 pending
+      (function () {
+        function write(msg) {
+          var el = document.getElementById('report');
+          if (el) el.textContent = msg;
+        }
+        window.addEventListener('error', function (e) {
+          var stack = e.error && e.error.stack ? e.error.stack : '';
+          write('WINDOW_ERROR: ' + (e.message || '') + '\n' + (e.filename || '') + ':' + (e.lineno || '') + '\n' + stack);
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e.reason;
+          write('UNHANDLED_REJECTION: ' + (r && r.message ? r.message : String(r)));
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

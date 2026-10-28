@@ -663,7 +663,7 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 | e2e 用例 | 断言形式 | 为什么只能在这一层 |
 | --- | --- | --- |
 | **零请求** | 记录 `page.on('request')` 全部 URL，断言 host 集合 ⊆ 白名单（`localhost` / `blob:` / `data:`） | 只有真实浏览器才能观察到 wasm 动态加载、字体回退、`fetch` 探测等真实网络行为。CSP 声明是"承诺"，这条是"证据" |
-| **真的渲染了** | `canvas` 存在 + `width/height > 0` + 用 `readPixels` 采样 ≥ 64 个点断言**非全黑且存在灰度方差** | 只有真实 WebGL2 上下文才能证明"没白屏"。单元测试里的 mock canvas 永远会通过，这正是"假绿"的温床 |
+| **真的渲染了** | 无头浏览器截图 → 解码 PNG 采样，断言**非全黑（> 5%）且灰度层次 ≥ 4 级**。判据见 `spikes/cs3d-min/scripts/sample-screenshot.mjs` | 只有真实 WebGL2 上下文才能证明"没白屏"。**注意：页内 `drawImage(webglCanvas)` 读回恒为全黑**（drawing buffer 合成后已清空），这个坑已经在 Spike A 实测踩过，别再用它做断言 |
 | **解析真的离开了主线程** | `page.on('worker')` 收集 worker，断言导入 N 个文件后 `workers.length ≥ 1` 且 worker 收到过消息 | Node 里 `typeof Worker === 'undefined'`，**同步回退分支会让所有单测在"Worker 从未被创建"的情况下全绿**。这个谎只有浏览器能戳穿 |
 | **全路径冒烟** | 导入 fixture → 翻页 → 调窗 → 切布局，全程断言 `page.on('pageerror')` 为空、`console.error` 为空 | 只有真实浏览器才能暴露"某个 API 在 Safari 上不存在"这类集成期问题 |
 
@@ -735,10 +735,10 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 
 | 依赖 | 用途 | 许可 | 备注 |
 | --- | --- | --- | --- |
-| `@cornerstonejs/core` / `tools` | 渲染与工具 | MIT | 锁 minor 版本，升级需过完整回归 |
-| `vtk.js` | CS3D 底层渲染 | BSD-3 | 传递依赖 |
-| `dcmjs` / `dicom-parser` | DICOM 解析 | MIT | — |
-| OpenJPEG (WASM) | JPEG2000 解码 | BSD-2 | 体积最大，按需加载 |
+| `@cornerstonejs/core` / `tools` | 渲染与工具 | MIT | **实测基线 4.22.x（vtk.js 34.x）**；5.x 配 vtk.js 36 在 Vite 下必现 `Class extends value undefined`，详见 §14.1.1。升级必须先过 Spike |
+| `vtk.js` | CS3D 底层渲染 | BSD-3 | 传递依赖，随 CS3D 版本联动 |
+| `dicom-parser` | DICOM 解析（adapter 层专用） | MIT | 见 GEMINI.md 层级规则 |
+| OpenJPEG (WASM) | JPEG2000 解码 | BSD-2 | 体积最大，**必须按需动态加载** |
 | CharLS (WASM) | JPEG-LS 解码 | BSD-3 | — |
 | Tauri | 桌面外壳 | MIT / Apache-2.0 | — |
 | React / Tailwind / Radix | UI | MIT | — |
@@ -764,6 +764,21 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 | S4 光盘解析率 | 10 张真实脱敏光盘的成功率与失败模式 | ≥ 9/10，失败可归类解释 |
 
 > 这四个结论会直接改写第六节与第五节的参数，因此**必须在写业务代码之前完成**。Phase 0 的产出是四份一页纸的结论 + 回填的预算表。
+
+#### 14.1.1 Spike A（最小渲染验证）已完成 · 2026-10-28
+
+代码与复现步骤见 `spikes/cs3d-min/`（含 README、证据截图、像素采样脚本）。三个结论：
+
+| 问题 | 结论 |
+| --- | --- |
+| CS3D API 是否匹配 `RendererPort` | **匹配。** `setStack` / `setImageIdIndex` / `setProperties({voiRange})` / `getProperties` / `worldToCanvas` / `canvasToWorld` / `resetCamera` / `getImageData` 全部存在；读回 VOI 与 PS3.3 C.11.2.1.2 口径一致，core 的 `voiToRange()` 不会与它打架 |
+| 是否真的渲染出像素 | **是。** 截图采样 `nonBlackRatio 0.44`、`distinctLevels 256`，phantom 同心椭圆与方向缺口均正确。**但页内 `drawImage(webglCanvas)` 读回永远是全黑**（drawing buffer 已清空），所以 e2e 断言只能对截图做，见 §12.2 |
+| 帧时间能否在 CI 测 | **不能。** 无头 + `--virtual-time-budget` 下 rAF 完全不驱动（实测 200 ms 内 0 帧），且 `viewport.render()` 只做提交、同步耗时恒为 0。§11 的帧时间指标必须在有 GPU 的有头环境采样 |
+
+**由此产生的两条硬约束**：
+
+1. **CS3D 版本基线改为 `4.22.x`（配 vtk.js 34.x）**。5.13.2 依赖的 `@kitware/vtk.js@36.4.1` 是 Rolldown 产物，经 Rollup（build）或 esbuild（dev）处理后必现 `Class extends value undefined`，dev 与 prod 皆然；已排除重复安装、摇树副作用、单纯 exclude 预打包三种假设。**在 Spike S2 之前不得升级到 5.x**。
+2. **codec wasm 必须按需动态加载**。空壳实测：主包 1.45 MB（gzip 406 KB），且 5 个 codec 的 wasm（合计 1.98 MB，其中 JPEGXL 1.09 MB）被静态打进产物——即使本次只读未压缩 DICOM。§11 的包体积预算成立的前提就是这条纪律。
 
 ### 14.2 阶段总览
 
