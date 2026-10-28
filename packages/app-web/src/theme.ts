@@ -14,6 +14,8 @@ export const THEME_STORAGE_KEY = 'odv.theme';
 
 /** 当前生效主题以 DOM 为准（内联脚本已写过），避免与 localStorage 读到的值不一致 */
 export function currentTheme(): Theme {
+  // 单测在 node 环境跑，没有 document；此时按默认深色处理
+  if (typeof document === 'undefined') return 'dark';
   return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
 }
 

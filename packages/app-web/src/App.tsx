@@ -151,9 +151,14 @@ export function App() {
         />
       )}
 
-      {/* 主工作区 */}
-      <div className="flex-1 flex overflow-hidden">
-        <SeriesList dataSource={dataSource} />
+      {/* 主工作区：三栏布局，宽度统一走 CSS token */}
+      <div className="flex-1 flex overflow-hidden min-w-0">
+        <div
+          className="shrink-0 border-r border-line bg-panel overflow-hidden"
+          style={{ width: 'var(--left-w)' }}
+        >
+          <SeriesList dataSource={dataSource} />
+        </div>
         <Viewport
           renderer={renderer}
           viewportId="default-viewport"

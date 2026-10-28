@@ -2,14 +2,32 @@ import { useEffect, useState } from 'react';
 import type {
   DataSourcePort,
   DataWarning,
+  Modality,
   SeriesSummary,
 } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
 import { badgeClass, seriesBadge } from './warning-presentation';
-import { LayersIcon, SpinnerIcon } from './Icons';
+import { ChevronIcon, LayersIcon, SearchIcon, SpinnerIcon } from './Icons';
 
 interface SeriesListProps {
   readonly dataSource: DataSourcePort;
+}
+
+/**
+ * 模态缩略块配色：无渲染器缩略图可用时，用模态首字母 + 色调区分，
+ * 比空白色块更容易在长列表里快速定位（参考 DICOM Vision / Voxenra 的缩略块）。
+ */
+const MODALITY_TINT: Record<string, string> = {
+  MR: 'bg-accent/15 text-accent border-accent/25',
+  CT: 'bg-info/15 text-info border-info/25',
+  US: 'bg-warn/15 text-warn border-warn/25',
+  CR: 'bg-txt-muted/15 text-txt-dim border-line-strong',
+  DX: 'bg-txt-muted/15 text-txt-dim border-line-strong',
+  PT: 'bg-danger/15 text-danger border-danger/25',
+};
+
+function modalityTint(modality: Modality): string {
+  return MODALITY_TINT[modality] ?? 'bg-txt-muted/15 text-txt-dim border-line-strong';
 }
 
 export function SeriesList({ dataSource }: SeriesListProps) {
@@ -27,6 +45,10 @@ export function SeriesList({ dataSource }: SeriesListProps) {
   );
   /** 点击"当前已选中"的序列时给一次短暂高亮，避免用户以为点击无效 */
   const [pulseUid, setPulseUid] = useState<string | null>(null);
+  /** 搜索关键词：匹配患者姓名/编号、检查描述、序列描述、模态 */
+  const [query, setQuery] = useState('');
+  /** 折叠中的检查分组（默认全部展开；只记录被收起的那几个） */
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   /**
    * 已打开过的序列告警缓存。
    *
@@ -72,24 +94,74 @@ export function SeriesList({ dataSource }: SeriesListProps) {
     };
   }, [studies, dataSource, setImportStatus]);
 
-  // 按 study 分组：只有一组时省略组标题（单 study 场景不增加视觉噪音）
+  // 按 study 分组 + 搜索过滤（匹配检查级与序列级文本）
   const groups = (() => {
+    const needle = query.trim().toLowerCase();
     const byStudy = new Map<string, SeriesSummary[]>();
     for (const item of seriesList) {
       const list = byStudy.get(item.studyInstanceUid);
       if (list) list.push(item);
       else byStudy.set(item.studyInstanceUid, [item]);
     }
-    return [...byStudy.entries()].map(([studyUid, items]) => {
-      const study = studies.find((s) => s.studyInstanceUid === studyUid);
-      return {
-        studyUid,
-        label: study?.studyDescription || study?.modalities?.join('/') || '未命名检查',
-        date: study?.studyDate,
-        items,
-      };
-    });
+
+    return [...byStudy.entries()]
+      .map(([studyUid, items]) => {
+        const study = studies.find((s) => s.studyInstanceUid === studyUid);
+        const label =
+          study?.patientName?.trim() ||
+          study?.studyDescription ||
+          study?.modalities?.join('/') ||
+          '未命名检查';
+        return { studyUid, label, study, items };
+      })
+      .filter((group) => {
+        if (!needle) return true;
+        const head = [
+          group.label,
+          group.study?.patientId,
+          group.study?.studyDescription,
+          group.study?.studyDate,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        const hitStudy = head.includes(needle);
+        const hitSeries = group.items.some((item) =>
+          [item.seriesDescription, item.modality, `#${item.seriesNumber ?? ''}`]
+            .join(' ')
+            .toLowerCase()
+            .includes(needle),
+        );
+        return hitStudy || hitSeries;
+      })
+      .map((group) => ({
+        ...group,
+        items: query.trim()
+          ? group.items.filter((item) =>
+              [
+                item.seriesDescription,
+                item.modality,
+                `#${item.seriesNumber ?? ''}`,
+              ]
+                .join(' ')
+                .toLowerCase()
+                .includes(needle),
+            )
+          : group.items,
+      }))
+      .filter((group) => group.items.length > 0);
   })();
+
+  const totalShown = groups.reduce((n, g) => n + g.items.length, 0);
+
+  const toggleGroup = (studyUid: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(studyUid)) next.delete(studyUid);
+      else next.add(studyUid);
+      return next;
+    });
+  };
 
   const handleSelectSeries = async (summary: SeriesSummary) => {
     if (summary.seriesInstanceUid === activeSeriesUid) {
@@ -123,17 +195,31 @@ export function SeriesList({ dataSource }: SeriesListProps) {
     }
   };
 
+  /** 面板头：与中间 vp-bar / 右栏 panel-head 同高同 border-b，三栏顶部对齐 */
+  const head = (
+    <div
+      className="flex items-center justify-between px-3 border-b border-line shrink-0 text-[12px] text-txt-dim tracking-wide bg-panel"
+      style={{ height: 'var(--vp-bar-h)' }}
+    >
+      <span className="flex items-center gap-1.5 font-medium">
+        <LayersIcon className="w-3.5 h-3.5 text-txt-muted" />
+        <span>序列</span>
+      </span>
+      <span className="font-mono text-txt-muted text-[11px]">
+        {query.trim() ? `${totalShown}/${seriesList.length}` : seriesList.length}
+      </span>
+    </div>
+  );
+
   if (studies.length === 0) {
     return (
-      <aside className="w-64 border-r border-line bg-panel flex flex-col p-4 text-txt-muted text-xs select-none shrink-0">
-        <div className="font-semibold text-txt-dim uppercase tracking-wider mb-2">
-          序列列表
-        </div>
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-          <LayersIcon className="w-8 h-8 mb-2 opacity-40" />
-          <p>暂无载入的序列</p>
-          <p className="mt-1 text-[11px] text-txt-muted">
-            请点击上方“打开文件夹”导入光盘或本地 DICOM 数据
+      <aside className="flex flex-col text-txt-muted text-[12px] select-none overflow-hidden">
+        {head}
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-5 gap-2">
+          <LayersIcon className="w-7 h-7 opacity-30" />
+          <p className="text-txt-dim text-[12px]">暂无载入的序列</p>
+          <p className="text-[11px] text-txt-muted leading-relaxed">
+            点击上方「打开文件夹」导入本地 DICOM
           </p>
         </div>
       </aside>
@@ -141,97 +227,149 @@ export function SeriesList({ dataSource }: SeriesListProps) {
   }
 
   return (
-    <aside className="w-64 border-r border-line bg-panel flex flex-col select-none shrink-0">
-      <div className="p-3 border-b border-line flex items-center justify-between">
-        <span className="font-semibold text-txt-dim text-xs uppercase tracking-wider">
-          序列列表 ({seriesList.length})
-        </span>
+    <aside className="flex flex-col select-none overflow-hidden">
+      {head}
+
+      {/* 搜索框：匹配患者/检查/序列，参考 DICOM Vision 顶部搜索条 */}
+      <div className="px-2 pt-2 pb-1 shrink-0">
+        <div className="relative">
+          <SearchIcon className="absolute left-2 top-1/2 -translate-y-1/2 text-txt-muted pointer-events-none" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索患者 / 检查 / 序列"
+            aria-label="搜索患者、检查或序列"
+            className="w-full h-7 pl-7 pr-2 rounded-md bg-app border border-line text-[12px] text-txt placeholder:text-txt-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition"
+          />
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-        {groups.map((group) => (
-          <div key={group.studyUid} className="space-y-1.5">
-            {groups.length > 1 && (
-              <div className="px-1 pt-1.5 pb-0.5 flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-txt-dim truncate">
-                  {group.label}
-                </span>
-                {group.date && (
-                  <span className="text-[10px] text-txt-muted font-mono shrink-0 ml-2">
-                    {group.date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')}
-                  </span>
-                )}
-              </div>
-            )}
-            {group.items.map((item) => {
-          const isActive = item.seriesInstanceUid === activeSeriesUid;
-          const isSwitching = item.seriesInstanceUid === switchingSeriesUid;
+      {/* 树形列表：检查分组（可折叠）→ 序列行 */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-2">
+        {groups.length === 0 && (
+          <p className="px-2 py-6 text-center text-[11px] text-txt-muted">
+            没有匹配「{query}」的序列
+          </p>
+        )}
 
+        {groups.map((group) => {
+          const isCollapsed = collapsed.has(group.studyUid);
           return (
-            <button
-              key={item.seriesInstanceUid}
-              type="button"
-              onClick={() => handleSelectSeries(item)}
-              disabled={isSwitching}
-              className={`w-full text-left p-2.5 rounded border transition cursor-pointer flex flex-col space-y-1 ${
-                isActive
-                  ? 'bg-active border-accent text-txt shadow-sm'
-                  : 'bg-elevated/60 border-line hover:bg-hover text-txt-dim hover:border-line-strong'
-              } ${pulseUid === item.seriesInstanceUid ? 'ring-2 ring-accent/70' : ''}`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-hover text-accent border border-line">
-                  {item.modality}
-                  {item.seriesNumber !== undefined ? ` #${item.seriesNumber}` : ''}
+            <div key={group.studyUid} className="mb-1">
+              {/* 检查分组头：点击折叠/展开 */}
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.studyUid)}
+                aria-expanded={!isCollapsed}
+                className="w-full h-7 px-1.5 flex items-center gap-1.5 rounded-md text-[11px] text-txt-dim hover:bg-hover/60 transition cursor-pointer"
+              >
+                <ChevronIcon
+                  className={`shrink-0 text-txt-muted transition-transform duration-150 ${
+                    isCollapsed ? '-rotate-90' : ''
+                  }`}
+                />
+                <span className="truncate font-medium">{group.label}</span>
+                <span className="ml-auto shrink-0 font-mono text-txt-muted">
+                  {group.study?.studyDate
+                    ? group.study.studyDate.replace(
+                        /^(\d{4})(\d{2})(\d{2})$/,
+                        '$1-$2-$3',
+                      )
+                    : '日期未知'}
                 </span>
-                <span className="text-[11px] text-txt-dim font-mono">
-                  {item.numberOfFrames} 帧
-                </span>
-              </div>
+                <span className="shrink-0 text-txt-muted">({group.items.length})</span>
+              </button>
 
-              <div className="text-xs font-medium truncate w-full text-txt">
-                {item.seriesDescription || '未命名序列'}
-              </div>
+              {!isCollapsed && (
+                <div className="flex flex-col gap-px pl-1">
+                  {group.items.map((item) => {
+                    const isActive = item.seriesInstanceUid === activeSeriesUid;
+                    const isSwitching =
+                      item.seriesInstanceUid === switchingSeriesUid;
 
-              {/* 告警徽标（ui-spec §2：徽标必须在列表项里，用户先在这里挑序列） */}
-              {(() => {
-                const seriesWarnings = isActive
-                  ? activeWarnings
-                  : warningsBySeries[item.seriesInstanceUid];
-                const badge = seriesWarnings
-                  ? seriesBadge(seriesWarnings)
-                  : undefined;
-                if (badge) {
-                  return (
-                    <span
-                      className={`self-start text-[10px] px-1.5 py-0.5 rounded border ${badgeClass(badge.severity)}`}
-                    >
-                      {badge.text}
-                    </span>
-                  );
-                }
-                // 未打开过的序列还没有排序结果，不能默认"没问题"
-                if (!seriesWarnings) {
-                  return (
-                    <span className="self-start text-[10px] text-txt-muted">
-                      未检测
-                    </span>
-                  );
-                }
-                return null;
-              })()}
+                    const seriesWarnings = isActive
+                      ? activeWarnings
+                      : warningsBySeries[item.seriesInstanceUid];
+                    const badge = seriesWarnings
+                      ? seriesBadge(seriesWarnings)
+                      : undefined;
 
-              {isSwitching && (
-                <div className="flex items-center space-x-1 text-[11px] text-accent pt-1">
-                  <SpinnerIcon className="w-3 h-3" />
-                  <span>正在装载切片...</span>
+                    return (
+                      <button
+                        key={item.seriesInstanceUid}
+                        type="button"
+                        onClick={() => handleSelectSeries(item)}
+                        disabled={isSwitching}
+                        aria-selected={isActive}
+                        title={item.seriesDescription || '未命名序列'}
+                        /* 选中态：淡 accent 底 + 左侧 2px accent 竖条（DICOM Vision 同款），
+                           不加整体边框，避免与分组头/相邻行叠出双层线 */
+                        className={`relative w-full text-left pl-2 pr-2 py-1.5 flex items-center gap-2 rounded-md transition-colors cursor-pointer ${
+                          isActive ? 'bg-accent/10' : 'hover:bg-hover/70'
+                        } ${pulseUid === item.seriesInstanceUid ? 'ring-1 ring-accent/50' : ''} ${
+                          isSwitching ? 'opacity-60 cursor-wait' : ''
+                        }`}
+                      >
+                        {/* 选中竖条：用独立绝对定位元素而不是 inset shadow，
+                            圆角更自然，也便于在浏览器里核对 */}
+                        {isActive && (
+                          <span
+                            aria-hidden
+                            className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-accent"
+                          />
+                        )}
+
+                        {/* 模态缩略块：无逐帧缩略图时用模态字母 + 色调区分 */}
+                        <span
+                          className={`w-9 h-9 shrink-0 rounded border flex items-center justify-center text-[10px] font-semibold ${modalityTint(item.modality)}`}
+                          aria-hidden
+                        >
+                          {item.modality}
+                        </span>
+
+                        <span className="flex-1 min-w-0 flex flex-col gap-0.5">
+                          <span
+                            className={`text-[12px] truncate ${
+                              isActive ? 'text-txt font-medium' : 'text-txt'
+                            }`}
+                          >
+                            {item.seriesDescription || '未命名序列'}
+                          </span>
+                          <span className="flex items-center gap-1.5 text-[10px] text-txt-muted font-mono">
+                            <span className="truncate">
+                              {item.seriesNumber !== undefined
+                                ? `#${item.seriesNumber}`
+                                : '—'}
+                              {' · '}
+                              {item.numberOfFrames} 帧
+                            </span>
+                            {isSwitching && (
+                              <SpinnerIcon className="w-2.5 h-2.5 shrink-0 text-accent" />
+                            )}
+                          </span>
+                        </span>
+
+                        {/* 告警徽标（ui-spec §2：用户在左栏挑序列时就该看到） */}
+                        {badge ? (
+                          <span
+                            className={`shrink-0 text-[9px] px-1 py-px rounded-sm border ${badgeClass(badge.severity)}`}
+                          >
+                            {badge.text}
+                          </span>
+                        ) : !seriesWarnings ? (
+                          <span className="shrink-0 text-[9px] text-txt-muted">
+                            未检测
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
-            </button>
+            </div>
           );
-            })}
-          </div>
-        ))}
+        })}
       </div>
     </aside>
   );

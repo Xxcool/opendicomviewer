@@ -14,6 +14,7 @@ import type {
   SeriesHandle,
   StudyMeta,
 } from '@opendicomviewer/core';
+import { applyTheme, currentTheme, type Theme } from '../theme';
 
 export interface ImportStatus {
   readonly loading: boolean;
@@ -31,11 +32,15 @@ export interface ViewerState {
   /** 渲染器运行时能力（挂载成功后写入），供右栏「能力与降级」展示 */
   readonly rendererCapabilities: RendererCapabilities | null;
 
+  /** 主题的单一真源：顶栏按钮与设置面板都要改它，不能各存一份 state */
+  readonly theme: Theme;
+
   setStudies: (studies: readonly StudyMeta[]) => void;
   setActiveSeries: (handle: SeriesHandle) => void;
   setImportStatus: (status: ImportStatus) => void;
   setWarnings: (warnings: readonly DataWarning[]) => void;
   setRendererCapabilities: (caps: RendererCapabilities) => void;
+  setTheme: (theme: Theme) => void;
   reset: () => void;
 }
 
@@ -47,7 +52,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   importStatus: { loading: false },
   warnings: [],
   rendererCapabilities: null,
-
+  theme: currentTheme(),
   setStudies: (studies) => {
     set({
       studies,
@@ -75,6 +80,12 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setImportStatus: (status) => set({ importStatus: status }),
   setWarnings: (warnings) => set({ warnings }),
   setRendererCapabilities: (caps) => set({ rendererCapabilities: caps }),
+
+  setTheme: (theme) => {
+    // DOM 与 localStorage 一起写（applyTheme），store 只做镜像，保证两处永远一致
+    applyTheme(theme);
+    set({ theme });
+  },
 
   reset: () => {
     const currentHandle = get().activeSeriesHandle;
