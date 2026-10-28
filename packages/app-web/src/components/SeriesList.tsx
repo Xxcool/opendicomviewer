@@ -106,14 +106,14 @@ export function SeriesList({ dataSource }: SeriesListProps) {
 
   if (studies.length === 0) {
     return (
-      <aside className="w-64 border-r border-gray-800 bg-[#0D111A] flex flex-col p-4 text-gray-500 text-xs select-none shrink-0">
-        <div className="font-semibold text-gray-400 uppercase tracking-wider mb-2">
+      <aside className="w-64 border-r border-line bg-panel flex flex-col p-4 text-txt-muted text-xs select-none shrink-0">
+        <div className="font-semibold text-txt-dim uppercase tracking-wider mb-2">
           序列列表
         </div>
         <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
           <LayersIcon className="w-8 h-8 mb-2 opacity-40" />
           <p>暂无载入的序列</p>
-          <p className="mt-1 text-[11px] text-gray-600">
+          <p className="mt-1 text-[11px] text-txt-muted">
             请点击上方“打开文件夹”导入光盘或本地 DICOM 数据
           </p>
         </div>
@@ -122,9 +122,9 @@ export function SeriesList({ dataSource }: SeriesListProps) {
   }
 
   return (
-    <aside className="w-64 border-r border-gray-800 bg-[#0D111A] flex flex-col select-none shrink-0">
-      <div className="p-3 border-b border-gray-800 flex items-center justify-between">
-        <span className="font-semibold text-gray-300 text-xs uppercase tracking-wider">
+    <aside className="w-64 border-r border-line bg-panel flex flex-col select-none shrink-0">
+      <div className="p-3 border-b border-line flex items-center justify-between">
+        <span className="font-semibold text-txt-dim text-xs uppercase tracking-wider">
           序列列表 ({seriesList.length})
         </span>
       </div>
@@ -134,11 +134,11 @@ export function SeriesList({ dataSource }: SeriesListProps) {
           <div key={group.studyUid} className="space-y-1.5">
             {groups.length > 1 && (
               <div className="px-1 pt-1.5 pb-0.5 flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-gray-400 truncate">
+                <span className="text-[11px] font-semibold text-txt-dim truncate">
                   {group.label}
                 </span>
                 {group.date && (
-                  <span className="text-[10px] text-gray-600 font-mono shrink-0 ml-2">
+                  <span className="text-[10px] text-txt-muted font-mono shrink-0 ml-2">
                     {group.date.replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3')}
                   </span>
                 )}
@@ -156,26 +156,26 @@ export function SeriesList({ dataSource }: SeriesListProps) {
               disabled={isSwitching}
               className={`w-full text-left p-2.5 rounded border transition cursor-pointer flex flex-col space-y-1 ${
                 isActive
-                  ? 'bg-blue-950/60 border-blue-600 text-white shadow-sm'
-                  : 'bg-gray-900/40 border-gray-800 hover:bg-gray-800/60 text-gray-300 hover:border-gray-700'
-              } ${pulseUid === item.seriesInstanceUid ? 'ring-2 ring-blue-400/70' : ''}`}
+                  ? 'bg-active border-accent text-txt shadow-sm'
+                  : 'bg-elevated/60 border-line hover:bg-hover text-txt-dim hover:border-line-strong'
+              } ${pulseUid === item.seriesInstanceUid ? 'ring-2 ring-accent/70' : ''}`}
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-gray-800 text-blue-400 border border-gray-700">
+                <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-hover text-accent border border-line">
                   {item.modality}
                   {item.seriesNumber !== undefined ? ` #${item.seriesNumber}` : ''}
                 </span>
-                <span className="text-[11px] text-gray-400 font-mono">
+                <span className="text-[11px] text-txt-dim font-mono">
                   {item.numberOfFrames} 帧
                 </span>
               </div>
 
-              <div className="text-xs font-medium truncate w-full text-gray-200">
+              <div className="text-xs font-medium truncate w-full text-txt">
                 {item.seriesDescription || '未命名序列'}
               </div>
 
               {isSwitching && (
-                <div className="flex items-center space-x-1 text-[11px] text-blue-400 pt-1">
+                <div className="flex items-center space-x-1 text-[11px] text-accent pt-1">
                   <SpinnerIcon className="w-3 h-3" />
                   <span>正在装载切片...</span>
                 </div>

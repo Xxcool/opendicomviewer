@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,8 +9,25 @@
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' data: blob:; object-src 'none';"
     />
     <title>OpenDicomViewer</title>
+    <script>
+      /*
+       * 首屏主题：必须在 CSS 之前写入 data-theme，否则浅色用户会先看到一帧深色（tokens.md §2）。
+       * localStorage 不可用（隐私模式）时保持默认深色，不抛错。
+       */
+      (function () {
+        try {
+          if (window.localStorage.getItem('odv.theme') === 'light') {
+            document.documentElement.dataset.theme = 'light';
+          }
+        } catch (err) {
+          /* 忽略：默认深色 */
+        }
+      })();
+    </script>
   </head>
-  <body class="bg-[#0B0F17] text-gray-200 antialiased overflow-hidden select-none">
+  <body
+    class="bg-app text-txt antialiased overflow-hidden select-none"
+  >
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

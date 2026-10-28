@@ -92,7 +92,7 @@ export function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="w-screen h-screen flex flex-col bg-[#0B0F17] text-gray-200 overflow-hidden relative"
+      className="w-screen h-screen flex flex-col bg-app text-txt overflow-hidden relative"
     >
       <Header
         onImportCandidates={importCandidates}
@@ -102,8 +102,8 @@ export function App() {
 
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (
-        <div className="absolute inset-0 bg-blue-950/80 border-2 border-dashed border-blue-400 z-50 flex items-center justify-center backdrop-blur-xs pointer-events-none">
-          <div className="text-blue-200 text-lg font-semibold flex items-center space-x-2">
+        <div className="absolute inset-0 bg-app/90 border-2 border-dashed border-accent z-50 flex items-center justify-center backdrop-blur-xs pointer-events-none">
+          <div className="text-accent text-lg font-semibold flex items-center space-x-2">
             <span>松开鼠标以导入 DICOM 文件</span>
           </div>
         </div>
@@ -111,15 +111,15 @@ export function App() {
 
       {/* 错误提示横条 */}
       {importStatus.error && (
-        <div className="bg-red-950/80 border-b border-red-700/60 px-4 py-2 flex items-center justify-between text-xs text-red-200 z-50">
+        <div className="bg-danger/15 border-b border-danger/40 px-4 py-2 flex items-center justify-between text-xs text-danger z-50">
           <div className="flex items-center space-x-2">
-            <WarningIcon className="w-4 h-4 text-red-400 shrink-0" />
+            <WarningIcon className="w-4 h-4 text-danger shrink-0" />
             <span>{importStatus.error}</span>
           </div>
           <button
             type="button"
             onClick={() => setImportStatus({ loading: false, error: undefined })}
-            className="px-2 py-0.5 rounded hover:bg-red-900/60 text-red-300 cursor-pointer"
+            className="px-2 py-0.5 rounded hover:bg-danger/20 text-danger cursor-pointer"
           >
             关闭
           </button>
@@ -128,13 +128,13 @@ export function App() {
 
       {/* 导入进度提示模态框 */}
       {importStatus.loading && (
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50">
-          <div className="bg-[#121826] border border-gray-700 rounded-lg p-6 shadow-2xl flex flex-col items-center space-y-3 max-w-sm text-center">
-            <SpinnerIcon className="w-8 h-8 text-blue-500" />
-            <div className="text-sm font-semibold text-gray-100">
+        <div className="absolute inset-0 bg-canvas/60 backdrop-blur-xs flex items-center justify-center z-50">
+          <div className="bg-elevated border border-line rounded-lg p-6 shadow-2xl flex flex-col items-center space-y-3 max-w-sm text-center">
+            <SpinnerIcon className="w-8 h-8 text-accent" />
+            <div className="text-sm font-semibold text-txt">
               {importStatus.message || '正在读取影像数据...'}
             </div>
-            <div className="text-xs text-gray-400">
+            <div className="text-xs text-txt-dim">
               正在执行魔数探测、DICOMDIR 校验与几何构建
             </div>
           </div>

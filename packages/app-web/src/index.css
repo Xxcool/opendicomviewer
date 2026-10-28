@@ -1,8 +1,86 @@
 @import "tailwindcss";
 
+/*
+ * 设计 Token（docs/design/tokens.md §3 / §8）
+ *
+ * 唯一数值来源：组件里只允许 `bg-panel` / `text-txt-dim` / `border-line`
+ * 这类工具类，禁止再出现十六进制色值或 Tailwind 调色板类（gray-800 等）。
+ * 深色为默认值，浅色只覆盖同名变量，工具类无需感知主题。
+ */
+@theme {
+  /* 界面色（深色默认） */
+  --color-app: #0B0F17;
+  --color-panel: #0D111A;
+  --color-elevated: #121826;
+  --color-hover: #161C28;
+  --color-active: #1B2436;
+  --color-line: #1F2937;
+  --color-line-strong: #374151;
+  --color-txt: #E5E7EB;
+  --color-txt-dim: #9CA3AF;
+  --color-txt-muted: #6B7280;
+  --color-accent: #2563EB;
+  --color-accent-hover: #3B82F6;
+
+  /* 语义色：一个状态只允许一种颜色 */
+  --color-ok: #34D399;
+  --color-warn: #F59E0B;
+  --color-danger: #EF4444;
+  --color-info: #38BDF8;
+  --color-disabled: #4B5563;
+
+  /* 画布恒黑，浅色模式也不变（§2）；画布上的文字永远纯白（§3.3） */
+  --color-canvas: #000000;
+  --color-overlay: #ffffff;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* 叠加层：与主题无关（§3.3） */
+  --overlay-scrim: rgba(0, 0, 0, 0.45);
+  --overlay-text: #ffffff;
+  --overlay-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+
+  /* 层级（§6） */
+  --z-canvas: 0;
+  --z-overlay: 10;
+  --z-toolbar: 20;
+  --z-panel: 30;
+  --z-popover: 40;
+  --z-toast: 50;
+  --z-modal: 60;
+
+  font-family: var(--font-sans);
   color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --color-app: #f5f7fa;
+  --color-panel: #ffffff;
+  --color-elevated: #ffffff;
+  --color-hover: #eef1f6;
+  --color-active: #e3e9f2;
+  --color-line: #d8dee8;
+  --color-line-strong: #b6bfcc;
+  --color-txt: #101418;
+  --color-txt-dim: #4b5563;
+  --color-txt-muted: #6b7280;
+  --color-accent: #1d4ed8;
+  --color-accent-hover: #2563eb;
+
+  --color-ok: #047857;
+  --color-warn: #b45309;
+  --color-danger: #b91c1c;
+  --color-info: #0369a1;
+  --color-disabled: #9ca3af;
 }
 
 body {
@@ -10,6 +88,7 @@ body {
   padding: 0;
   width: 100vw;
   height: 100vh;
-  background-color: #0B0F17;
-  color: #e5e7eb;
+  overflow: hidden;
+  background-color: var(--color-app);
+  color: var(--color-txt);
 }

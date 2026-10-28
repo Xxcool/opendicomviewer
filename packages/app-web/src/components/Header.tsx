@@ -1,7 +1,8 @@
-import { useEffect, useRef, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { ImportCandidate } from '@opendicomviewer/core';
 import { fileToImportCandidate } from '../bridge/candidate';
 import { useViewerStore } from '../state/viewer-store';
+import { currentTheme, toggleTheme, type Theme } from '../theme';
 import { FolderIcon, ResetIcon, SpinnerIcon } from './Icons';
 
 interface HeaderProps {
@@ -21,6 +22,8 @@ export function Header({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { importStatus, reset } = useViewerStore();
+  // 首屏由 index.html 内联脚本写 data-theme，这里以 DOM 为准，避免两处状态不一致
+  const [theme, setTheme] = useState<Theme>(currentTheme);
 
   const handleOpenFolderClick = () => {
     folderInputRef.current?.click();
@@ -55,17 +58,17 @@ export function Header({
   }, [onLoadSample]);
 
   return (
-    <header className="h-14 border-b border-gray-800 bg-[#0F1420] px-4 flex items-center justify-between select-none">
+    <header className="h-14 border-b border-line bg-panel px-4 flex items-center justify-between select-none">
       <div className="flex items-center space-x-3">
         <div className="flex items-center space-x-2.5 shrink-0">
-          <div className="w-8 h-8 rounded-md bg-blue-600 flex items-center justify-center font-bold text-white text-xs leading-none shrink-0 shadow-sm select-none">
+          <div className="w-8 h-8 rounded-md bg-accent flex items-center justify-center font-bold text-white text-xs leading-none shrink-0 shadow-sm select-none">
             ODV
           </div>
-          <span className="font-semibold text-gray-100 text-base tracking-tight shrink-0">
+          <span className="font-semibold text-txt text-base tracking-tight shrink-0">
             OpenDicomViewer
           </span>
         </div>
-        <span className="text-xs px-2 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700 shrink-0">
+        <span className="text-xs px-2 py-0.5 rounded bg-hover text-txt-dim border border-line shrink-0">
           仅供科研教学与影像分析参考
         </span>
       </div>
@@ -97,7 +100,7 @@ export function Header({
           <button
             type="button"
             onClick={onCancelImport}
-            className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-red-800 hover:bg-red-700 active:bg-red-900 text-white text-sm font-medium transition cursor-pointer"
+            className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-danger hover:bg-danger/90 text-white text-sm font-medium transition cursor-pointer"
           >
             <SpinnerIcon className="w-4 h-4" />
             <span>取消导入</span>
@@ -107,7 +110,7 @@ export function Header({
             <button
               type="button"
               onClick={() => onLoadSample()}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium transition cursor-pointer shadow-xs"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white text-sm font-medium transition cursor-pointer shadow-xs"
               title="载入 sample-dicom/ 下的全部示例（脑部 MR 36 帧 + 胸腹 CT），可验证跨序列切换"
             >
               <span>载入示例</span>
@@ -116,7 +119,7 @@ export function Header({
             <button
               type="button"
               onClick={handleOpenFileClick}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-gray-800 hover:bg-gray-700 active:bg-gray-900 text-gray-200 text-sm font-medium transition cursor-pointer border border-gray-700"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-hover hover:bg-active text-txt text-sm font-medium transition cursor-pointer border border-line"
             >
               <span>打开文件</span>
             </button>
@@ -124,7 +127,7 @@ export function Header({
             <button
               type="button"
               onClick={handleOpenFolderClick}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm font-medium transition cursor-pointer"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-hover hover:bg-active text-txt text-sm font-medium transition cursor-pointer border border-line"
             >
               <FolderIcon className="w-4 h-4" />
               <span>打开文件夹</span>
@@ -134,9 +137,18 @@ export function Header({
 
         <button
           type="button"
+          onClick={() => setTheme(toggleTheme())}
+          title="切换深色/浅色（教学投屏用浅色）"
+          className="px-2.5 py-1.5 rounded-md text-txt-dim hover:text-txt hover:bg-hover text-sm transition cursor-pointer"
+        >
+          {theme === 'dark' ? '浅色' : '深色'}
+        </button>
+
+        <button
+          type="button"
           onClick={reset}
           title="清空当前会话"
-          className="p-1.5 rounded-md text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition cursor-pointer"
+          className="p-1.5 rounded-md text-txt-dim hover:text-txt hover:bg-hover transition cursor-pointer"
         >
           <ResetIcon className="w-4 h-4" />
         </button>

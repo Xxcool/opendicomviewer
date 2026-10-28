@@ -28,16 +28,16 @@ export function countBySeverity(warnings: readonly DataWarning[]): Record<Severi
 
 /** 单条告警的容器样式（右栏清单用） */
 export function warningBoxClass(severity: Severity): string {
-  if (severity === 'error') return 'bg-red-950/40 border-red-900/60 text-red-300';
-  if (severity === 'warning') return 'bg-amber-950/40 border-amber-900/60 text-amber-300';
-  return 'bg-slate-800/40 border-slate-700/60 text-slate-400';
+  if (severity === 'error') return 'bg-danger/10 border-danger/40 text-danger';
+  if (severity === 'warning') return 'bg-warn/10 border-warn/40 text-warn';
+  return 'bg-info/10 border-info/40 text-info';
 }
 
 /** 视口顶条样式（整条横幅） */
 export function warningBannerClass(severity: Severity): string {
-  if (severity === 'error') return 'bg-red-950/80 border-red-700/60 text-red-200';
-  if (severity === 'warning') return 'bg-amber-950/80 border-amber-700/60 text-amber-200';
-  return 'bg-slate-800/80 border-slate-700/60 text-slate-300';
+  if (severity === 'error') return 'bg-danger/15 border-danger/50 text-danger';
+  if (severity === 'warning') return 'bg-warn/15 border-warn/50 text-warn';
+  return 'bg-info/15 border-info/50 text-info';
 }
 
 export function severityLabel(severity: Severity): string {

@@ -323,22 +323,22 @@ export function Viewport({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#080B11] relative overflow-hidden select-none">
+    <div className="flex-1 flex flex-col bg-canvas relative overflow-hidden select-none">
       {/* 视口顶部状态提示条 */}
-      <div className="h-9 px-4 bg-[#0D111A]/80 border-b border-gray-800/80 flex items-center justify-between text-xs text-gray-400 z-10 backdrop-blur-xs">
+      <div className="h-9 px-4 bg-panel/80 border-b border-line flex items-center justify-between text-xs text-txt-dim z-10 backdrop-blur-xs">
         <div className="flex items-center space-x-3">
-          <span className="font-medium text-gray-200">
+          <span className="font-medium text-txt">
             {activeSeriesHandle
               ? `${activeSeriesHandle.meta.modality} · 横断面 (Axial)`
               : '就绪'}
           </span>
           {activeSeriesHandle && (
-            <span ref={sliceTextRef} className="font-mono text-gray-300" />
+            <span ref={sliceTextRef} className="font-mono text-txt-dim" />
           )}
         </div>
 
         <div className="flex items-center space-x-4">
-          <span ref={voiTextRef} className="font-mono text-gray-300">
+          <span ref={voiTextRef} className="font-mono text-txt-dim">
             WW: -- WL: --
           </span>
           <button
@@ -347,7 +347,7 @@ export function Viewport({
               renderer?.resetView(viewportId);
             }}
             title="复位视图 (快捷键 R)"
-            className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-gray-800 text-gray-300 hover:text-white transition cursor-pointer"
+            className="flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-hover text-txt-dim hover:text-txt transition cursor-pointer"
           >
             <ResetIcon className="w-3.5 h-3.5" />
             <span>复位</span>
@@ -371,7 +371,7 @@ export function Viewport({
       )}
 
       {/* 视口中央内容区 */}
-      <div className="flex-1 w-full h-full relative overflow-hidden bg-black">
+      <div className="flex-1 w-full h-full relative overflow-hidden bg-canvas">
         {/* CS3D 渲染挂载容器：DOM 节点持久存在，由 App 组合根完成 mount (P0-1) */}
         <div
           id="odv-viewport-el"
@@ -381,14 +381,14 @@ export function Viewport({
 
         {/* 视口状态与空状态覆盖层：绝对定位居中，不干扰 CS3D 内部 DOM 布局 */}
         {!renderer ? (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-xs pointer-events-none select-none">
-            <SpinnerIcon className="w-4 h-4 text-blue-500 mr-2" />
+          <div className="absolute inset-0 flex items-center justify-center text-overlay/70 text-xs pointer-events-none select-none">
+            <SpinnerIcon className="w-4 h-4 text-accent mr-2" />
             <span>正在挂载渲染视口...</span>
           </div>
         ) : !activeSeriesHandle ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-gray-500 text-sm p-4 pointer-events-auto select-none">
-            <p className="font-medium text-gray-300 text-base">请选择序列或拖入 DICOM 影像</p>
-            <p className="text-xs text-gray-500 mt-1.5 max-w-sm">
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-overlay/70 text-sm p-4 pointer-events-auto select-none">
+            <p className="font-medium text-overlay text-base">请选择序列或拖入 DICOM 影像</p>
+            <p className="text-xs text-overlay/60 mt-1.5 max-w-sm">
               可直接将文件夹或 .dcm 文件拖入窗口，或点击上方「打开文件/文件夹」
             </p>
             {onLoadSample && (
@@ -396,7 +396,7 @@ export function Viewport({
                 <button
                   type="button"
                   onClick={() => onLoadSample()}
-                  className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-xs font-medium transition cursor-pointer shadow-md"
+                  className="px-4 py-2 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium transition cursor-pointer shadow-md"
                 >
                   载入示例（脑部 MR 36 帧 + 胸腹 CT）
                 </button>
@@ -408,7 +408,7 @@ export function Viewport({
 
       {/* 视口底部控制栏：层号导航 + 快捷调窗预设 */}
       {activeSeriesHandle && (
-        <div className="h-12 px-4 bg-[#0D111A] border-t border-gray-800 flex items-center justify-between z-10 space-x-4">
+        <div className="h-12 px-4 bg-panel border-t border-line flex items-center justify-between z-10 space-x-4">
           <div className="flex items-center space-x-3 flex-1 min-w-0">
             {showNav && (
               <>
@@ -422,7 +422,7 @@ export function Viewport({
                     }
                     title="上一层 (↑)"
                     aria-label="上一层"
-                    className="w-6 h-6 flex items-center justify-center rounded bg-gray-800/80 hover:bg-gray-700 active:bg-blue-600 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-[11px]"
+                    className="w-6 h-6 flex items-center justify-center rounded bg-hover hover:bg-active active:bg-accent text-txt-dim hover:text-txt disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-[11px]"
                   >
                     ◀
                   </button>
@@ -434,14 +434,14 @@ export function Viewport({
                     }
                     title="下一层 (↓)"
                     aria-label="下一层"
-                    className="w-6 h-6 flex items-center justify-center rounded bg-gray-800/80 hover:bg-gray-700 active:bg-blue-600 text-gray-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-[11px]"
+                    className="w-6 h-6 flex items-center justify-center rounded bg-hover hover:bg-active active:bg-accent text-txt-dim hover:text-txt disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer text-[11px]"
                   >
                     ▶
                   </button>
                 </div>
 
                 {/* 层号输入框：回车跳转，越界钳到 [1, N]，非法输入恢复原值 */}
-                <div className="flex items-center space-x-1.5 shrink-0 font-mono text-[11px] text-gray-400">
+                <div className="flex items-center space-x-1.5 shrink-0 font-mono text-[11px] text-txt-muted">
                   <input
                     ref={layerInputRef}
                     type="text"
@@ -452,7 +452,7 @@ export function Viewport({
                     onBlur={() =>
                       syncSliceUi(currentSliceIndexRef.current, totalFrames)
                     }
-                    className="w-12 px-1.5 py-0.5 text-center rounded bg-gray-800 border border-gray-700 text-gray-200 focus:outline-none focus:border-blue-500 tabular-nums"
+                    className="w-12 px-1.5 py-0.5 text-center rounded bg-elevated border border-line-strong text-txt focus:outline-none focus:border-accent tabular-nums"
                   />
                   <span>/ {totalFrames}</span>
                 </div>
@@ -467,11 +467,11 @@ export function Viewport({
                     defaultValue={0}
                     onChange={handleSliderChange}
                     aria-label="切片进度"
-                    className="flex-1 min-w-0 accent-blue-500 cursor-pointer h-1.5 bg-gray-700 rounded-lg"
+                    className="flex-1 min-w-0 accent-accent cursor-pointer h-1.5 bg-line-strong rounded-lg"
                   />
                 ) : (
                   <div
-                    className="flex-1 min-w-0 h-[3px] bg-gray-700/80 rounded overflow-hidden"
+                    className="flex-1 min-w-0 h-[3px] bg-line-strong rounded overflow-hidden"
                     role="progressbar"
                     aria-label="切片进度"
                     aria-valuemin={1}
@@ -479,7 +479,7 @@ export function Viewport({
                   >
                     <div
                       ref={progressFillRef}
-                      className="h-full bg-blue-500 rounded"
+                      className="h-full bg-accent rounded"
                     />
                   </div>
                 )}
@@ -489,13 +489,13 @@ export function Viewport({
 
           {/* 常用调窗预设 */}
           <div className="flex items-center space-x-1.5 shrink-0">
-            <span className="text-[11px] text-gray-500 mr-1">预设:</span>
+            <span className="text-[11px] text-txt-muted mr-1">预设:</span>
             {PRESETS.map((preset, idx) => (
               <button
                 key={preset.name}
                 type="button"
                 onClick={() => applyPreset(preset.voi)}
-                className="px-2 py-1 text-xs rounded bg-gray-800/80 hover:bg-gray-700 active:bg-blue-600 text-gray-300 hover:text-white transition cursor-pointer font-medium"
+                className="px-2 py-1 text-xs rounded bg-hover hover:bg-active active:bg-accent text-txt-dim hover:text-txt transition cursor-pointer font-medium"
                 title={`${preset.name} (快捷键 ${idx + 1}): WW ${preset.voi.windowWidth}, WL ${preset.voi.windowCenter}`}
               >
                 {preset.name}
