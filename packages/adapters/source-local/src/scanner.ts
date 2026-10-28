@@ -55,6 +55,12 @@ export interface ScanResult {
   readonly studies: StudyMeta[];
   readonly seriesList: InternalSeriesData[];
   readonly failedFiles: FileParseFailure[];
+  /**
+   * 成功解析并纳入序列的文件数。
+   * 与 failedFiles 一起构成"成功 n · 失败 m"的唯二数据源：
+   * 不能用候选文件数去减，因为 ZIP 会展开、非 DICOM 文件会被静默跳过。
+   */
+  readonly parsedFileCount: number;
 }
 
 /**
@@ -74,6 +80,7 @@ export async function scanCandidates(
   }>();
 
   let processedCount = 0;
+  let parsedFileCount = 0;
 
   while (queue.length > 0) {
     if (signal?.aborted) {
@@ -179,6 +186,7 @@ export async function scanCandidates(
 
       seriesRecord.planes.push(parsed.plane);
       seriesRecord.candidateByImageId.set(parsed.plane.imageId, candidate);
+      parsedFileCount++;
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         throw err;
@@ -212,6 +220,7 @@ export async function scanCandidates(
     studies,
     seriesList,
     failedFiles,
+    parsedFileCount,
   };
 }
 

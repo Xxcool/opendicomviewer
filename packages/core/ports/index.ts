@@ -9,6 +9,7 @@
 import type {
   DataWarning,
   ImagePlane,
+  ImportFailure,
   MeasurementRecord,
   PixelFrame,
   SeriesMeta,
@@ -45,12 +46,33 @@ export interface SeriesHandle {
   dispose(): void;
 }
 
+/**
+ * 最近一次 probe 的导入结果概览（R7：部分失败必须可见，禁止静默）。
+ *
+ * 为什么 succeeded 与 failures 必须一起返回：
+ * 分开取的话 UI 只能拿"候选文件总数 − 失败数"去凑成功数，
+ * 而 ZIP 会展开、非 DICOM 文件会被跳过，两个数字会各说各话。
+ */
+export interface ImportOutcome {
+  /** 成功解析并纳入序列的文件数（按实际解析出的实例计，不含被跳过的非 DICOM 文件） */
+  readonly succeeded: number;
+  /** 解析失败的文件清单，逐项含文件名与可直接展示的原因 */
+  readonly failures: readonly ImportFailure[];
+}
+
 export interface DataSourcePort {
   readonly kind: 'local' | 'dicomweb';
   /** 扫描探测文件集合，产出 Study 摘要列表，支持中止取消 (N9) */
   probe(input: ImportInput, signal?: AbortSignal): Promise<readonly StudyMeta[]>;
   /** 枚举指定 Study 或所有 Study 下已索引的序列摘要清单 */
   listSeries(studyInstanceUid?: string): Promise<readonly SeriesSummary[]>;
+  /**
+   * 最近一次 probe 的导入结果（同步，与 listSeries 对称）。
+   *
+   * 为什么必须在端口上：失败文件不暴露出去，UI 就只能说"导入了 35 层"，
+   * 用户不知道少了哪 1 个、为什么少——这属于 R7 的静默失效。
+   */
+  importOutcome(): ImportOutcome;
   /** 加载指定序列并排好序返回 SeriesHandle */
   openSeries(ref: SeriesRef, signal?: AbortSignal): Promise<SeriesHandle>;
 }

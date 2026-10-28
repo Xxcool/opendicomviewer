@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState, type DragEvent } from 'react';
-import type { ImportCandidate } from '@opendicomviewer/core';
 import { LocalDataSource } from '@opendicomviewer/source-local';
 import {
   createCornerstoneRenderer,
@@ -8,11 +7,12 @@ import {
 import { createCs3dModule } from './bridge/cs3d-adapter';
 import { registerCs3dBridge } from './bridge/cs3d-bridge';
 import { fileToImportCandidate } from './bridge/candidate';
-import { loadSampleCandidates } from './bridge/sample-loader';
+import { useImportFlow } from './import-flow';
 import { Header } from './components/Header';
 import { SeriesList } from './components/SeriesList';
 import { Viewport } from './components/Viewport';
 import { MetadataPanel } from './components/MetadataPanel';
+import { ImportFailuresDialog } from './components/ImportFailuresDialog';
 import { useViewerStore } from './state/viewer-store';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
 
@@ -20,8 +20,15 @@ export function App() {
   const dataSource = useMemo(() => new LocalDataSource(), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { importStatus, setImportStatus, setStudies, setActiveSeries } =
-    useViewerStore();
+  const { importStatus, setImportStatus } = useViewerStore();
+  // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
+  const {
+    pendingFailures,
+    importCandidates,
+    loadSample,
+    cancel: cancelImport,
+    confirmPendingFailures,
+  } = useImportFlow(dataSource);
 
   // 渲染器生命周期上提至 App 组合根，确保 StrictMode 双调用下安全重建 (P0-1)
   useEffect(() => {
@@ -62,59 +69,6 @@ export function App() {
     };
   }, [setImportStatus]);
 
-  const loadCandidates = async (candidates: ImportCandidate[]) => {
-    setImportStatus({
-      loading: true,
-      message: `正在解析 ${candidates.length} 个候选文件...`,
-    });
-    try {
-      const studies = await dataSource.probe({ files: candidates });
-      if (studies.length === 0) {
-        setImportStatus({
-          loading: false,
-          error: '未发现有效的 DICOM 影像文件。',
-        });
-        return;
-      }
-      setStudies(studies);
-
-      const firstStudy = studies[0]!;
-      const seriesList = await dataSource.listSeries(firstStudy.studyInstanceUid);
-      const firstSeries = seriesList[0];
-      if (firstSeries) {
-        const handle = await dataSource.openSeries({
-          studyInstanceUid: firstStudy.studyInstanceUid,
-          seriesInstanceUid: firstSeries.seriesInstanceUid,
-        });
-        setActiveSeries(handle);
-      }
-      setImportStatus({ loading: false });
-    } catch (err: unknown) {
-      setImportStatus({
-        loading: false,
-        error: `解析失败: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
-
-  const handleLoadSample = async (datasetId?: string) => {
-    setImportStatus({
-      loading: true,
-      message: datasetId
-        ? `正在加载示例数据集 ${datasetId}...`
-        : '正在加载示例数据集（MR + CT）...',
-    });
-    try {
-      const candidates = await loadSampleCandidates(datasetId);
-      await loadCandidates(candidates);
-    } catch (err: unknown) {
-      setImportStatus({
-        loading: false,
-        error: `加载示例失败: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
-  };
-
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(true);
@@ -125,13 +79,12 @@ export function App() {
     setIsDragOver(false);
   };
 
-  const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
-    const candidates = files.map(fileToImportCandidate);
-    await loadCandidates(candidates);
+    void importCandidates(files.map(fileToImportCandidate));
   };
 
   return (
@@ -141,7 +94,11 @@ export function App() {
       onDrop={handleDrop}
       className="w-screen h-screen flex flex-col bg-[#0B0F17] text-gray-200 overflow-hidden relative"
     >
-      <Header dataSource={dataSource} />
+      <Header
+        onImportCandidates={importCandidates}
+        onLoadSample={loadSample}
+        onCancelImport={cancelImport}
+      />
 
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (
@@ -184,13 +141,21 @@ export function App() {
         </div>
       )}
 
+      {/* 部分失败汇总模态（§5）：用户确认后才载入成功部分 */}
+      {pendingFailures && (
+        <ImportFailuresDialog
+          outcome={pendingFailures}
+          onConfirm={confirmPendingFailures}
+        />
+      )}
+
       {/* 主工作区 */}
       <div className="flex-1 flex overflow-hidden">
         <SeriesList dataSource={dataSource} />
         <Viewport
           renderer={renderer}
           viewportId="default-viewport"
-          onLoadSample={handleLoadSample}
+          onLoadSample={loadSample}
         />
         <MetadataPanel />
       </div>

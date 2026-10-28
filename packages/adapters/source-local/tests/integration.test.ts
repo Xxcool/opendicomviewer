@@ -140,6 +140,54 @@ describe('LocalDataSource 综合集成与验收用例', () => {
     );
     expect(failureWarning).toBeDefined();
     expect(failureWarning?.message).toContain('1 个文件解析失败');
+
+    // 端口级：失败文件必须能逐项读出，UI 才能列"失败 1 个 + 文件名 + 原因"
+    const outcome = source.importOutcome();
+    expect(outcome.succeeded).toBe(2);
+    expect(outcome.failures).toHaveLength(1);
+    expect(outcome.failures[0]?.name).toBe('broken.dcm');
+    expect(outcome.failures[0]?.reason).toBeTruthy();
+    // 成功的文件不能出现在失败清单里
+    expect(outcome.failures.some((f) => f.name.startsWith('slice'))).toBe(false);
+  });
+
+  it('importOutcome 在 probe 之前返回空，且不与序列级告警混算', async () => {
+    const source = new LocalDataSource();
+    // 未 probe 时不得抛错，也不得凭空产出
+    expect(source.importOutcome()).toEqual({ succeeded: 0, failures: [] });
+
+    await source.probe({
+      files: [
+        createMockCandidate(
+          'a.dcm',
+          buildDicomBuffer({
+            studyInstanceUid: '1.2.3.200',
+            seriesInstanceUid: '1.2.3.200.1',
+            sopInstanceUid: '1.2.3.200.1.1',
+            imagePositionPatient: [0, 0, 0],
+          }),
+        ),
+        createMockCandidate(
+          'b.dcm',
+          buildDicomBuffer({
+            studyInstanceUid: '1.2.3.200',
+            seriesInstanceUid: '1.2.3.200.1',
+            sopInstanceUid: '1.2.3.200.1.2',
+            // 故意留大层间距，产生 SLICE_GAP 之类的序列级告警
+            imagePositionPatient: [0, 0, 40],
+          }),
+        ),
+      ],
+    });
+
+    // 序列级告警 ≠ 导入失败：层间距告警不应把成功载入的文件算成失败
+    expect(source.importOutcome()).toEqual({ succeeded: 2, failures: [] });
+
+    const handle = await source.openSeries({
+      studyInstanceUid: '1.2.3.200',
+      seriesInstanceUid: '1.2.3.200.1',
+    });
+    expect(handle.meta.numberOfFrames).toBe(2);
   });
 
   it('用例 6：AbortSignal 中断后不产生残留任务', async () => {

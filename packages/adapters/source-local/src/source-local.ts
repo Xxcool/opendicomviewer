@@ -16,6 +16,7 @@ import type {
   DataSourcePort,
   ImportCandidate,
   ImportInput,
+  ImportOutcome,
   PixelFrame,
   SeriesHandle,
   SeriesMeta,
@@ -201,6 +202,25 @@ export class LocalDataSource implements DataSourcePort {
       modality: (s.modality ?? 'OT') as SeriesSummary['modality'],
       numberOfFrames: s.planes.length,
     }));
+  }
+
+  /**
+   * 最近一次 probe 的导入结果概览。
+   *
+   * 语义边界：只统计"文件级解析失败"（非 DICOM / 缺少必需标签 / 封装语法未支持），
+   * 不含序列级告警（层间距跳跃、倾角等）——后者归 SeriesHandle.warnings。
+   * 二者不合并，否则 UI 上会出现"失败 8 个"但其中 7 个其实成功载入的假象。
+   */
+  importOutcome(): ImportOutcome {
+    if (!this.scanResult) return { succeeded: 0, failures: [] };
+    return {
+      succeeded: this.scanResult.parsedFileCount,
+      failures: this.scanResult.failedFiles.map((f) => ({
+        id: f.id,
+        name: f.name,
+        reason: f.reason,
+      })),
+    };
   }
 
   async openSeries(ref: SeriesRef, signal?: AbortSignal): Promise<SeriesHandle> {

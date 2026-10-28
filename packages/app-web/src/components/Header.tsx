@@ -1,21 +1,26 @@
 import { useEffect, useRef, type ChangeEvent } from 'react';
-import type { DataSourcePort, ImportCandidate } from '@opendicomviewer/core';
+import type { ImportCandidate } from '@opendicomviewer/core';
 import { fileToImportCandidate } from '../bridge/candidate';
-import { loadSampleCandidates } from '../bridge/sample-loader';
 import { useViewerStore } from '../state/viewer-store';
 import { FolderIcon, ResetIcon, SpinnerIcon } from './Icons';
 
 interface HeaderProps {
-  readonly dataSource: DataSourcePort;
+  /** 与拖拽、示例共用同一条导入流程（含部分失败汇总），不在顶栏另写一份 */
+  readonly onImportCandidates: (candidates: readonly ImportCandidate[]) => void;
+  /** 不传 id 时载入 sample-dicom/ 下的全部数据集，才能演示跨序列切换 */
+  readonly onLoadSample: (datasetId?: string) => void;
+  readonly onCancelImport: () => void;
 }
 
-export function Header({ dataSource }: HeaderProps) {
+export function Header({
+  onImportCandidates,
+  onLoadSample,
+  onCancelImport,
+}: HeaderProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const { importStatus, setImportStatus, setStudies, setActiveSeries, reset } =
-    useViewerStore();
+  const { importStatus, reset } = useViewerStore();
 
   const handleOpenFolderClick = () => {
     folderInputRef.current?.click();
@@ -25,101 +30,18 @@ export function Header({ dataSource }: HeaderProps) {
     fileInputRef.current?.click();
   };
 
-  const handleCancel = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
-    }
-    setImportStatus({ loading: false, message: undefined });
+  const resetInputValues = () => {
+    if (folderInputRef.current) folderInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const processCandidates = async (candidates: ImportCandidate[]) => {
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    setImportStatus({
-      loading: true,
-      message: `正在扫描 ${candidates.length} 个候选文件...`,
-    });
-
-    try {
-      const studies = await dataSource.probe(
-        { files: candidates },
-        abortController.signal,
-      );
-
-      if (studies.length === 0) {
-        setImportStatus({
-          loading: false,
-          error: '未在所选文件或目录中发现有效的 DICOM 影像文件或 DICOMDIR。',
-        });
-        return;
-      }
-
-      setStudies(studies);
-
-      const firstStudy = studies[0]!;
-      const seriesList = await dataSource.listSeries(firstStudy.studyInstanceUid);
-      const firstSeries = seriesList[0];
-
-      if (firstSeries) {
-        const firstHandle = await dataSource.openSeries(
-          {
-            studyInstanceUid: firstStudy.studyInstanceUid,
-            seriesInstanceUid: firstSeries.seriesInstanceUid,
-          },
-          abortController.signal,
-        );
-        setActiveSeries(firstHandle);
-      }
-
-      setImportStatus({ loading: false, message: undefined });
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        setImportStatus({ loading: false, message: undefined });
-        return;
-      }
-      setImportStatus({
-        loading: false,
-        error:
-          err instanceof Error
-            ? err.message
-            : `导入失败：${String(err)}`,
-      });
-    } finally {
-      abortControllerRef.current = null;
-      if (folderInputRef.current) folderInputRef.current.value = '';
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleFilesSelected = async (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFilesSelected = (e: ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
     const candidates = Array.from(fileList).map(fileToImportCandidate);
-    await processCandidates(candidates);
-  };
-
-  /**
-   * 载入示例数据集。不传 id 时载入 sample-dicom/ 下的**全部**数据集——
-   * 这是演示"跨序列切换"的前提：单数据集只有一条序列，左栏只有一个可点项。
-   */
-  const handleLoadSample = async (datasetId?: string) => {
-    setImportStatus({
-      loading: true,
-      message: datasetId
-        ? `正在加载示例数据集 ${datasetId}...`
-        : '正在加载示例数据集（MR + CT）...',
-    });
-    try {
-      const candidates = await loadSampleCandidates(datasetId);
-      await processCandidates(candidates);
-    } catch (err: unknown) {
-      setImportStatus({
-        loading: false,
-        error: `加载示例失败: ${err instanceof Error ? err.message : String(err)}`,
-      });
-    }
+    // 立刻清空，否则再次选择同一目录不会触发 change
+    resetInputValues();
+    onImportCandidates(candidates);
   };
 
   // 支持 ?sample=1 / ?sample=all / ?sample=brain-mr：Demo 分享链接与自动化验证都靠它
@@ -129,8 +51,8 @@ export function Header({ dataSource }: HeaderProps) {
     const param = new URLSearchParams(window.location.search).get('sample');
     if (!param) return;
     autoLoadedRef.current = true;
-    void handleLoadSample(param === '1' || param === 'all' ? undefined : param);
-  }, []);
+    onLoadSample(param === '1' || param === 'all' ? undefined : param);
+  }, [onLoadSample]);
 
   return (
     <header className="h-14 border-b border-gray-800 bg-[#0F1420] px-4 flex items-center justify-between select-none">
@@ -174,7 +96,7 @@ export function Header({ dataSource }: HeaderProps) {
         {importStatus.loading ? (
           <button
             type="button"
-            onClick={handleCancel}
+            onClick={onCancelImport}
             className="inline-flex items-center space-x-2 px-3 py-1.5 rounded-md bg-red-800 hover:bg-red-700 active:bg-red-900 text-white text-sm font-medium transition cursor-pointer"
           >
             <SpinnerIcon className="w-4 h-4" />
@@ -184,7 +106,7 @@ export function Header({ dataSource }: HeaderProps) {
           <>
             <button
               type="button"
-              onClick={() => void handleLoadSample()}
+              onClick={() => onLoadSample()}
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-medium transition cursor-pointer shadow-xs"
               title="载入 sample-dicom/ 下的全部示例（脑部 MR 36 帧 + 胸腹 CT），可验证跨序列切换"
             >

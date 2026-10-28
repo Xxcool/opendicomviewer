@@ -121,6 +121,20 @@ export interface SeriesMeta {
   readonly warnings: readonly DataWarning[];
 }
 
+/**
+ * 导入阶段单个文件的失败记录（R7：失败必须可见，禁止静默丢弃）
+ *
+ * 放在 core 而不是 adapter：`DataSourcePort.listFailures()` 要把它们交给 UI，
+ * 端口签名里不能出现某个 adapter 的私有类型。
+ */
+export interface ImportFailure {
+  /** 候选唯一 id（通常是相对路径） */
+  readonly id: string;
+  readonly name: string;
+  /** 面向用户的中文原因，直接可展示 */
+  readonly reason: string;
+}
+
 export interface SeriesSummary {
   readonly studyInstanceUid: string;
   readonly seriesInstanceUid: string;
