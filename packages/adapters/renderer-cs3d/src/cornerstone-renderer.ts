@@ -87,11 +87,43 @@ export class CornerstoneRenderer implements RendererPort {
   private readonly viewportVolumes = new Map<string, VolumeHandle>();
   /** 本适配器创建过的体积 id：销毁/重建时据此清理 cache */
   private readonly createdVolumeIds = new Set<string>();
+  /** 创建过的体积对象：移除时据此清理 CS3D 为每层派生的本地 imageId */
+  private readonly createdVolumes = new Map<string, Cs3dVolumeLike>();
+  /**
+   * 已写入 cache 的体积句柄。
+   *
+   * 同一体积会被多个 ORTHOGRAPHIC 视口共用（MPR 三视图），因此只有当
+   * 传入的是**同 id、不同句柄**（重建）时才能移除旧对象；仅凭 id 存在就删，
+   * 会把前一个视口正在渲染的体积从 cache 里抽走。
+   */
+  private readonly volumeHandles = new Map<string, VolumeHandle>();
+  /**
+   * 正在装载中的体积引用计数。
+   *
+   * 并发 setVolume（StrictMode 双调用、快速切换布局）时会有多次装载重叠；
+   * 只有计数归零且没有视口挂载，才能判定"真的没人用"并回收 cache。
+   */
+  private readonly volumeInFlight = new Map<string, number>();
   /** 视口级装载版本号：慢请求归来时用它判断自己是否已被新请求取代 */
   private readonly viewportTokens = new Map<string, number>();
+  /**
+   * 视口上仍在进行中的装载目标序列。
+   *
+   * 用途：并发 setStack 时，被取代的旧请求**不能**释放帧登记表——
+   * 新请求（同序列）还需要它。没有这个表时，旧请求会删掉新请求刚登记的
+   * imageId，CS3D 随后报 "未登记的 imageId"（StrictMode 双调用即可触发）。
+   */
+  private readonly viewportPendingSeries = new Map<string, string>();
   private readonly frames = new SeriesFrameRegistry();
 
   private engine: Cs3dEngineLike | null = null;
+  /**
+   * 视口元素尺寸观察器。
+   *
+   * CS3D 不监听元素尺寸：1×1 装载完成出现底栏、窗口缩放这类"非 setLayout"
+   * 的高度变化同样会让画布与 CSS 尺寸脱节，因此这里统一收敛到 `engine.resize()`。
+   */
+  private resizeObserver: ResizeObserver | null = null;
   private mountTarget: RenderMountTarget | null = null;
   private mounted = false;
   private destroyed = false;
@@ -175,6 +207,8 @@ export class CornerstoneRenderer implements RendererPort {
       for (const viewportId of enabled) {
         engine.disableElement?.(viewportId);
       }
+      this.resizeObserver?.disconnect();
+      this.resizeObserver = null;
       this.viewports.clear();
       this.viewportKinds.clear();
       this.viewportOrientations.clear();
@@ -248,7 +282,10 @@ export class CornerstoneRenderer implements RendererPort {
       throw err instanceof Error ? err : new Error(String(err));
     }
 
-    // 3. 布局容器尺寸由宿主 CSS 决定；这里统一触发一次重绘
+    // 3. 宿主 CSS 已把格子改到新尺寸；必须让 CS3D 重算画布 attribute 尺寸。
+    //    只调 render 会保留上一个布局的画布尺寸（1+3 ↔ 2×2 实测 564×758 贴在
+    //    423×378 的格子里），画面被拉伸，按画布反算的比例尺也跟着错。
+    this.resizeNow();
     for (const viewportId of layout.viewportIds) {
       this.viewports.get(viewportId)?.render();
     }
@@ -292,6 +329,7 @@ export class CornerstoneRenderer implements RendererPort {
     // 导致 B 的帧再也没人释放（内存泄漏）+ 越界判断用错帧数（状态串扰）。
     const token = (this.viewportTokens.get(viewportId) ?? 0) + 1;
     this.viewportTokens.set(viewportId, token);
+    this.viewportPendingSeries.set(viewportId, nextSeriesUid);
 
     const imageIds = this.frames.register(handle);
     try {
@@ -299,6 +337,9 @@ export class CornerstoneRenderer implements RendererPort {
     } catch (err: unknown) {
       // CS3D 装载失败时必须回滚登记表，否则这个视口"看起来装着 B、实际还是 A"，
       // 而 B 的帧再也没人释放。
+      // 先清 pending 再做丢弃判定：本条已是最新请求时才能真的释放帧；
+      // 若已被同序列的新请求取代（token 不匹配），pending 属于对方，不得释放。
+      this.clearPendingSeries(viewportId, token, nextSeriesUid);
       this.discardRegistration(nextSeriesUid, viewportId);
       this.restoreViewportSeries(viewportId, previousSeriesUid, previousFrameCount);
       this.restoreStackIndex(viewportId, previousIndex);
@@ -309,6 +350,7 @@ export class CornerstoneRenderer implements RendererPort {
     // 注意这里是"写入归属之前"的最后一道闸，顺序不能调。
     if (token !== this.viewportTokens.get(viewportId)) {
       this.discardRegistration(nextSeriesUid, viewportId);
+      this.clearPendingSeries(viewportId, token, nextSeriesUid);
       throw new Error(
         `装载 ${nextSeriesUid} 被更新的装载请求取代，本次结果已丢弃`,
       );
@@ -325,6 +367,7 @@ export class CornerstoneRenderer implements RendererPort {
     this.viewportSeries.set(viewportId, nextSeriesUid);
     this.viewportFrameCounts.set(viewportId, frameCount);
     this.viewportStackIndex.set(viewportId, initialIndex);
+    this.clearPendingSeries(viewportId, token, nextSeriesUid);
   }
 
   public async setStackIndex(viewportId: string, index: number): Promise<void> {
@@ -368,38 +411,61 @@ export class CornerstoneRenderer implements RendererPort {
     const token = (this.viewportTokens.get(viewportId) ?? 0) + 1;
     this.viewportTokens.set(viewportId, token);
 
-    // 同 id 的旧体积必须先移出 cache：否则重建时拿到的是旧尺寸/旧像素。
-    if (cache.getVolume(volume.volumeId) !== undefined) {
-      cache.removeVolumeLoadObject(volume.volumeId);
-      this.createdVolumeIds.delete(volume.volumeId);
-    }
-
+    // 同 id 的体积只有在**数据句柄变了**（重建）时才需要移出 cache；
+    // 三个 MPR 视口共用同一个句柄时直接复用，否则后一个视口会把前一个的
+    // cache 对象删掉再重建，画面与体积归属都会错乱。
+    const cached = cache.getVolume(volume.volumeId);
     let created: Cs3dVolumeLike;
-    try {
-      created = loader.createLocalVolume(volume.volumeId, {
-        dimensions: [width, height, depth],
-        spacing: [volume.spacing[0], volume.spacing[1], volume.spacing[2]],
-        origin: [volume.origin[0], volume.origin[1], volume.origin[2]],
-        direction: [...volume.direction],
-        scalarData: volume.scalarData,
-      });
-    } catch (err: unknown) {
-      throw err instanceof Error ? err : new Error(String(err));
+    if (cached !== undefined && this.volumeHandles.get(volume.volumeId) === volume) {
+      created = cached;
+    } else {
+      if (cached !== undefined) {
+        // 同 id 重建：连派生的层图像一起清掉，否则 createLocalVolume 会因
+        // imageId 已在 cache 而失败
+        this.purgeVolume(volume.volumeId);
+        if (cache.getVolume(volume.volumeId) !== undefined) {
+          cache.removeVolumeLoadObject(volume.volumeId);
+        }
+      }
+      try {
+        created = loader.createLocalVolume(volume.volumeId, {
+          dimensions: [width, height, depth],
+          spacing: [volume.spacing[0], volume.spacing[1], volume.spacing[2]],
+          origin: [volume.origin[0], volume.origin[1], volume.origin[2]],
+          direction: [...volume.direction],
+          scalarData: volume.scalarData,
+        });
+      } catch (err: unknown) {
+        throw err instanceof Error ? err : new Error(String(err));
+      }
+      this.volumeHandles.set(volume.volumeId, volume);
+      this.createdVolumeIds.add(created.volumeId);
+      this.createdVolumes.set(created.volumeId, created);
     }
-    this.createdVolumeIds.add(created.volumeId);
 
+    this.retainInFlight(created.volumeId);
+    let failure: Error | null = null;
+    let superseded = false;
     try {
       await viewport.setVolumes([{ volumeId: created.volumeId }]);
+      if (token !== this.viewportTokens.get(viewportId)) {
+        superseded = true;
+        throw new Error(
+          `装载体积 ${volume.volumeId} 被更新的请求取代，本次结果已丢弃`,
+        );
+      }
     } catch (err: unknown) {
-      this.releaseVolumeIfUnused(created.volumeId, viewportId);
-      throw err instanceof Error ? err : new Error(String(err));
+      failure = err instanceof Error ? err : new Error(String(err));
+    } finally {
+      this.releaseInFlight(created.volumeId);
     }
 
-    if (token !== this.viewportTokens.get(viewportId)) {
-      this.releaseVolumeIfUnused(created.volumeId, viewportId);
-      throw new Error(
-        `装载体积 ${volume.volumeId} 被更新的请求取代，本次结果已丢弃`,
-      );
+    if (failure) {
+      // 被更新的请求取代时**不能**回收：新请求接下来还要把同一个体积挂到
+      // 其他 MPR 视口，这里一删，对方的 actor 就指向已销毁的 imageData
+      // （`model.extent is not iterable`）。同 id 重建时新请求会自行清理旧体积。
+      if (!superseded) this.releaseVolumeIfUnused(created.volumeId, viewportId);
+      throw failure;
     }
 
     const orientation = this.viewportOrientations.get(viewportId);
@@ -416,6 +482,9 @@ export class CornerstoneRenderer implements RendererPort {
     if (previous && previous.volumeId !== volume.volumeId) {
       this.releaseVolumeIfUnused(previous.volumeId, viewportId);
     }
+    // 换序列后旧体积可能已经没有任何 MPR 视口在用（例如停留在 1×1 时换了序列），
+    // 这里顺手回收，避免它为等待重建而长期占 cache。
+    this.pruneUnusedVolumes(volume.volumeId);
   }
 
   public async stepSlice(viewportId: string, delta: number): Promise<void> {
@@ -601,36 +670,35 @@ export class CornerstoneRenderer implements RendererPort {
 
   public disposeViewport(viewportId: string): void {
     if (!this.mounted) return;
+    const element = this.viewports.get(viewportId)?.element;
     this.engine?.disableElement?.(viewportId);
+    this.unobserveElement(element);
     this.viewports.delete(viewportId);
     this.viewportKinds.delete(viewportId);
     this.viewportOrientations.delete(viewportId);
     this.viewportStackIndex.delete(viewportId);
 
-    const seriesUid = this.viewportSeries.get(viewportId);
-    if (seriesUid) {
-      // 仅当没有别的视口还在用同一条序列时才释放（多视口对比同序列是常见场景）
-      if (!this.isSeriesInUse(seriesUid, viewportId)) {
-        this.frames.release(seriesUid);
-      }
-      this.viewportSeries.delete(viewportId);
-    }
+    // 帧登记表与体积都不随视口销毁释放：
+    // CS3D 在 `disableElement` 之后仍会跑完已经排队的装载（实测会继续读 imageId、
+    // 继续用体积 actor），此时释放登记表/删 cache 会让重建后的 MPR 视口拿到
+    // 已销毁的 imageData（`model.extent is not iterable`）或报"未登记的 imageId"。
+    // 二者的回收改为：换序列时释放旧序列、换体积/销毁渲染器时清体积。
+    this.viewportSeries.delete(viewportId);
     this.viewportFrameCounts.delete(viewportId);
-
-    const volume = this.viewportVolumes.get(viewportId);
-    if (volume) {
-      this.viewportVolumes.delete(viewportId);
-      this.releaseVolumeIfUnused(volume.volumeId, viewportId);
-    }
+    this.viewportVolumes.delete(viewportId);
     // 版本号也清掉，但先自增一次：让仍在 await 的旧请求明确作废
     this.viewportTokens.set(viewportId, (this.viewportTokens.get(viewportId) ?? 0) + 1);
     this.viewportTokens.delete(viewportId);
+    this.viewportPendingSeries.delete(viewportId);
   }
 
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
     this.mounted = false;
+
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
 
     for (const viewportId of [...this.viewports.keys()]) {
       this.engine?.disableElement?.(viewportId);
@@ -643,6 +711,9 @@ export class CornerstoneRenderer implements RendererPort {
     this.viewportStackIndex.clear();
     this.viewportVolumes.clear();
     this.viewportTokens.clear();
+    this.viewportPendingSeries.clear();
+    this.volumeHandles.clear();
+    this.volumeInFlight.clear();
     this.frames.clear();
 
     // 先销毁引擎再清 cache：反序会让视口持有已失效的体积
@@ -650,13 +721,10 @@ export class CornerstoneRenderer implements RendererPort {
     this.engine = null;
     this.mountTarget = null;
 
-    const cache = this.cs3d.cache;
-    for (const volumeId of this.createdVolumeIds) {
-      if (cache?.getVolume(volumeId) !== undefined) {
-        cache.removeVolumeLoadObject(volumeId);
-      }
+    for (const volumeId of [...this.createdVolumeIds]) {
+      this.purgeVolume(volumeId);
     }
-    this.createdVolumeIds.clear();
+    this.createdVolumes.clear();
   }
 
   // ── 视口装配与体积生命周期 ────────────────────────────────
@@ -701,6 +769,35 @@ export class CornerstoneRenderer implements RendererPort {
     } else {
       this.viewportOrientations.delete(viewportId);
     }
+    this.observeElement(element);
+  }
+
+  /**
+   * 观察视口元素尺寸。非 DOM 元素（单测注入的假元素）直接跳过，
+   * 缺 ResizeObserver 的运行时也不报错——此时只剩 setLayout 的显式 resize 兜底。
+   */
+  private observeElement(element: unknown): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    if (typeof Element === 'undefined' || !(element instanceof Element)) return;
+    if (!this.resizeObserver) {
+      // 同步 resize：RO 回调按观察器创建顺序执行，本观察器先于 UI 层比例尺
+      // 的观察器创建，先 resize 才能让同帧的比例尺测量读到正确的画布/相机。
+      // engine.resize 对未变化的尺寸是空操作，重复调用不会重建纹理。
+      this.resizeObserver = new ResizeObserver(() => this.resizeNow());
+    }
+    this.resizeObserver.observe(element);
+  }
+
+  private unobserveElement(element: unknown): void {
+    if (!this.resizeObserver || element === undefined) return;
+    if (typeof Element === 'undefined' || !(element instanceof Element)) return;
+    this.resizeObserver.unobserve(element);
+  }
+
+  /** CS3D 发现显示尺寸与画布尺寸一致时内部会直接跳过，这里不必自己判重 */
+  private resizeNow(): void {
+    if (this.destroyed) return;
+    this.engine?.resize?.(true, true);
   }
 
   /**
@@ -716,13 +813,61 @@ export class CornerstoneRenderer implements RendererPort {
     await this.whenIdle(ortho[0]);
   }
 
+  private retainInFlight(volumeId: string): void {
+    this.volumeInFlight.set(volumeId, (this.volumeInFlight.get(volumeId) ?? 0) + 1);
+  }
+
+  private releaseInFlight(volumeId: string): void {
+    const remaining = (this.volumeInFlight.get(volumeId) ?? 1) - 1;
+    if (remaining > 0) this.volumeInFlight.set(volumeId, remaining);
+    else this.volumeInFlight.delete(volumeId);
+  }
+
   /** 没有别的视口在用这个体积时，把它从 cache 里清掉（只清本适配器创建的） */
   private releaseVolumeIfUnused(volumeId: string, exceptViewportId: string): void {
+    // 还有装载在途：对方可能马上就把它挂上视口，不能提前销毁 imageData
+    if ((this.volumeInFlight.get(volumeId) ?? 0) > 0) return;
     for (const [viewportId, volume] of this.viewportVolumes) {
       if (viewportId !== exceptViewportId && volume.volumeId === volumeId) return;
     }
+    this.purgeVolume(volumeId);
+  }
+
+  /** 回收所有既不是 `keepVolumeId`、也没有 MPR 视口在用的本适配器体积 */
+  private pruneUnusedVolumes(keepVolumeId?: string): void {
+    for (const volumeId of [...this.createdVolumeIds]) {
+      if (volumeId === keepVolumeId) continue;
+      if ((this.volumeInFlight.get(volumeId) ?? 0) > 0) continue;
+      let inUse = false;
+      for (const volume of this.viewportVolumes.values()) {
+        if (volume.volumeId === volumeId) {
+          inUse = true;
+          break;
+        }
+      }
+      if (!inUse) this.purgeVolume(volumeId);
+    }
+  }
+
+  /**
+   * 彻底移除一个本适配器创建的体积。
+   *
+   * 只删 volume cache 不够：`createLocalVolume` 会为每层派生本地 image，
+   * 层 image 留在 image cache 里，同 id 重建时 createAndCacheLocalImage 会
+   * 直接抛 "putImageSync: imageId already in cache"，MPR 全部黑屏（实测）。
+   */
+  private purgeVolume(volumeId: string): void {
     if (!this.createdVolumeIds.delete(volumeId)) return;
+    this.volumeHandles.delete(volumeId);
+
     const cache = this.cs3d.cache;
+    const volume = this.createdVolumes.get(volumeId);
+    this.createdVolumes.delete(volumeId);
+    if (cache && volume?.imageIds) {
+      for (const imageId of volume.imageIds) {
+        cache.removeImageLoadObject?.(imageId);
+      }
+    }
     if (cache?.getVolume(volumeId) !== undefined) {
       cache.removeVolumeLoadObject(volumeId);
     }
@@ -755,8 +900,21 @@ export class CornerstoneRenderer implements RendererPort {
    */
   private discardRegistration(seriesInstanceUid: string, viewportId: string): void {
     if (this.viewportSeries.get(viewportId) === seriesInstanceUid) return;
+    // 本视口还有更新的同序列请求在飞：它刚登记的帧正被 CS3D 读取，不能删
+    if (this.viewportPendingSeries.get(viewportId) === seriesInstanceUid) return;
     if (this.isSeriesInUse(seriesInstanceUid, viewportId)) return;
     this.frames.release(seriesInstanceUid);
+  }
+
+  /** 只有最新一次请求才能清掉 pending；被取代的旧请求不得改状态 */
+  private clearPendingSeries(
+    viewportId: string,
+    token: number,
+    seriesInstanceUid: string,
+  ): void {
+    if (token !== this.viewportTokens.get(viewportId)) return;
+    if (this.viewportPendingSeries.get(viewportId) !== seriesInstanceUid) return;
+    this.viewportPendingSeries.delete(viewportId);
   }
 
   private restoreViewportSeries(

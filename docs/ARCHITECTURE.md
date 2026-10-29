@@ -903,6 +903,14 @@ SAB 需要跨源隔离（COOP/COEP），这会连带影响第三方资源、Serv
 2. **`getSliceIndex()` 与世界 z 反向**：CS3D 把轴向相机放在体积下方，层号沿相机方向计数，实测 `sliceIndex ≈ (numberOfSlices-1) - z/spacing`。直接拿它当层号显示是**静默错**，适配器必须按视口方向翻转。
 3. **STACK 视口没有 `setVolumes`**：2×2 里的"原始轴位"格必须走 `setStack(imageIds)`，与三个 ORTHOGRAPHIC 格是两条通路，`mount()` 要支持同一次挂载混用两种 viewport type。
 
+#### 14.1.3 体积与帧登记表的缓存生命周期（P3 实测约束）
+
+CS3D 的 `cache.removeVolumeLoadObject` 会调用 `_decacheVolume` → `volume.imageData.delete()`，之后任何仍持有该 actor 的视口都会在 `getDimensions` 处抛 `Cannot read properties of undefined (reading '1')` / `model.extent is not iterable`。因此：
+
+1. **视口销毁不等于数据失效**：`RenderingEngine.disableElement` 只重置视口，**不取消已排队的装载**。`disposeViewport` 不得释放帧登记表或体积，回收只发生在「换序列」「换体积」「destroy」。
+2. **被取代的装载不得回收体积**：并发 `setVolume`（StrictMode 双调用、快速切布局）时，旧请求归来会走 token 不匹配分支；此时新请求可能已经或即将挂载同一体积，删 cache 就会让它的 actor 指向已销毁的 `imageData`。适配器用「在途引用计数 + 被取代不回收」双保险。
+3. **同 id 重建必须清派生层**：`createLocalVolume` 每层派生 `${volumeId}_slice_i` 进 image cache，只删 volume 会导致下次重建抛 `putImageSync: imageId already in cache`。
+
 ### 14.2 阶段总览
 
 ```mermaid

@@ -13,14 +13,26 @@ import type {
   RendererCapabilities,
   SeriesHandle,
   StudyMeta,
+  VolumeHandle,
 } from '@opendicomviewer/core';
 import { applyTheme, currentTheme, type Theme } from '../theme';
+import type { LayoutMode } from '../layout/viewport-layouts';
 
 export interface ImportStatus {
   readonly loading: boolean;
   readonly message?: string;
   readonly error?: string;
 }
+
+export interface MprBuildStatus {
+  readonly phase: 'idle' | 'building' | 'ready' | 'error';
+  readonly message?: string;
+  readonly processedSlices?: number;
+  readonly totalSlices?: number;
+}
+
+/** 体积构建的初始态：空闲且无错误 */
+export const IDLE_MPR_STATUS: MprBuildStatus = { phase: 'idle' };
 
 export interface ViewerState {
   readonly studies: readonly StudyMeta[];
@@ -35,12 +47,21 @@ export interface ViewerState {
   /** 主题的单一真源：顶栏按钮与设置面板都要改它，不能各存一份 state */
   readonly theme: Theme;
 
+  /** 当前视口布局（UI 态；切换走 renderer.setLayout） */
+  readonly layoutMode: LayoutMode;
+  /** 当前序列的降采样体积（仅 MPR 用；切序列即失效） */
+  readonly mprVolume: VolumeHandle | null;
+  readonly mprStatus: MprBuildStatus;
+
   setStudies: (studies: readonly StudyMeta[]) => void;
   setActiveSeries: (handle: SeriesHandle) => void;
   setImportStatus: (status: ImportStatus) => void;
   setWarnings: (warnings: readonly DataWarning[]) => void;
   setRendererCapabilities: (caps: RendererCapabilities) => void;
   setTheme: (theme: Theme) => void;
+  setLayoutMode: (mode: LayoutMode) => void;
+  setMprVolume: (volume: VolumeHandle | null) => void;
+  setMprStatus: (status: MprBuildStatus) => void;
   reset: () => void;
 }
 
@@ -53,6 +74,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   warnings: [],
   rendererCapabilities: null,
   theme: currentTheme(),
+  layoutMode: '1x1',
+  mprVolume: null,
+  mprStatus: IDLE_MPR_STATUS,
   setStudies: (studies) => {
     set({
       studies,
@@ -63,10 +87,10 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
 
   setActiveSeries: (handle) => {
     const currentHandle = get().activeSeriesHandle;
-    if (
-      currentHandle &&
-      currentHandle.meta.seriesInstanceUid !== handle.meta.seriesInstanceUid
-    ) {
+    const seriesChanged =
+      currentHandle !== null &&
+      currentHandle.meta.seriesInstanceUid !== handle.meta.seriesInstanceUid;
+    if (seriesChanged) {
       currentHandle.dispose();
     }
     set({
@@ -74,12 +98,19 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       activeSeriesUid: handle.meta.seriesInstanceUid,
       activeStudyUid: handle.meta.studyInstanceUid,
       warnings: [...handle.warnings],
+      // 体积按序列构建，换序列后旧体积必须作废，否则 MPR 会显示上一序列
+      ...(seriesChanged
+        ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS }
+        : {}),
     });
   },
 
   setImportStatus: (status) => set({ importStatus: status }),
   setWarnings: (warnings) => set({ warnings }),
   setRendererCapabilities: (caps) => set({ rendererCapabilities: caps }),
+  setLayoutMode: (layoutMode) => set({ layoutMode }),
+  setMprVolume: (mprVolume) => set({ mprVolume }),
+  setMprStatus: (mprStatus) => set({ mprStatus }),
 
   setTheme: (theme) => {
     // DOM 与 localStorage 一起写（applyTheme），store 只做镜像，保证两处永远一致
@@ -100,6 +131,8 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       importStatus: { loading: false },
       warnings: [],
       rendererCapabilities: null,
+      mprVolume: null,
+      mprStatus: IDLE_MPR_STATUS,
     });
   },
 }));

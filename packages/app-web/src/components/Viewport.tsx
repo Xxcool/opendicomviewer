@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -25,6 +26,8 @@ import {
 } from './slice-navigation';
 import { sliceProjection } from './slice-geometry';
 import { WINDOW_PRESETS as PRESETS } from './window-presets';
+import { ScaleBar } from './ScaleBar';
+import { measureMmPerPx } from './scale-bar';
 
 interface ViewportProps {
   readonly renderer: CornerstoneRenderer | null;
@@ -78,6 +81,8 @@ export function Viewport({
    * ——数量一直可见，详情由用户主动展开。
    */
   const [warnOpen, setWarnOpen] = useState(false);
+  /** 装载完成/复位后自增：比例尺依赖相机与画布，必须在这两个时点重新测量 */
+  const [scaleEpoch, setScaleEpoch] = useState(0);
   const warnMenuRef = useRef<HTMLDivElement>(null);
   const sortedWarnings = sortBySeverity(warnings);
   const warnCounts = countBySeverity(warnings);
@@ -108,6 +113,12 @@ export function Viewport({
   const totalFrames = activeSeriesHandle?.meta.planes.length ?? 0;
   const showNav = hasSliceNavigation(totalFrames);
   const sliderDraggable = isDraggableSlider(totalFrames);
+  /** 比例尺：用画布中心两点反算 mm/px；序列未装载时返回 null → 显示「无物理标尺」 */
+  const measureScale = useCallback(
+    (width: number, height: number) =>
+      measureMmPerPx(renderer, viewportId, width, height),
+    [renderer, viewportId],
+  );
   /**
    * 层厚取首帧：它是重建参数，同一序列各帧共用。
    * 翻页不触发 React 重渲染，放进每帧同步反而要多写一次 DOM。
@@ -199,6 +210,8 @@ export function Viewport({
           sliceTextRef.current.textContent = `层数 1 / ${count}`;
         }
         syncSliceUi(0, count);
+        // 相机此时才完成适配，比例尺必须在这次装载结束后再量一次
+        setScaleEpoch((v) => v + 1);
 
         try {
           const currentVoi = renderer!.getVOI(viewportId);
@@ -392,6 +405,8 @@ export function Viewport({
   const resetViewToDefault = () => {
     if (!renderer) return;
     renderer.resetView(viewportId);
+    // 复位会改缩放，比例尺要跟着重算
+    setScaleEpoch((v) => v + 1);
     const defaultVoi = defaultVoiRef.current;
     if (!defaultVoi) return;
     // 不带预设名：复位后就是"未选预设"的状态，角标只显示 WW/WL
@@ -434,7 +449,7 @@ export function Viewport({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-app relative overflow-hidden select-none min-w-0 min-h-0">
+    <div className="flex-1 flex flex-col relative overflow-hidden select-none min-w-0 min-h-0 z-10">
       {/* ══ 视口顶部状态条（prototype .vp-bar, 36px, 不透明实色底 + relative 让 z-10 生效） ══ */}
       <div
         className="px-4 bg-panel border-b border-line flex items-center justify-between text-[12px] text-txt-dim relative z-10 shrink-0"
@@ -538,14 +553,12 @@ export function Viewport({
         </div>
       </div>
 
-      {/* ══ 画布区（flex-1 + 绝对定位叠加层） ══ */}
-      <div className="flex-1 relative bg-canvas overflow-hidden min-h-0">
-        {/* CS3D 渲染挂载容器：DOM 节点持久存在，由 App 组合根完成 mount (P0-1) */}
-        <div
-          id="odv-viewport-el"
-          ref={containerRef}
-          className="absolute inset-0 w-full h-full cursor-crosshair touch-none"
-        />
+      {/* ══ 画布区（flex-1 + 绝对定位叠加层） ══
+          CS3D 挂载容器由 App 持有并位于本层之下；这里只做事件宿主与叠加层 */}
+      <div
+        ref={containerRef}
+        className="flex-1 relative overflow-hidden min-h-0 touch-none cursor-crosshair"
+      >
 
         {/* 数据告警不再覆盖画布：已移到 vp-bar 的角标 + 浮层（见上）。
             画布上只保留纯文字角标，保证影像不被任何不透明块遮挡 */}
@@ -585,6 +598,15 @@ export function Viewport({
               className="absolute bottom-3 left-3 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]"
             >
               <span className="font-mono">WW -- · WL --</span>
+            </div>
+
+            {/* 左下偏上：比例尺，按画布反算 mm/px（ui-spec §3.2） */}
+            <div className="absolute bottom-9 left-3">
+              <ScaleBar
+                hostRef={containerRef}
+                measure={measureScale}
+                refreshKey={`${activeSeriesHandle.meta.seriesInstanceUid}:${scaleEpoch}`}
+              />
             </div>
 
             {/* 右下：IPP 沿法向的投影值 + 层厚，由 updatePositionCorner 命令式更新

@@ -50,6 +50,9 @@ class FakeViewport implements Cs3dViewportLike {
   public jumpShouldFail = false;
   /** 模拟 setVolumes 抛错（体积通路失败时的回滚） */
   public volumesShouldFail = false;
+  /** 按调用序号决定 setVolumes 的耗时，用于构造并发装载 */
+  public volumesDelayFor: ((callIndex: number) => number) | null = null;
+  private volumesCallCount = 0;
   public camera: Cs3dCameraLike = {
     focalPoint: [0, 0, 0],
     viewPlaneNormal: [0, 0, 1],
@@ -88,6 +91,12 @@ class FakeViewport implements Cs3dViewportLike {
   public async setVolumes(
     volumeInputs: readonly Cs3dVolumeInputLike[],
   ): Promise<void> {
+    const callIndex = this.volumesCallCount;
+    this.volumesCallCount += 1;
+    const delay = this.volumesDelayFor?.(callIndex) ?? 0;
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
     if (this.volumesShouldFail) {
       throw new Error('模拟 setVolumes 失败');
     }
@@ -145,6 +154,7 @@ class FakeViewport implements Cs3dViewportLike {
 class FakeEngine implements Cs3dEngineLike {
   public readonly enabled: Cs3dEnableElementOptions[] = [];
   public readonly disabled: string[] = [];
+  public resizeCount = 0;
   public destroyCount = 0;
   private readonly viewports = new Map<string, Cs3dViewportLike>();
 
@@ -170,6 +180,10 @@ class FakeEngine implements Cs3dEngineLike {
     this.viewports.delete(viewportId);
   }
 
+  public resize(): void {
+    this.resizeCount += 1;
+  }
+
   public destroy(): void {
     this.destroyCount += 1;
   }
@@ -187,6 +201,9 @@ class FakeEngine implements Cs3dEngineLike {
 class FakeVolumeCache implements Cs3dCacheLike {
   public readonly live = new Set<string>();
   public readonly removed: string[] = [];
+  /** 与 cs3d 4.22 的 createLocalVolume 一致：每层派生一个 image 进入 image cache */
+  public readonly liveImages = new Set<string>();
+  public readonly removedImages: string[] = [];
 
   public getVolume(volumeId: string): Cs3dVolumeLike | undefined {
     return this.live.has(volumeId) ? { volumeId } : undefined;
@@ -195,6 +212,11 @@ class FakeVolumeCache implements Cs3dCacheLike {
   public removeVolumeLoadObject(volumeId: string): void {
     this.removed.push(volumeId);
     this.live.delete(volumeId);
+  }
+
+  public removeImageLoadObject(imageId: string): void {
+    this.removedImages.push(imageId);
+    this.liveImages.delete(imageId);
   }
 }
 
@@ -221,6 +243,9 @@ function makeCs3dModule(
     public disableElement(viewportId: string): void {
       engine.disableElement(viewportId);
     }
+    public resize(): void {
+      engine.resize();
+    }
     public destroy(): void {
       engine.destroy();
     }
@@ -233,7 +258,13 @@ function makeCs3dModule(
         `${volumeId}:${opts.dimensions.join('x')}:${opts.scalarData.length}`,
       );
       cache.live.add(volumeId);
-      return { volumeId };
+      // 复刻 cs3d 4.22：每层派生出 `${volumeId}_slice_i` 并进入 image cache
+      const imageIds = Array.from(
+        { length: opts.dimensions[2] },
+        (_, i) => `${volumeId}_slice_${i}`,
+      );
+      for (const imageId of imageIds) cache.liveImages.add(imageId);
+      return { volumeId, imageIds };
     },
   };
 
@@ -723,7 +754,7 @@ describe('CornerstoneRenderer · whenIdle 与销毁', () => {
     await expect(renderer.setStack('vp', makeHandle(1))).rejects.toThrow(/已销毁/);
   });
 
-  it('disposeViewport 释放独占序列；多视口共用同序列时不释放', async () => {
+  it('disposeViewport 不释放帧登记表：CS3D 在视口销毁后仍可能读取在途装载', async () => {
     const { renderer, engine } = makeRenderer({
       resolveElements: () => [ELEMENT, ELEMENT],
     });
@@ -742,7 +773,9 @@ describe('CornerstoneRenderer · whenIdle 与销毁', () => {
     expect(renderer.frameRegistry.size).toBe(3);
 
     renderer.disposeViewport('vp-2');
-    expect(renderer.frameRegistry.size).toBe(0);
+    // disableElement 不会取消已排队的装载：立即释放会让它们报"未登记的 imageId"。
+    // 回收时机改为装载新序列时（见下一条用例）。
+    expect(renderer.frameRegistry.size).toBe(3);
     expect(engine.disabled).toEqual(['vp-1', 'vp-2']);
   });
 });
@@ -1009,6 +1042,19 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
     expect(engine.viewportOf('a')).toBe(originalA);
   });
 
+  it('setLayout 后必须调 engine.resize，否则画布停在旧布局的尺寸（画面被拉伸）', async () => {
+    const { resolve } = stableElements();
+    const { renderer, engine } = makeRenderer({ resolveElements: resolve });
+    await renderer.mount(
+      { containerId: 'root' },
+      { rows: 1, cols: 2, viewportIds: ['a', 'b'] },
+    );
+
+    // 复用同一批元素、只改网格尺寸：CS3D 不会自己更新 canvas，必须显式 resize
+    await renderer.setLayout({ rows: 1, cols: 3, viewportIds: ['a', 'b', 'c'] });
+    expect(engine.resizeCount).toBe(1);
+  });
+
   it('元素被替换时必须重建视口，避免两个视口抢同一元素', async () => {
     // 每次解析都返回新对象：对应 1×1 → 2×2 时挂载点从容器换成子 div
     const { renderer, engine } = makeRenderer({
@@ -1107,6 +1153,26 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
     expect(cache.live.size).toBe(0);
   });
 
+  it('同一视口并发 setVolume：被取代的那次不得回收体积，后一次仍能正常定向', async () => {
+    const { renderer, cache, viewport } = await mountedOrtho();
+    // 第一次装载比第二次慢：ACK 归来时后一次已经把它挂上视口并在使用 imageData
+    viewport.volumesDelayFor = (callIndex) => (callIndex === 0 ? 30 : 0);
+
+    const volume = makeVolume();
+    const slow = renderer.setVolume('vp', volume);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const fast = renderer.setVolume('vp', volume);
+
+    await expect(fast).resolves.toBeUndefined();
+    await expect(slow).rejects.toThrow(/被更新的请求取代/);
+
+    // 关键：被取代的请求若在此 purge，会让后一次的 actor 指向已销毁的 imageData
+    expect(cache.removed).toEqual([]);
+    expect(cache.live.has('vol-1')).toBe(true);
+    expect(cache.liveImages.size).toBe(4);
+    expect(viewport.orientationCalls).toEqual(['axial']);
+  });
+
   it('换体积时释放旧体积；同 id 重建先移出旧体积再创建', async () => {
     const { renderer, cache, created } = await mountedOrtho();
 
@@ -1121,6 +1187,95 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
     expect(cache.removed).toEqual(['vol-1', 'vol-2']);
     expect(cache.live.has('vol-2')).toBe(true);
     expect(created).toHaveLength(3);
+    // 派生层图像也必须一起清掉，否则 createLocalVolume 会报 imageId 已在 cache
+    expect(cache.removedImages).toEqual([
+      'vol-1_slice_0',
+      'vol-1_slice_1',
+      'vol-1_slice_2',
+      'vol-1_slice_3',
+      'vol-2_slice_0',
+      'vol-2_slice_1',
+      'vol-2_slice_2',
+      'vol-2_slice_3',
+    ]);
+    expect(cache.liveImages.size).toBe(4);
+  });
+
+  it('布局切走再切回：体积不随视口销毁，同 id 直接复用而不重建', async () => {
+    const { resolve } = stableElements();
+    const { renderer, cache, created } = makeRenderer(
+      { resolveElements: resolve },
+      { volume: true },
+    );
+    const MPR_LAYOUT = {
+      rows: 1,
+      cols: 3,
+      viewportIds: ['ax', 'co', 'sa'],
+      cells: [
+        { viewportId: 'ax', kind: 'orthographic', orientation: 'axial' },
+        { viewportId: 'co', kind: 'orthographic', orientation: 'coronal' },
+        { viewportId: 'sa', kind: 'orthographic', orientation: 'sagittal' },
+      ],
+    } as const;
+    await renderer.mount({ containerId: 'root' }, MPR_LAYOUT);
+
+    const volume = makeVolume();
+    for (const viewportId of ['ax', 'co', 'sa']) {
+      await renderer.setVolume(viewportId, volume);
+    }
+    expect(created).toHaveLength(1);
+    expect(cache.liveImages.size).toBe(4);
+
+    // 切到单视口：三个 MPR 视口全部销毁，但体积与派生层图像必须保留
+    // （CS3D 的在途渲染仍持有它们；删掉会让切回时拿到已销毁的 imageData）
+    await renderer.setLayout({ rows: 1, cols: 1, viewportIds: ['ax'] });
+    expect(cache.live.has('vol-1')).toBe(true);
+    expect(cache.liveImages.size).toBe(4);
+    expect(cache.removed).toEqual([]);
+
+    // 切回 MPR：同一句柄复用已缓存的体积，不应再次 createLocalVolume
+    await renderer.setLayout(MPR_LAYOUT);
+    await expect(renderer.setVolume('ax', volume)).resolves.toBeUndefined();
+    expect(created).toHaveLength(1);
+    expect(cache.removed).toEqual([]);
+    expect(cache.liveImages.size).toBe(4);
+  });
+
+  it('同一体积挂到 MPR 三视图：只创建一次，不从前一个视口抽走 cache', async () => {
+    const { resolve } = stableElements();
+    const { renderer, engine, cache, created } = makeRenderer(
+      { resolveElements: resolve },
+      { volume: true },
+    );
+    await renderer.mount(
+      { containerId: 'root' },
+      {
+        rows: 1,
+        cols: 3,
+        viewportIds: ['ax', 'co', 'sa'],
+        cells: [
+          { viewportId: 'ax', kind: 'orthographic', orientation: 'axial' },
+          { viewportId: 'co', kind: 'orthographic', orientation: 'coronal' },
+          { viewportId: 'sa', kind: 'orthographic', orientation: 'sagittal' },
+        ],
+      },
+    );
+
+    const volume = makeVolume();
+    await renderer.setVolume('ax', volume);
+    await renderer.setVolume('co', volume);
+    await renderer.setVolume('sa', volume);
+
+    expect(created).toEqual(['vol-1:2x2x4:16']);
+    expect(cache.removed).toEqual([]);
+    expect(cache.live.has('vol-1')).toBe(true);
+    expect(engine.viewportOf('co').volumeCalls).toEqual([['vol-1']]);
+    expect(engine.viewportOf('sa').orientationCalls).toEqual(['sagittal']);
+
+    // 给其中一个视口换新体积：另两格仍在用旧体积，不能删 cache
+    await renderer.setVolume('ax', makeVolume({ volumeId: 'vol-2' }));
+    expect(cache.removed).toEqual([]);
+    expect(cache.live.has('vol-1')).toBe(true);
   });
 
   it('ORTHOGRAPHIC 层号按相机焦点投影换算，stepSlice 通过 jumpToWorld 移动', async () => {

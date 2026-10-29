@@ -13,6 +13,7 @@ import {
   SunIcon,
 } from './Icons';
 import { SettingsDialog } from './SettingsDialog';
+import { LAYOUT_MODES, LAYOUTS } from '../layout/viewport-layouts';
 
 interface HeaderProps {
   /** 与拖拽、示例共用同一条导入流程（含部分失败汇总），不在顶栏另写一份 */
@@ -47,7 +48,19 @@ export function Header({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 主题来自 store（单一真源），顶栏与设置面板共用，避免任一处显示过期值
-  const { importStatus, theme, setTheme } = useViewerStore();
+  const {
+    importStatus,
+    theme,
+    setTheme,
+    layoutMode,
+    setLayoutMode,
+    rendererCapabilities,
+    activeSeriesHandle,
+  } = useViewerStore();
+  // 能力为 false 时按契约隐藏 MPR 入口，而不是留一个点了会报错的按钮
+  const supportsMpr = rendererCapabilities?.supportsVolume === true;
+  // 没有序列时整组隐藏：空壳 MPR 切过去只会看到"请载入序列"，徒增迷惑
+  const showLayoutGroup = supportsMpr && activeSeriesHandle !== null;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleOpenFolderClick = () => {
@@ -175,6 +188,34 @@ export function Header({
               <DiscIcon className="w-4 h-4" />
               <span>读光盘</span>
             </button>
+          </>
+        )}
+
+        {showLayoutGroup && (
+          <>
+            <span className={BTN_SEP} />
+            <div
+              role="group"
+              aria-label="视口布局"
+              className="flex items-center gap-0.5 p-0.5 rounded-md bg-hover/60"
+            >
+              {LAYOUT_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setLayoutMode(mode)}
+                  aria-pressed={layoutMode === mode}
+                  title={LAYOUTS[mode].hint}
+                  className={`h-6 px-2 rounded-sm text-[11px] font-mono transition cursor-pointer ${
+                    layoutMode === mode
+                      ? 'bg-accent text-white shadow-xs'
+                      : 'text-txt-dim hover:text-txt hover:bg-active/60'
+                  }`}
+                >
+                  {LAYOUTS[mode].label}
+                </button>
+              ))}
+            </div>
           </>
         )}
 

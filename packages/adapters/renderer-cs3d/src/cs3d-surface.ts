@@ -76,6 +76,13 @@ export interface Cs3dEngineLike {
   enableElement(options: Cs3dEnableElementOptions): void;
   getViewport(viewportId: string): Cs3dViewportLike;
   disableElement?(viewportId: string): void;
+  /**
+   * 按各视口元素的当前 CSS 尺寸重算 canvas 的 attribute 尺寸。
+   *
+   * CS3D 自身不监听元素尺寸：不调它时，布局切换或底栏出现会让 canvas 停在
+   * 旧尺寸，画面被拉伸、按画布反算的比例尺随之失真。
+   */
+  resize?(immediate?: boolean, keepCamera?: boolean): void;
   destroy(): void;
 }
 
@@ -89,6 +96,12 @@ export interface Cs3dEnumsLike {
 /** 本地体积（`createLocalVolume` 的产物，只需要 id 与销毁能力） */
 export interface Cs3dVolumeLike {
   readonly volumeId: string;
+  /**
+   * `createLocalVolume` 为每层派生的本地 imageId（CS3D 内部按 `…_slice_i` 生成）。
+   * 移除体积时必须一并清理，否则同 id 重建会在 createAndCacheLocalImage
+   * 里命中 "putImageSync: imageId already in cache"。
+   */
+  readonly imageIds?: readonly string[];
   destroy?(): void;
 }
 
@@ -116,6 +129,11 @@ export interface Cs3dVolumeLoaderLike {
 export interface Cs3dCacheLike {
   getVolume(volumeId: string): Cs3dVolumeLike | undefined;
   removeVolumeLoadObject(volumeId: string): void;
+  /**
+   * 清理 `createLocalVolume` 派生的层图像。
+   * 不清理会让同 volumeId 重建直接失败（4.22 的派生图像也进了 image cache）。
+   */
+  removeImageLoadObject?(imageId: string): void;
 }
 
 /**

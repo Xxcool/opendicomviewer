@@ -257,6 +257,10 @@ export class Cs3dEngineAdapter implements Cs3dEngineLike {
     this.raw.disableElement(viewportId);
   }
 
+  resize(immediate = true, keepCamera = true): void {
+    this.raw.resize(immediate, keepCamera);
+  }
+
   destroy(): void {
     this.raw.destroy();
   }
@@ -317,6 +321,13 @@ export function createCs3dModule(): Cs3dModuleLike {
       getVolume: (volumeId: string) => cs3d.cache.getVolume(volumeId),
       removeVolumeLoadObject: (volumeId: string) =>
         cs3d.cache.removeVolumeLoadObject(volumeId),
+      removeImageLoadObject: (imageId: string) => {
+        // 层图像可能已被缓存淘汰：不存在时跳过，不能让清理流程中途抛错。
+        // force：本体积即将销毁，派生层图像不应再被 sharedCacheKey 保护。
+        if (cs3d.cache.getImageLoadObject(imageId) !== undefined) {
+          cs3d.cache.removeImageLoadObject(imageId, { force: true });
+        }
+      },
     },
   };
 }

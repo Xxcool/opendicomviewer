@@ -183,7 +183,8 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                 <section className="space-y-2 pt-3 border-t border-line">
                   <h3 className="font-semibold text-txt-dim">标尺与叠加</h3>
                   <p className="text-[11px] text-txt-muted leading-relaxed">
-                    比例尺需要渲染器提供缩放与相机信息，当前端口未暴露，故未绘制；
+                    比例尺已启用：按画布反算 mm/px，在各视口左下角绘制 1-2-5 系列长度条，
+                    视口尺寸变化时自动重算；拿不到物理信息时显示「无物理标尺」，不编造刻度。
                     四角患者信息、方位标记、层位置已开启。
                   </p>
                 </section>

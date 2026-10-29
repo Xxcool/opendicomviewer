@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { LocalDataSource } from '@opendicomviewer/source-local';
 import {
   createCornerstoneRenderer,
@@ -11,17 +11,35 @@ import { useImportFlow } from './import-flow';
 import { Header } from './components/Header';
 import { SeriesList } from './components/SeriesList';
 import { Viewport } from './components/Viewport';
+import { MprWorkspace } from './components/MprWorkspace';
 import { MetadataPanel } from './components/MetadataPanel';
 import { ImportFailuresDialog } from './components/ImportFailuresDialog';
 import { useViewerStore } from './state/viewer-store';
+import { LAYOUTS, type LayoutMode } from './layout/viewport-layouts';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
 
 export function App() {
   const dataSource = useMemo(() => new LocalDataSource(), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  const { importStatus, setImportStatus, setRendererCapabilities } =
-    useViewerStore();
+  /** setLayout 已成功应用的模式；null = 尚在切换中，MPR 组件不得提前装载数据 */
+  const [appliedLayout, setAppliedLayout] = useState<LayoutMode | null>(null);
+  /**
+   * setLayout 串行队列。
+   *
+   * 连续切换布局时若并发调用 setLayout，后一次会在前一次 `await` 期间完成，
+   * 前一次恢复后又会按旧布局销毁/启用视口——实测会把刚建好的 MPR 视口拆掉，
+   * 导致体积 actor 指向已销毁的 imageData（`model.extent is not iterable`）。
+   * 串行化后「最后一次点击」一定最后执行，且中间不会互相拆台。
+   */
+  const layoutQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const {
+    importStatus,
+    setImportStatus,
+    setRendererCapabilities,
+    layoutMode,
+    activeSeriesHandle,
+  } = useViewerStore();
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
     pendingFailures,
@@ -70,6 +88,39 @@ export function App() {
       setRenderer(null);
     };
   }, [setImportStatus, setRendererCapabilities]);
+
+  /**
+   * 布局切换：必须等 setLayout 完成后才允许 MPR 组件装载 Stack/Volume，
+   * 否则会向尚未创建的 ORTHOGRAPHIC 视口写入数据（端口会直接抛错）。
+   */
+  useEffect(() => {
+    if (!renderer) return;
+    let cancelled = false;
+
+    async function applyLayout() {
+      const queued = layoutQueueRef.current
+        .catch(() => undefined)
+        .then(() => renderer!.setLayout(LAYOUTS[layoutMode].viewportLayout));
+      layoutQueueRef.current = queued;
+      try {
+        await queued;
+        if (!cancelled) setAppliedLayout(layoutMode);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        setAppliedLayout(null);
+        setImportStatus({
+          loading: false,
+          error: `布局切换失败: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+
+    void applyLayout();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [renderer, layoutMode, setImportStatus]);
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -159,11 +210,66 @@ export function App() {
         >
           <SeriesList dataSource={dataSource} />
         </div>
-        <Viewport
-          renderer={renderer}
-          viewportId="default-viewport"
-          onLoadSample={loadSample}
-        />
+        {/*
+          CS3D 挂载容器由 App 持久持有：布局在 1×1 ↔ MPR 间切换时组件会卸载重建，
+          但 #odv-viewport-el 必须始终是同一个 DOM 节点，否则 setLayout 会操作到
+          已脱离文档的旧容器（视口全部丢失）。
+        */}
+        <div className="flex-1 relative flex flex-col min-w-0 bg-app">
+          <div
+            className="absolute inset-x-0 z-0"
+            style={{
+              top: 'var(--vp-bar-h)',
+              bottom: activeSeriesHandle ? 'var(--vp-foot-h)' : '0',
+            }}
+          >
+            <div
+              id="odv-viewport-el"
+              style={layoutMode === '1x1' ? undefined : LAYOUTS[layoutMode].gridStyle}
+              className={`absolute inset-0 w-full h-full touch-none ${
+                layoutMode === '1x1' ? '' : 'bg-line'
+              }`}
+            >
+              {layoutMode !== '1x1' &&
+                LAYOUTS[layoutMode].panes.map((pane) => (
+                  <div
+                    key={pane.viewportId}
+                    data-odv-viewport={pane.viewportId}
+                    style={{ gridArea: pane.gridArea }}
+                    className="min-w-0 min-h-0 overflow-hidden"
+                  />
+                ))}
+            </div>
+          </div>
+
+          {appliedLayout === layoutMode ? (
+            layoutMode === '1x1' ? (
+              <Viewport
+                renderer={renderer}
+                viewportId="default-viewport"
+                onLoadSample={loadSample}
+              />
+            ) : (
+              <MprWorkspace
+                renderer={renderer}
+                mode={layoutMode}
+                layoutReady={appliedLayout === layoutMode}
+                onLoadSample={loadSample}
+              />
+            )
+          ) : (
+            <div
+              className="absolute inset-x-0 z-10 flex items-center justify-center text-xs text-txt-dim pointer-events-none"
+              style={{
+                top: 'var(--vp-bar-h)',
+                bottom: activeSeriesHandle ? 'var(--vp-foot-h)' : '0',
+              }}
+            >
+              <SpinnerIcon className="w-4 h-4 text-accent mr-2" />
+              <span>正在切换布局…</span>
+            </div>
+          )}
+        </div>
         <MetadataPanel />
       </div>
     </div>
