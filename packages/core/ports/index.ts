@@ -237,6 +237,10 @@ export interface RendererPort {
   getVOI(viewportId: string): VOIRange;
   /** 复位相机与缩放（不改 VOI） */
   resetView(viewportId: string): void;
+  /** 相对于当前相机缩放；factor > 1 放大，factor < 1 缩小。 */
+  zoomBy(viewportId: string, factor: number): void;
+  /** 以画布 CSS 像素平移，保持世界坐标与物理标尺由渲染器管理。 */
+  panBy(viewportId: string, delta: CanvasPoint): void;
 
   /** 患者坐标 → 画布像素坐标（测量工具绘制用） */
   worldToCanvas(viewportId: string, world: WorldPoint): CanvasPoint;

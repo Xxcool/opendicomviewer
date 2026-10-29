@@ -198,6 +198,14 @@ export class Cs3dViewportAdapter implements Cs3dViewportLike {
     this.vp.resetCamera();
   }
 
+  getZoom(): number { return this.vp.getZoom(); }
+  setZoom(value: number): void { this.vp.setZoom(value); }
+  getPan(): number[] { return this.vp.getPan(); }
+  setPan(value: readonly number[]): void {
+    const [x, y] = value;
+    this.vp.setPan([x ?? 0, y ?? 0]);
+  }
+
   worldToCanvas(world: readonly number[]): number[] {
     return this.vp.worldToCanvas(toPoint3(world));
   }

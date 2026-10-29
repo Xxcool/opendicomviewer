@@ -138,7 +138,16 @@ class FakeViewport implements Cs3dViewportLike {
 
   public resetCamera(): void {
     this.resetCameraCount += 1;
+    this.zoom = 1;
+    this.pan = [0, 0];
   }
+
+  public zoom = 1;
+  public pan = [0, 0];
+  public getZoom(): number { return this.zoom; }
+  public setZoom(value: number): void { this.zoom = value; }
+  public getPan(): number[] { return this.pan; }
+  public setPan(value: readonly number[]): void { this.pan = [...value]; }
 
   public worldToCanvas(world: readonly number[]): number[] {
     const x = world[0] ?? 0;
@@ -687,6 +696,32 @@ describe('CornerstoneRenderer · 调窗与坐标', () => {
     renderer.resetView('vp');
     expect(viewport.resetCameraCount).toBe(1);
     expect(viewport.getProperties().voiRange).toEqual(before);
+  });
+
+  it('缩放相对于当前相机，限制极值，复位后恢复适应窗口且不改 VOI', async () => {
+    const { renderer, viewport } = await mounted();
+    const voi = renderer.getVOI('vp');
+    renderer.zoomBy('vp', 2);
+    renderer.zoomBy('vp', 1.5);
+    expect(viewport.zoom).toBe(3);
+    renderer.zoomBy('vp', 100);
+    expect(viewport.zoom).toBe(20);
+    renderer.zoomBy('vp', 0.0001);
+    expect(viewport.zoom).toBe(0.05);
+    renderer.resetView('vp');
+    expect(viewport.zoom).toBe(1);
+    expect(renderer.getVOI('vp')).toEqual(voi);
+  });
+
+  it('平移使用画布像素增量，非法相机输入在调用 CS3D 前拒绝', async () => {
+    const { renderer, viewport } = await mounted();
+    renderer.panBy('vp', { x: 14, y: -7 });
+    renderer.panBy('vp', { x: -4, y: 3 });
+    expect(viewport.pan).toEqual([10, -4]);
+    expect(() => renderer.zoomBy('vp', 0)).toThrow(/正数/);
+    expect(() => renderer.zoomBy('vp', NaN)).toThrow(/正数/);
+    expect(() => renderer.panBy('vp', { x: Infinity, y: 1 })).toThrow(/有限/);
+    expect(viewport.pan).toEqual([10, -4]);
   });
 });
 
@@ -1337,6 +1372,19 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
 
     viewport.jumpShouldFail = true;
     await expect(renderer.focusAt('vp', [9, 9, 9])).rejects.toThrow(/不在视口 vp 的可定位范围/);
+  });
+
+  it('CS3D 联动定位后层号读取实际视口，不能停留在 setStackIndex 的旧缓存', async () => {
+    const { renderer, engine } = makeRenderer();
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 1, viewportIds: ['vp'] });
+    await renderer.setStack('vp', makeHandle(4));
+    const viewport = engine.viewportOf('vp');
+    // StackViewport.jumpToWorld 在内部调用 setImageIdIndex，不经过外层缓存。
+    Object.assign(viewport, { getCurrentImageIdIndex: () => 2 });
+    await renderer.focusAt('vp', [1, 2, 3]);
+    expect(renderer.currentSliceIndex('vp')).toBe(2);
+    await renderer.stepSlice('vp', 1);
+    expect(viewport.indexCalls).toEqual([3]);
   });
 
   it('destroy 时把本适配器创建过的体积从 cache 清掉', async () => {

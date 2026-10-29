@@ -43,6 +43,10 @@ export interface Cs3dViewportLike {
   getProperties(): Cs3dViewportPropertiesLike;
   render(): void;
   resetCamera?(): void;
+  getZoom?(): number;
+  setZoom?(value: number): void;
+  getPan?(): number[];
+  setPan?(value: readonly number[]): void;
   /** 返回 [x, y]（画布像素坐标） */
   worldToCanvas?(world: readonly number[]): number[];
   /** 入参 [x, y]（画布像素坐标），返回 [x, y, z]（LPS） */

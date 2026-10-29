@@ -322,7 +322,7 @@ export class CornerstoneRenderer implements RendererPort {
 
     const previousSeriesUid = this.viewportSeries.get(viewportId);
     const previousFrameCount = this.viewportFrameCounts.get(viewportId);
-    const previousIndex = this.viewportStackIndex.get(viewportId);
+    const previousIndex = this.viewportStackIndex.has(viewportId) ? this.currentSliceIndex(viewportId) : undefined;
 
     // 视口级版本号：并发 setStack 时只让最后一次生效。
     // 没有它的话，慢请求 A 会在快请求 B 之后归来并把归属写回 A，
@@ -498,7 +498,7 @@ export class CornerstoneRenderer implements RendererPort {
       if (count === undefined) {
         throw new Error(`视口 ${viewportId} 尚未装载序列，无法翻层`);
       }
-      const current = this.viewportStackIndex.get(viewportId) ?? 0;
+      const current = this.currentSliceIndex(viewportId);
       const target = clamp(current + delta, 0, count - 1);
       if (target === current) return;
       await viewport.setImageIdIndex(target);
@@ -538,7 +538,14 @@ export class CornerstoneRenderer implements RendererPort {
       if (index === undefined) {
         throw new Error(`视口 ${viewportId} 尚未装载序列，无法读取层号`);
       }
-      return index;
+      // jumpToWorld 会在 CS3D 内部改层号，真源必须读实际视口，缓存仅服务最小测试表面。
+      const actual = viewport.getCurrentImageIdIndex?.() ?? index;
+      const count = this.viewportFrameCounts.get(viewportId) ?? 0;
+      if (!Number.isInteger(actual) || actual < 0 || actual >= count) {
+        throw new Error(`视口 ${viewportId} 返回了无效层号：${actual}`);
+      }
+      this.viewportStackIndex.set(viewportId, actual);
+      return actual;
     }
 
     const volume = this.viewportVolumes.get(viewportId);
@@ -603,6 +610,28 @@ export class CornerstoneRenderer implements RendererPort {
   public resetView(viewportId: string): void {
     const viewport = this.viewportOf(viewportId);
     viewport.resetCamera?.();
+    viewport.render();
+  }
+
+  public zoomBy(viewportId: string, factor: number): void {
+    if (!Number.isFinite(factor) || factor <= 0) throw new Error('缩放倍数必须为正数');
+    const viewport = this.viewportOf(viewportId);
+    if (!viewport.getZoom || !viewport.setZoom) throw new Error('当前视口不支持缩放');
+    const current = viewport.getZoom();
+    if (!Number.isFinite(current) || current <= 0) throw new Error('当前相机缩放无效');
+    viewport.setZoom(Math.min(20, Math.max(0.05, current * factor)));
+    viewport.render();
+  }
+
+  public panBy(viewportId: string, delta: CanvasPoint): void {
+    if (![delta.x, delta.y].every(Number.isFinite)) throw new Error('平移坐标必须为有限数值');
+    const viewport = this.viewportOf(viewportId);
+    if (!viewport.getPan || !viewport.setPan) throw new Error('当前视口不支持平移');
+    const [x, y] = viewport.getPan();
+    if (x === undefined || y === undefined || ![x, y].every(Number.isFinite)) {
+      throw new Error('当前相机平移无效');
+    }
+    viewport.setPan([x + delta.x, y + delta.y]);
     viewport.render();
   }
 
