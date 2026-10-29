@@ -562,20 +562,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
         <div class="sec-head">能力与降级</div>
         <div class="rows">
           <div class="row"><span class="k">渲染后端</span><span class="v num">WebGL2</span></div>
-          <div class="row"><span class="k">GPU</span><span class="v">软件回退（SwiftShader）</span></div>
+          <div class="row"><span class="k">GPU</span><span class="v">类型未检测</span></div>
           <div class="row">
             <span class="k">体绘制</span>
             <button class="cap-link" id="btnVolume" aria-expanded="false">不可用 · 查看原因</button>
           </div>
-          <div class="row"><span class="k">MPR</span><span class="v" style="color:var(--color-disabled)">不可用 · Phase 2</span></div>
+          <div class="row"><span class="k">MPR</span><span class="v">按当前序列几何校验</span></div>
         </div>
         <div class="cap-hint" id="capHint" hidden>
           <b>为什么不能做 3D 体绘制</b><br />
-          ① 需要降采样 Volume 通路，该能力属 Phase 2；<br />
-          ② 当前 GPU 为 <span class="num" id="capReason">软件渲染回退（SwiftShader）</span>，
-          体绘制帧率无法保证；<br />
-          ③ 按 §5.3 降级矩阵，入口隐藏而不是给半残体验。<br />
-          轴向浏览、调窗与测量不受影响。
+          当前版本尚未实现体绘制；MPR 体积通路存在并不代表体绘制可用。<br />
+          MPR 只接受规则网格，缺层、非均匀层距或平面偏移会显示不可用原因。<br />
+          原始切片浏览与调窗不受影响。
         </div>
         <div class="muted-note">降级一律显式：入口置灰或隐藏，并在此说明原因（ARCHITECTURE §5.3）。</div>
       </section>

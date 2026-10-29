@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import type { ImportCandidate } from '@opendicomviewer/core';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { planVolumeDownsample, type ImportCandidate } from '@opendicomviewer/core';
 import { fileToImportCandidate } from '../bridge/candidate';
 import { useViewerStore } from '../state/viewer-store';
 import {
@@ -60,7 +60,9 @@ export function Header({
   // 能力为 false 时按契约隐藏 MPR 入口，而不是留一个点了会报错的按钮
   const supportsMpr = rendererCapabilities?.supportsVolume === true;
   // 没有序列时整组隐藏：空壳 MPR 切过去只会看到"请载入序列"，徒增迷惑
-  const showLayoutGroup = supportsMpr && activeSeriesHandle !== null;
+  const mprPlan = useMemo(() => activeSeriesHandle
+    ? planVolumeDownsample(activeSeriesHandle.meta) : null, [activeSeriesHandle]);
+  const showLayoutGroup = supportsMpr && mprPlan?.ok === true;
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleOpenFolderClick = () => {

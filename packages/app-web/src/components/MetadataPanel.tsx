@@ -1,4 +1,5 @@
-import type { RenderBackendType } from '@opendicomviewer/core';
+import { useMemo } from 'react';
+import { planVolumeDownsample, type RenderBackendType } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
 import {
   countBySeverity,
@@ -46,8 +47,15 @@ function Sec({
 }
 
 export function MetadataPanel() {
-  const { studies, activeStudyUid, activeSeriesHandle, warnings, rendererCapabilities } =
+  const { studies, activeStudyUid, activeSeriesHandle, warnings, rendererCapabilities, mprStatus } =
     useViewerStore();
+
+  const mprPlan = useMemo(() => activeSeriesHandle
+    ? planVolumeDownsample(activeSeriesHandle.meta) : null, [activeSeriesHandle]);
+  const mprReason = !rendererCapabilities?.supportsVolume
+    ? '当前渲染后端未接入 MPR 通路'
+    : mprPlan && !mprPlan.ok ? mprPlan.message
+      : mprStatus.phase === 'error' ? mprStatus.message : undefined;
 
   const sortedWarnings = sortBySeverity(warnings);
   const counts = countBySeverity(warnings);
@@ -202,27 +210,27 @@ export function MetadataPanel() {
                 >
                   {rendererCapabilities.isSoftwareFallback
                     ? '软件回退'
-                    : '硬件加速'}
+                    : '类型未检测'}
                 </span>
               </div>
               <div className={ROW}>
                 <span className={K}>体绘制</span>
-                {rendererCapabilities.supportsVolume ? (
-                  <span className={V}>可用</span>
-                ) : (
-                  <span className={`${V} text-disabled leading-snug`}>
-                    不可用 · Phase 2
-                  </span>
-                )}
+                <details className={`${V} text-disabled leading-snug`}>
+                  <summary className="cursor-pointer">不可用 · 查看原因</summary>
+                  <p>当前版本尚未实现体绘制</p>
+                </details>
               </div>
               <div className={ROW}>
                 <span className={K}>MPR</span>
-                {rendererCapabilities.supportsVolume ? (
-                  <span className={V}>可用</span>
+                {mprReason ? (
+                  <details className={`${V} text-disabled leading-snug`}>
+                    <summary className="cursor-pointer">不可用 · 查看原因</summary>
+                    <p>{mprReason}</p>
+                  </details>
                 ) : (
-                  <span className={`${V} text-disabled leading-snug`}>
-                    不可用 · Phase 2
-                  </span>
+                  <span className={V}>{!activeSeriesHandle ? '待载入序列'
+                    : mprStatus.phase === 'ready' ? '可用'
+                      : mprStatus.phase === 'building' ? '构建中' : '可构建'}</span>
                 )}
               </div>
             </div>
