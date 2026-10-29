@@ -1,0 +1,17 @@
+{
+  "name": "@opendicomviewer/codec-wasm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DICOM compressed pixel codec adapter (RLE, JPEG Lossless), loaded on demand",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opendicomviewer/core": "workspace:*",
+    "jpeg-lossless-decoder-js": "^2.1.2"
+  }
+}

@@ -12,8 +12,10 @@
  */
 
 import type {
+  CodecPort,
   DataWarning,
   DataSourcePort,
+  ImagePlane,
   ImportCandidate,
   ImportInput,
   ImportOutcome,
@@ -102,7 +104,7 @@ function swap16InPlace(bytes: Uint8Array): void {
 /**
  * 判断是否为封装压缩的 TransferSyntax（P1-3）
  */
-function isEncapsulatedTransferSyntax(ts: string | undefined): boolean {
+function isEncapsulatedTransferSyntax(ts: string | undefined): ts is string {
   if (!ts) return false;
   // JPEG 系列 (1.2.840.10008.1.2.4.*), RLE (1.2.840.10008.1.2.5) 等
   return ts.startsWith('1.2.840.10008.1.2.4.') || ts === '1.2.840.10008.1.2.5';
@@ -110,6 +112,12 @@ function isEncapsulatedTransferSyntax(ts: string | undefined): boolean {
 
 export class LocalDataSource implements DataSourcePort {
   readonly kind = 'local' as const;
+
+  /**
+   * 压缩像素解码器由组合根注入（依赖方向 adapters → core，禁止 adapter 互相 import）。
+   * 不注入时，封装压缩语法保持显式报错，绝不把压缩码流当裸像素画（P1-3 / R7）。
+   */
+  constructor(private readonly codec?: CodecPort) {}
 
   private lastInputFiles: readonly ImportCandidate[] = [];
   private candidateIndex = new Map<string, ImportCandidate>();
@@ -361,12 +369,16 @@ export class LocalDataSource implements DataSourcePort {
         throw new Error(`找不到切片对应的数据源文件: ${plane.imageId}`);
       }
 
-      // P1-3: 识别封装压缩传输语法
+      // P1-3: 封装压缩语法必须交给 CodecPort 解码，禁止当裸像素解读
       const transferSyntax = plane.transferSyntaxUid;
       if (isEncapsulatedTransferSyntax(transferSyntax)) {
-        throw new Error(
-          `暂不支持直接解码封装压缩传输语法 (${transferSyntax})，需经 CodecPort WASM 解码器`,
+        const frame = await this.decodeCompressedFrame(
+          plane,
+          candidate,
+          transferSyntax,
         );
+        lruCache.set(plane.imageId, frame);
+        return frame;
       }
 
       const buf = await candidate.read();
@@ -464,5 +476,67 @@ export class LocalDataSource implements DataSourcePort {
         lruCache.clear();
       },
     };
+  }
+
+  /**
+   * 解封装并解码一帧压缩像素。
+   *
+   * 解封装（basic offset table / fragments）留在 source-local，是因为 codec-* 被禁止
+   * 引入 DICOM 解析库（GEMINI §2）；codec 只接收单帧码流。
+   */
+  private async decodeCompressedFrame(
+    plane: ImagePlane,
+    candidate: ImportCandidate,
+    transferSyntax: string,
+  ): Promise<PixelFrame> {
+    const codec = this.codec;
+    if (!codec) {
+      throw new Error(
+        `暂不支持直接解码封装压缩传输语法 (${transferSyntax})，需经 CodecPort WASM 解码器`,
+      );
+    }
+    if (!codec.canDecode(transferSyntax)) {
+      throw new Error(
+        `当前解码器不支持压缩传输语法 (${transferSyntax})，无法显示该切片`,
+      );
+    }
+
+    const buf = await candidate.read();
+    const dataSet = dicomParser.parseDicom(new Uint8Array(buf));
+    const pixelElement = dataSet.elements.x7fe00010;
+    if (!pixelElement) {
+      throw new Error(`缺少像素数据 (7FE0,0010)，无法解码: ${plane.imageId}`);
+    }
+
+    // D5 尚未展开单文件多帧。压缩路径显式失败，避免"只画第一帧"看起来正常（R7）
+    const numberOfFrames = dataSet.intString('x00280008') ?? 1;
+    if (numberOfFrames > 1) {
+      throw new Error(
+        `单文件多帧尚未展开（NumberOfFrames=${numberOfFrames}），当前仅支持单帧压缩文件`,
+      );
+    }
+
+    // 空 Basic Offset Table 是真实文件的常见形态（如仅有单帧或多片段单帧）：
+    // readEncapsulatedImageFrame 会直接抛 "basicOffsetTable has zero entries"，
+    // 此时按 dicom-parser 的既有语义把全部片段视为同一帧。
+    const fragments = pixelElement.fragments;
+    if (!fragments || fragments.length === 0) {
+      throw new Error(`封装像素数据缺少片段 (7FE0,0010)，无法解码: ${plane.imageId}`);
+    }
+    const hasOffsetTable = (pixelElement.basicOffsetTable?.length ?? 0) > 0;
+    const frameBytes = hasOffsetTable
+      ? dicomParser.readEncapsulatedImageFrame(dataSet, pixelElement, 0)
+      : dicomParser.readEncapsulatedPixelDataFromFragments(
+          dataSet,
+          pixelElement,
+          0,
+          fragments.length,
+        );
+    const frameBuffer = frameBytes.buffer.slice(
+      frameBytes.byteOffset,
+      frameBytes.byteOffset + frameBytes.byteLength,
+    );
+
+    return codec.decode(frameBuffer, transferSyntax, plane);
   }
 }

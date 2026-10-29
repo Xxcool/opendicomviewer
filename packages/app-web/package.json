@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@cornerstonejs/core": "4.22.13",
+    "@opendicomviewer/codec-wasm": "workspace:*",
     "@opendicomviewer/core": "workspace:*",
     "@opendicomviewer/renderer-cs3d": "workspace:*",
     "@opendicomviewer/source-local": "workspace:*",

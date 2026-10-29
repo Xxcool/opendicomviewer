@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { PixelCodec } from '@opendicomviewer/codec-wasm';
 import { LocalDataSource } from '@opendicomviewer/source-local';
 import {
   createCornerstoneRenderer,
@@ -19,7 +20,8 @@ import { LAYOUTS, type LayoutMode } from './layout/viewport-layouts';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
 
 export function App() {
-  const dataSource = useMemo(() => new LocalDataSource(), []);
+  // 压缩像素解码器由组合根注入；重解码库本身在 PixelCodec 内部按需动态加载
+  const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   /** setLayout 已成功应用的模式；null = 尚在切换中，MPR 组件不得提前装载数据 */

@@ -35,6 +35,14 @@ export interface DicomFixtureOptions {
   readonly omitImageOrientationPatient?: boolean;
   /** 原始像素字节（小端、逐像素紧排）。提供后才会写入完整 Image Pixel 模块与 (7FE0,0010) */
   readonly pixelData?: Uint8Array;
+  /**
+   * 封装（压缩）像素数据：基本偏移表 + 片段列表。
+   * 与 pixelData 二选一；(7FE0,0010) 以未定义长度写入，末尾带 Sequence Delimitation Item。
+   */
+  readonly encapsulatedPixelData?: {
+    readonly basicOffsetTable?: Uint8Array;
+    readonly fragments: readonly Uint8Array[];
+  };
   readonly bitsAllocated?: number;
   readonly bitsStored?: number;
   readonly pixelRepresentation?: number;
@@ -128,6 +136,45 @@ export function encodeElement(
 
 export function stringToBytes(str: string): Uint8Array {
   return new TextEncoder().encode(str);
+}
+
+/**
+ * 编码封装像素数据 (7FE0,0010)：未定义长度 + 基本偏移表项 + 片段项 + 序列结束项。
+ * 片段长度按 DICOM 要求补齐到偶数字节（补 0x00），与真实压缩文件一致。
+ */
+function encodeEncapsulatedPixelData(
+  basicOffsetTable: Uint8Array | undefined,
+  fragments: readonly Uint8Array[],
+): number[] {
+  const bytes: number[] = [];
+  writeUint16LE(bytes, 0x7fe0);
+  writeUint16LE(bytes, 0x0010);
+  writeString(bytes, 'OB');
+  writeUint16LE(bytes, 0); // 保留字
+  writeUint32LE(bytes, 0xffffffff); // 未定义长度
+
+  const pushItem = (payload: Uint8Array): void => {
+    writeUint16LE(bytes, 0xfffe);
+    writeUint16LE(bytes, 0xe000);
+    const paddedLength = payload.length % 2 === 0 ? payload.length : payload.length + 1;
+    writeUint32LE(bytes, paddedLength);
+    for (let i = 0; i < payload.length; i++) {
+      const b = payload[i];
+      if (b !== undefined) bytes.push(b);
+    }
+    if (paddedLength !== payload.length) bytes.push(0x00);
+  };
+
+  pushItem(basicOffsetTable ?? new Uint8Array(0));
+  for (const fragment of fragments) {
+    pushItem(fragment);
+  }
+
+  // Sequence Delimitation Item (FFFE,E0DD)，长度固定 0
+  writeUint16LE(bytes, 0xfffe);
+  writeUint16LE(bytes, 0xe0dd);
+  writeUint32LE(bytes, 0);
+  return bytes;
 }
 
 /**
@@ -323,7 +370,7 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
   );
 
   // Image Pixel 模块：仅在提供像素数据时写入，避免影响纯元数据用例
-  if (options.pixelData) {
+  if (options.pixelData || options.encapsulatedPixelData) {
     const pushUS = (element: number, value: number): void => {
       const b: number[] = [];
       writeUint16LE(b, value);
@@ -386,7 +433,14 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
   }
 
   // (7FE0,0010) Pixel Data 必须排在最后
-  if (options.pixelData) {
+  if (options.encapsulatedPixelData) {
+    dsElements.push(
+      ...encodeEncapsulatedPixelData(
+        options.encapsulatedPixelData.basicOffsetTable,
+        options.encapsulatedPixelData.fragments,
+      ),
+    );
+  } else if (options.pixelData) {
     dsElements.push(
       ...encodeElement(
         0x7fe0,

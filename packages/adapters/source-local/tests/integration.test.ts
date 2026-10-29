@@ -1,4 +1,9 @@
-import type { ImportCandidate } from '@opendicomviewer/core';
+import type {
+  CodecPort,
+  ImagePlane,
+  ImportCandidate,
+  PixelFrame,
+} from '@opendicomviewer/core';
 import { describe, expect, it, vi } from 'vitest';
 import { LRUCache, LocalDataSource } from '../src/source-local';
 import {
@@ -372,5 +377,165 @@ describe('LocalDataSource 综合集成与验收用例', () => {
       seriesInstanceUid: '1.2.3.800.1',
     });
     expect(handle.warnings.some((w) => w.message.includes('DICOMDIR'))).toBe(true);
+  });
+});
+
+describe('LocalDataSource 封装压缩解码（CodecPort 注入）', () => {
+  const RLE_TS = '1.2.840.10008.1.2.5';
+
+  interface DecodeCall {
+    readonly buffer: ArrayBuffer;
+    readonly transferSyntaxUid: string;
+    readonly planeMeta?: Partial<ImagePlane>;
+  }
+
+  function createFakeCodec(options: { canDecode?: boolean } = {}): {
+    readonly codec: CodecPort;
+    readonly calls: DecodeCall[];
+    readonly frame: PixelFrame;
+  } {
+    const calls: DecodeCall[] = [];
+    const frame: PixelFrame = {
+      width: 2,
+      height: 2,
+      pixelData: new Uint16Array([1, 2, 3, 4]),
+      rescaleSlope: 1,
+      rescaleIntercept: 0,
+      photometricInterpretation: 'MONOCHROME2',
+      bitsAllocated: 16,
+      pixelRepresentation: 0,
+    };
+    const codec: CodecPort = {
+      prefersSharedMemory: false,
+      canDecode: () => options.canDecode ?? true,
+      decode: async (buffer, transferSyntaxUid, planeMeta) => {
+        calls.push({ buffer, transferSyntaxUid, planeMeta });
+        return frame;
+      },
+    };
+    return { codec, calls, frame };
+  }
+
+  function buildEncapsulatedFile(options?: {
+    readonly basicOffsetTable?: Uint8Array;
+    readonly fragments?: readonly Uint8Array[];
+    readonly numberOfFrames?: number;
+  }): ImportCandidate {
+    return createMockCandidate(
+      'rle.dcm',
+      buildDicomBuffer({
+        studyInstanceUid: '1.2.3.900',
+        seriesInstanceUid: '1.2.3.900.1',
+        sopInstanceUid: '1.2.3.900.1.1',
+        transferSyntaxUid: RLE_TS,
+        rows: 2,
+        columns: 2,
+        bitsAllocated: 16,
+        encapsulatedPixelData: {
+          basicOffsetTable: options?.basicOffsetTable,
+          fragments: options?.fragments ?? [new Uint8Array([0xaa, 0xbb])],
+        },
+        extraElements:
+          options?.numberOfFrames !== undefined
+            ? [
+                {
+                  tag: [0x0028, 0x0008],
+                  vr: 'IS',
+                  value: String(options.numberOfFrames),
+                },
+              ]
+            : undefined,
+      }),
+    );
+  }
+
+  async function openSingleSeries(
+    source: LocalDataSource,
+    file: ImportCandidate,
+  ): Promise<Awaited<ReturnType<LocalDataSource['openSeries']>>> {
+    await source.probe({ files: [file] });
+    return source.openSeries({
+      studyInstanceUid: '1.2.3.900',
+      seriesInstanceUid: '1.2.3.900.1',
+    });
+  }
+
+  it('空 Basic Offset Table + 多片段：全部片段拼成单帧交给 CodecPort', async () => {
+    const file = buildEncapsulatedFile({
+      // 第一片段偶数长度、第二片段奇数长度（写入时按 DICOM 规则补 0x00）
+      fragments: [
+        new Uint8Array([0x01, 0x02, 0x03, 0x04]),
+        new Uint8Array([0x05, 0x06, 0x07]),
+      ],
+    });
+    const { codec, calls, frame } = createFakeCodec();
+    const source = new LocalDataSource(codec);
+
+    const handle = await openSingleSeries(source, file);
+    const result = await handle.pixel(0);
+
+    expect(result).toBe(frame);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.transferSyntaxUid).toBe(RLE_TS);
+    expect(calls[0]?.planeMeta?.rows).toBe(2);
+    expect(calls[0]?.planeMeta?.columns).toBe(2);
+    expect(Array.from(new Uint8Array(calls[0]!.buffer))).toEqual([
+      0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00,
+    ]);
+
+    // 第二次取同一层命中 LRU，不再重复解码
+    await handle.pixel(0);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('非空 Basic Offset Table：按帧表取片段交给 CodecPort', async () => {
+    const file = buildEncapsulatedFile({
+      basicOffsetTable: new Uint8Array([0, 0, 0, 0]),
+      fragments: [
+        new Uint8Array([0x10, 0x20]),
+        new Uint8Array([0x30, 0x40]),
+      ],
+    });
+    const { codec, calls } = createFakeCodec();
+    const source = new LocalDataSource(codec);
+
+    const handle = await openSingleSeries(source, file);
+    await handle.pixel(0);
+
+    expect(calls).toHaveLength(1);
+    expect(Array.from(new Uint8Array(calls[0]!.buffer))).toEqual([
+      0x10, 0x20, 0x30, 0x40,
+    ]);
+  });
+
+  it('未注入 CodecPort：封装压缩语法显式报错，绝不把压缩码流当裸像素', async () => {
+    const file = buildEncapsulatedFile();
+    const source = new LocalDataSource();
+    const handle = await openSingleSeries(source, file);
+
+    await expect(handle.pixel(0)).rejects.toThrow(/封装压缩传输语法/);
+  });
+
+  it('CodecPort 不支持该传输语法：显式报错并指出解码器不支持', async () => {
+    const file = buildEncapsulatedFile();
+    const { codec, calls } = createFakeCodec({ canDecode: false });
+    const source = new LocalDataSource(codec);
+    const handle = await openSingleSeries(source, file);
+
+    await expect(handle.pixel(0)).rejects.toThrow(/当前解码器不支持压缩传输语法/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('单文件多帧（NumberOfFrames=2）：显式报错，不静默只画第一帧', async () => {
+    const file = buildEncapsulatedFile({
+      fragments: [new Uint8Array([0x01, 0x02]), new Uint8Array([0x03, 0x04])],
+      numberOfFrames: 2,
+    });
+    const { codec, calls } = createFakeCodec();
+    const source = new LocalDataSource(codec);
+    const handle = await openSingleSeries(source, file);
+
+    await expect(handle.pixel(0)).rejects.toThrow(/单文件多帧尚未展开/);
+    expect(calls).toHaveLength(0);
   });
 });
