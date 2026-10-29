@@ -50,6 +50,9 @@ docs/
 # 安装依赖
 pnpm install
 
+# 启动 Web 开发服务
+pnpm --filter @opendicomviewer/app-web dev
+
 # 类型检查 (严谨类型推导，无 unchecked 报错)
 pnpm typecheck
 
@@ -58,7 +61,14 @@ pnpm lint
 
 # 单元测试 (Vitest 覆盖率与 Golden Test)
 pnpm test
+
+# 构建与本地预览
+pnpm --filter @opendicomviewer/app-web build
+pnpm --filter @opendicomviewer/app-web preview
 ```
+
+静态部署时复制完整的 `packages/app-web/dist/`，包括 `samples/manifest.json` 与示例文件。
+构建会从仓库根目录 `sample-dicom/` 同时生成清单并复制样本，无需额外的示例数据服务。
 
 ## 许可证
 

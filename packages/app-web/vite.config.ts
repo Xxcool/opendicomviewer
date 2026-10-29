@@ -81,24 +81,36 @@ const serveSamples: Connect.NextHandleFunction = (req, res, next) => {
  * 这样仓库里只有一份数据，public/ 不再需要副本。
  */
 function sampleDicomPlugin(): Plugin {
+  let outDir: string;
   const mount = (middlewares: Connect.Server): void => {
     middlewares.use(URL_PREFIX, serveSamples);
   };
 
   return {
     name: 'odv-sample-dicom',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
     configureServer(server) {
       mount(server.middlewares);
     },
     configurePreviewServer(server) {
       mount(server.middlewares);
     },
+    generateBundle() {
+      // 静态托管没有 dev/preview 中间件，必须随产物提供同一份清单。
+      this.emitFile({
+        type: 'asset',
+        fileName: 'samples/manifest.json',
+        source: JSON.stringify(buildManifest()),
+      });
+    },
     closeBundle() {
       if (!existsSync(SAMPLE_ROOT)) {
         this.warn('未找到 sample-dicom/，构建产物将不含示例数据');
         return;
       }
-      const target = resolve(here, 'dist/samples');
+      const target = resolve(outDir, 'samples');
       cpSync(SAMPLE_ROOT, target, { recursive: true });
     },
   };
