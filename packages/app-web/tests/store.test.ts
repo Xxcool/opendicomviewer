@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { SeriesHandle, StudyMeta } from '@opendicomviewer/core';
+import type { ImagePlane, SeriesHandle, StudyMeta } from '@opendicomviewer/core';
 import { useViewerStore } from '../src/state/viewer-store';
 
 describe('useViewerStore', () => {
@@ -12,6 +12,24 @@ describe('useViewerStore', () => {
     expect(state.studies).toEqual([]);
     expect(state.activeSeriesHandle).toBeNull();
     expect(state.importStatus.loading).toBe(false);
+  });
+
+  it('MPR 中切换到缺层序列时回到原始切片布局，避免隐藏入口后无法退出', () => {
+    const planes: ImagePlane[] = [0, 1, 3].map((z) => ({
+      imageId: `slice-${z}`, sopInstanceUid: `sop-${z}`,
+      imagePositionPatient: [0, 0, z], imageOrientationPatient: [1, 0, 0, 0, 1, 0],
+      pixelSpacing: [1, 1], rows: 2, columns: 2,
+    }));
+    const handle: SeriesHandle = {
+      meta: { studyInstanceUid: 'study', seriesInstanceUid: 'gap-series',
+        seriesDescription: 'gap', modality: 'CT', numberOfFrames: 3,
+        planes, spacing: [1, 1, 1], warnings: [] },
+      warnings: [], pixel: vi.fn(), dispose: vi.fn(),
+    };
+    useViewerStore.getState().setLayoutMode('2x2');
+    useViewerStore.getState().setActiveSeries(handle);
+    expect(useViewerStore.getState().layoutMode).toBe('1x1');
+    expect(useViewerStore.getState().activeSeriesHandle).toBe(handle);
   });
 
   it('setStudies 更新列表并自动选中首个 studyInstanceUid', () => {

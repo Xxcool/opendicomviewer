@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ImagePlane, PixelFrame, SeriesMeta } from '../domain/types';
+import { computeNormal } from '../pipeline/sort';
 import {
   CT_VOLUME_WINDOW,
   MAX_VOLUME_TILT_DEG,
@@ -34,10 +35,13 @@ function createMeta(options: MetaOptions = {}): SeriesMeta {
     metaOverrides,
   } = options;
 
+  const normal = computeNormal(iop);
   const planes: ImagePlane[] = Array.from({ length: slices }, (_, i) => ({
     imageId: `slice-${i}`,
     sopInstanceUid: `1.2.840.10008.5.1.4.1.1.2.${i}`,
-    imagePositionPatient: [0, 0, i * spacing[2]],
+    imagePositionPatient: [
+      normal[0] * i * spacing[2], normal[1] * i * spacing[2], normal[2] * i * spacing[2],
+    ],
     imageOrientationPatient: iop,
     pixelSpacing: [spacing[0], spacing[1]],
     sliceThickness: spacing[2],
@@ -173,11 +177,78 @@ describe('planVolumeDownsample 几何规划', () => {
     if (result.ok) return;
     expect(result.code).toBe('INVALID_SPACING');
   });
+
+  it.each([
+    ['缺层', [[0, 0, 0], [0, 0, 1], [0, 0, 3]]],
+    ['重叠层', [[0, 0, 0], [0, 0, 1], [0, 0, 1.25]]],
+    ['平面偏移', [[0, 0, 0], [0.2, 0, 1], [0.4, 0, 2]]],
+  ] as const)('%s 不能按均匀网格静默构建', (_, positions) => {
+    const meta = createMeta();
+    const planes = meta.planes.map((plane, i): ImagePlane => ({
+      ...plane,
+      imagePositionPatient: [...positions[i]!],
+    }));
+    const result = planVolumeDownsample({ ...meta, planes });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('INVALID_SPACING');
+    expect(result.message).toContain('原始切片');
+  });
+
+  it('逐层像素间距不同不能共用首层的几何', () => {
+    const meta = createMeta();
+    const planes = meta.planes.map((plane, i): ImagePlane => ({
+      ...plane,
+      pixelSpacing: i === 1 ? [0.5, 0.5] : plane.pixelSpacing,
+    }));
+    const result = planVolumeDownsample({ ...meta, planes });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('INVALID_SPACING');
+  });
+
+  it('法向相同但平面内翻转的切片不能共用同一方向矩阵', () => {
+    const meta = createMeta();
+    const planes = meta.planes.map((plane, i): ImagePlane => ({
+      ...plane,
+      imageOrientationPatient: i === 1 ? [-1, 0, 0, 0, -1, 0] : AXIAL_IOP,
+    }));
+    const result = planVolumeDownsample({ ...meta, planes });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('INVALID_ORIENTATION');
+  });
+
+  it('位置含非有限值必须拒绝', () => {
+    const meta = createMeta({ planeOverrides: { imagePositionPatient: [NaN, 0, 0] } });
+    const result = planVolumeDownsample(meta);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('MISSING_GEOMETRY');
+  });
+
+  it('允许坐标写入时亚微米级的舍入误差', () => {
+    const meta = createMeta();
+    const planes = meta.planes.map((plane, i): ImagePlane => ({
+      ...plane,
+      imagePositionPatient: [0, 0, i + (i === 1 ? 0.0002 : 0)],
+    }));
+    expect(planVolumeDownsample({ ...meta, planes }).ok).toBe(true);
+  });
+
+  it('规则序列使用真实 IPP 层距，不能沿用分桶舍入后的间距', () => {
+    const meta = createMeta({ spacing: [0.7, 0.7, 0.78], metaOverrides: { spacing: [0.7, 0.7, 0.8] } });
+    const result = planVolumeDownsample(meta);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.plan.spacing[2]).toBeCloseTo(0.78, 8);
+  });
 });
 
 describe('resolveVolumeWindow 固定映射区间', () => {
-  it('切片自带窗宽窗位时按其上下限', () => {
+  it('非 CT 切片自带窗宽窗位时按其上下限', () => {
     const meta = createMeta({
+      modality: 'MR',
       planeOverrides: { windowWidth: 100, windowCenter: 50 },
     });
     const win = resolveVolumeWindow(meta);
@@ -188,6 +259,12 @@ describe('resolveVolumeWindow 固定映射区间', () => {
 
   it('CT 无窗口信息时退回固定 -1024 ~ 3071', () => {
     expect(resolveVolumeWindow(createMeta())).toEqual(CT_VOLUME_WINDOW);
+  });
+
+  it('CT 即使带有窄窗也使用固定体积区间，保留窗外组织信息', () => {
+    expect(resolveVolumeWindow(createMeta({
+      planeOverrides: { windowWidth: 100, windowCenter: 50 },
+    }))).toEqual(CT_VOLUME_WINDOW);
   });
 
   it('非 CT 无窗口信息时按存储位深与 Rescale 推全量程', () => {
@@ -202,6 +279,47 @@ describe('resolveVolumeWindow 固定映射区间', () => {
 });
 
 describe('VolumeSampler 块平均降采样', () => {
+  it('二维块和多层同时平均时，各输出体素对应正确的原始区域', () => {
+    const planned = planVolumeDownsample(createMeta({
+      rows: 4, columns: 4, slices: 4, spacing: [1, 1, 1],
+    }), { maxDim: 2 });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const frames = [0, 16, 32, 48].map((offset) =>
+      createFrame(Array.from({ length: 16 }, (_, i) => i + offset), 4, 4),
+    );
+    expect(Array.from(buildVolumeScalarData(planned.plan, { lower: 0, upper: 255 }, frames)))
+      .toEqual([11, 13, 19, 21, 43, 45, 51, 53]);
+  });
+
+  it('跨多行采样时 RescaleIntercept 每个体素只应用一次', () => {
+    const planned = planVolumeDownsample(createMeta({
+      rows: 2, columns: 2, slices: 3, spacing: [1, 1, 1],
+    }), { maxDim: 1 });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const frames = Array.from({ length: 3 }, () => ({
+      ...createFrame([100, 100, 100, 100], 2, 2),
+      rescaleSlope: 2, rescaleIntercept: -100,
+    }));
+    expect(Array.from(buildVolumeScalarData(planned.plan, { lower: 0, upper: 255 }, frames)))
+      .toEqual([100]);
+  });
+
+  it('非线性 Modality LUT 必须逐像素查表再平均，不用小数均值查表', () => {
+    const planned = planVolumeDownsample(createMeta({
+      rows: 2, columns: 2, slices: 3, spacing: [1, 1, 1],
+    }), { maxDim: 1 });
+    expect(planned.ok).toBe(true);
+    if (!planned.ok) return;
+    const frames = Array.from({ length: 3 }, () => ({
+      ...createFrame([0, 2, 0, 2], 2, 2),
+      modalityLUT: { firstMappedPixelValue: 0, bitsStored: 16, lutData: new Uint16Array([0, 20, 200]) },
+    }));
+    expect(Array.from(buildVolumeScalarData(planned.plan, { lower: 0, upper: 255 }, frames)))
+      .toEqual([100]);
+  });
+
   it('沿 x 与 z 做块平均，输出按 x 最快、z 最慢排列', () => {
     const meta = createMeta({
       columns: 4,

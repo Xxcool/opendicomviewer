@@ -8,6 +8,7 @@
  */
 
 import { create } from 'zustand';
+import { planVolumeDownsample } from '@opendicomviewer/core';
 import type {
   DataWarning,
   RendererCapabilities,
@@ -93,7 +94,12 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     if (seriesChanged) {
       currentHandle.dispose();
     }
+    // 几何不支持 MPR 时直接回到 Stack，避免隐藏布局入口后仍困在旧 MPR 布局。
+    const currentLayout = get().layoutMode;
+    const layoutMode = currentLayout !== '1x1' && !planVolumeDownsample(handle.meta).ok
+      ? '1x1' : currentLayout;
     set({
+      layoutMode,
       activeSeriesHandle: handle,
       activeSeriesUid: handle.meta.seriesInstanceUid,
       activeStudyUid: handle.meta.studyInstanceUid,
@@ -131,6 +137,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       importStatus: { loading: false },
       warnings: [],
       rendererCapabilities: null,
+      layoutMode: '1x1',
       mprVolume: null,
       mprStatus: IDLE_MPR_STATUS,
     });

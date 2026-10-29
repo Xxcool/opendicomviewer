@@ -146,13 +146,19 @@ describe('体积几何换算', () => {
   });
 
   it('volumeCenter 取各轴半程并乘方向余弦', () => {
-    expect(volumeCenter(makeVolume())).toEqual([5, 20, 45]);
+    expect(volumeCenter(makeVolume())).toEqual([4.5, 19, 43.5]);
 
     const flipped = makeVolume({
       origin: [1, 2, 3],
       direction: [1, 0, 0, 0, 1, 0, 0, 0, -1],
     });
-    expect(volumeCenter(flipped)).toEqual([6, 22, 3 - 45]);
+    expect(volumeCenter(flipped)).toEqual([5.5, 21, 3 - 43.5]);
+  });
+
+  it('只有一个体素时中心就是该体素原点，不额外偏移半层', () => {
+    expect(volumeCenter(makeVolume({
+      dimensions: [1, 1, 1], origin: [10, 20, 30],
+    }))).toEqual([10, 20, 30]);
   });
 
   it('moveAlongAxis 沿对应轴按层距平移，方向余弦为负时反号', () => {
@@ -181,9 +187,15 @@ describe('体积几何换算', () => {
   });
 
   it('planeCenter 用 IPP + 行列方向各走半程', () => {
-    expect(planeCenter(makePlane(0))).toEqual([0.75, 1, 0]);
+    expect(planeCenter(makePlane(0))).toEqual([0.625, 0.75, 0]);
     expect(
       planeCenter(makePlane(0, { hasMissingGeometry: true })),
     ).toBeNull();
+  });
+
+  it('单像素切片的中心与 IPP 一致', () => {
+    expect(planeCenter(makePlane(0, {
+      rows: 1, columns: 1, imagePositionPatient: [10, 20, 30],
+    }))).toEqual([10, 20, 30]);
   });
 });

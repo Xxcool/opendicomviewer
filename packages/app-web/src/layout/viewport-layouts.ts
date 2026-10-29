@@ -217,15 +217,15 @@ export function paneSliceCount(
   return volume.dimensions[pane.axis];
 }
 
-/** 体积中心（各轴半程），用作准星初始落点 */
+/** origin 是首个体素中心，末中心在 (N-1) × spacing；准星取两端中心的中点。 */
 export function volumeCenter(volume: VolumeHandle): WorldPoint {
   const [x, y, z] = volume.dimensions;
   const [sx, sy, sz] = volume.spacing;
   const [dx, dy, dz] = axisDirections(volume);
   return [
-    volume.origin[0] + (dx[0] * x * sx + dy[0] * y * sy + dz[0] * z * sz) / 2,
-    volume.origin[1] + (dx[1] * x * sx + dy[1] * y * sy + dz[1] * z * sz) / 2,
-    volume.origin[2] + (dx[2] * x * sx + dy[2] * y * sy + dz[2] * z * sz) / 2,
+    volume.origin[0] + (dx[0] * (x - 1) * sx + dy[0] * (y - 1) * sy + dz[0] * (z - 1) * sz) / 2,
+    volume.origin[1] + (dx[1] * (x - 1) * sx + dy[1] * (y - 1) * sy + dz[1] * (z - 1) * sz) / 2,
+    volume.origin[2] + (dx[2] * (x - 1) * sx + dy[2] * (y - 1) * sy + dz[2] * (z - 1) * sz) / 2,
   ];
 }
 
@@ -293,8 +293,8 @@ export function planeCenter(plane: ImagePlane): WorldPoint | null {
   if (plane.hasMissingGeometry) return null;
   const [rowX, rowY, rowZ, colX, colY, colZ] = plane.imageOrientationPatient;
   const [rowSpacing, colSpacing] = plane.pixelSpacing;
-  const halfCol = (plane.columns * colSpacing) / 2;
-  const halfRow = (plane.rows * rowSpacing) / 2;
+  const halfCol = ((plane.columns - 1) * colSpacing) / 2;
+  const halfRow = ((plane.rows - 1) * rowSpacing) / 2;
   return [
     plane.imagePositionPatient[0] + rowX * halfCol + colX * halfRow,
     plane.imagePositionPatient[1] + rowY * halfCol + colY * halfRow,

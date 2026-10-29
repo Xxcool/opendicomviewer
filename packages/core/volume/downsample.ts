@@ -13,6 +13,7 @@ import type { PixelFrame, SeriesMeta } from '../domain/types';
 import { rawToHU, voiToRange } from '../pipeline/lut';
 import { computeNormal } from '../pipeline/sort';
 import type { Vec3 } from '../pipeline/vector3';
+import { validateVolumeGrid } from './geometry';
 import type {
   DirectionMatrix,
   VolumeDimensions,
@@ -30,7 +31,7 @@ export const MAX_VOLUME_TILT_DEG = 15;
 /** 少于该层数的序列无法给出有意义的多平面重建 */
 export const MIN_VOLUME_SLICES = 3;
 
-/** 无窗口信息时的 CT 默认映射区间（固定区间，避免 MPR 观感随调窗跳变） */
+/** CT 体积固定映射区间，避免窄窗在 8-bit 量化时永久丢掉窗外组织。 */
 export const CT_VOLUME_WINDOW: VolumeWindow = { lower: -1024, upper: 3071 };
 
 export type VolumePlanResult =
@@ -102,11 +103,11 @@ export function planVolumeDownsample(
     );
   }
 
-  const [rowSpacing, colSpacing, sliceSpacing] = meta.spacing;
-  if (![rowSpacing, colSpacing, sliceSpacing].every((v) => Number.isFinite(v) && v > 0)) {
+  const [rowSpacing, colSpacing, declaredSliceSpacing] = meta.spacing;
+  if (![rowSpacing, colSpacing, declaredSliceSpacing].every((v) => Number.isFinite(v) && v > 0)) {
     return reject(
       'INVALID_SPACING',
-      `序列间距无效（行 ${rowSpacing} / 列 ${colSpacing} / 层 ${sliceSpacing} mm），无法构建体积`,
+      `序列间距无效（行 ${rowSpacing} / 列 ${colSpacing} / 层 ${declaredSliceSpacing} mm），无法构建体积`,
     );
   }
 
@@ -135,6 +136,10 @@ export function planVolumeDownsample(
       `采集方向偏离标准轴位 ${tiltDeg.toFixed(1)}°（上限 ${maxTiltDeg}°），暂不支持斜位多平面重建`,
     );
   }
+
+  const grid = validateVolumeGrid(meta, first, normal);
+  if (!grid.ok) return grid;
+  const sliceSpacing = grid.sliceSpacing;
 
   const sourceDimensions: VolumeDimensions = [
     first.columns,
@@ -215,10 +220,13 @@ export function planVolumeDownsample(
 /**
  * 解析体积的 8-bit 固定映射区间（HU 口径）。
  *
- * 优先级：切片自带 WindowCenter/Width → CT 固定区间 → 按存储位深与 Rescale 推全量程。
+ * CT 始终使用固定区间；其他模态优先采用自带窗口，缺失时按位深与 Rescale 推全量程。
  * 一旦确定就不再随用户调窗变化，MPR 观感才不会跳。
  */
 export function resolveVolumeWindow(meta: SeriesMeta): VolumeWindow {
+  if (meta.modality === 'CT') {
+    return CT_VOLUME_WINDOW;
+  }
   const first = meta.planes[0];
   if (
     first &&
@@ -231,10 +239,6 @@ export function resolveVolumeWindow(meta: SeriesMeta): VolumeWindow {
       windowCenter: first.windowCenter,
     });
     return { lower: bounds.lower, upper: bounds.upper };
-  }
-
-  if (meta.modality === 'CT') {
-    return CT_VOLUME_WINDOW;
   }
 
   const bits = first?.bitsStored ?? first?.bitsAllocated ?? 16;
@@ -324,21 +328,21 @@ export class VolumeSampler {
 
     for (let oy = 0; oy < dy; oy++) {
       const outRow = oy * dx;
-      for (let ky = 0; ky < fy; ky++) {
-        const rowBase = (oy * fy + ky) * srcX;
-        for (let ox = 0; ox < dx; ox++) {
+      for (let ox = 0; ox < dx; ox++) {
+        let sum = 0;
+        for (let ky = 0; ky < fy; ky++) {
+          const rowBase = (oy * fy + ky) * srcX;
           const base = rowBase + ox * fx;
-          let sum = 0;
           for (let kx = 0; kx < fx; kx++) {
-            sum += pixels[base + kx]!;
+            const pixel = pixels[base + kx]!;
+            // 非线性 LUT 必须先逐像素换算；线性 Rescale 在整块平均后只应用一次。
+            sum += lut ? rawToHU(pixel, slope, intercept, lut) : pixel;
           }
-          const mean = sum * inv;
-          const hu = lut
-            ? rawToHU(mean, slope, intercept, lut)
-            : mean * slope + intercept;
-          const idx = outRow + ox;
-          acc[idx] = (acc[idx] ?? 0) + hu;
         }
+        const mean = sum * inv;
+        const hu = lut ? mean : mean * slope + intercept;
+        const idx = outRow + ox;
+        acc[idx] = (acc[idx] ?? 0) + hu;
       }
     }
 

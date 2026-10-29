@@ -130,6 +130,21 @@ afterEach(() => {
 });
 
 describe('buildVolumeFromSeries', () => {
+  it('缺层在读取像素或创建 Worker 前拒绝，避免生成压缩空间的体积', async () => {
+    const { handle, calls } = createHandle(4);
+    const planes = handle.meta.planes.map((plane, i): ImagePlane => ({
+      ...plane,
+      imagePositionPatient: [0, 0, i < 2 ? i : i + 1],
+    }));
+    const createWorker = vi.fn(() => createFakeWorker());
+    const outcome = await buildVolumeFromSeries({
+      ...handle, meta: { ...handle.meta, planes },
+    }, { createWorker });
+    expect(outcome.status).toBe('rejected');
+    expect(calls).toHaveLength(0);
+    expect(createWorker).not.toHaveBeenCalled();
+  });
+
   it('层数不足时直接拒绝，不触发任何像素读取', async () => {
     const { handle, calls } = createHandle(2);
     const outcome = await buildVolumeFromSeries(handle, { createWorker: null });
