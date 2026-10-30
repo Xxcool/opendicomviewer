@@ -195,7 +195,9 @@ export class Cs3dViewportAdapter implements Cs3dViewportLike {
   }
 
   resetCamera(): void {
-    this.vp.resetCamera();
+    // 适配只居中当前切面，不能把 MPR 翻回体积中心；留边避免解剖轮廓贴边。
+    this.vp.resetCamera({ resetToCenter: false });
+    this.vp.setZoom(0.9);
   }
 
   getZoom(): number { return this.vp.getZoom(); }

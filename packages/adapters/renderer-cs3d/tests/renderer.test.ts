@@ -1109,6 +1109,29 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
     expect(engine.resizeCount).toBe(1);
   });
 
+  it('三个 MPR 方向均在载入及布局变更后适配，不沿用旧格子的放大状态', async () => {
+    const { resolve } = stableElements();
+    const { renderer, engine } = makeRenderer({ resolveElements: resolve }, { volume: true });
+    const cells = [
+      { viewportId: 'ax', kind: 'orthographic', orientation: 'axial' },
+      { viewportId: 'co', kind: 'orthographic', orientation: 'coronal' },
+      { viewportId: 'sa', kind: 'orthographic', orientation: 'sagittal' },
+    ] as const;
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 3, viewportIds: ['ax', 'co', 'sa'], cells });
+    const resize = vi.spyOn(engine, 'resize');
+    for (const id of ['ax', 'co', 'sa']) {
+      const viewport = engine.viewportOf(id);
+      viewport.zoom = 3;
+      const reset = vi.spyOn(viewport, 'resetCamera');
+      await renderer.setVolume(id, makeVolume());
+      expect(viewport.zoom).toBe(1);
+      expect(resize.mock.invocationCallOrder.at(-1)).toBeLessThan(reset.mock.invocationCallOrder.at(-1)!);
+      viewport.zoom = 4;
+    }
+    await renderer.setLayout({ rows: 3, cols: 1, viewportIds: ['ax', 'co', 'sa'], cells });
+    for (const id of ['ax', 'co', 'sa']) expect(engine.viewportOf(id).zoom).toBe(1);
+  });
+
   it('元素被替换时必须重建视口，避免两个视口抢同一元素', async () => {
     // 每次解析都返回新对象：对应 1×1 → 2×2 时挂载点从容器换成子 div
     const { renderer, engine } = makeRenderer({

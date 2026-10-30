@@ -165,6 +165,7 @@ body {
   --text-caption: 12px;
   --control-h: 32px;
   --thumbnail-size: 52px;
+  --thumbnail-inset: 4px;
 }
 [hidden] { display: none !important; }
 button:focus-visible, summary:focus-visible, input:focus-visible {
@@ -256,7 +257,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .welcome-use { margin-top: 20px; font-size: 10px; color: var(--color-txt-muted); line-height: 1.5; }
 @media (max-width: 540px) { .welcome-screen { padding-top: 48px; } .welcome-content h1 { font-size: 30px; line-height: 42px; } .welcome-description { font-size: 17px; line-height: 27px; } .sample-grid { gap: 14px; } .sample-card { width: min(var(--sample-card-w),46%); } .welcome-steps ol { grid-template-columns: 1fr; gap: 14px; } .welcome-drop-zone { padding: 16px 12px; } }
 .series-thumbnail { width: var(--thumbnail-size); height: var(--thumbnail-size); position: relative; display: grid; place-items: center; flex-shrink: 0; background: var(--color-canvas); border: 1px solid var(--color-line-strong); border-radius: 4px; overflow: hidden; }
-.series-thumbnail canvas { width: 100%; height: 100%; object-fit: contain; }
+.series-thumbnail canvas { width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; padding: var(--thumbnail-inset); box-sizing: border-box; }
 .series-thumbnail-fallback { color: color-mix(in srgb, var(--color-overlay) 65%, transparent); font: 11px var(--font-mono); }
 @media (max-width: 1180px) {
   .workspace-toolbar .workspace-control { padding-left: 7px; padding-right: 7px; gap: 5px; }

@@ -19,7 +19,10 @@ export function makeThumbnail(frame: PixelFrame, maxEdge = 64) {
   const outHeight = Math.max(1, Math.round(height * scale));
   const rgba = new Uint8ClampedArray(outWidth * outHeight * 4);
   for (let y = 0; y < outHeight; y++) for (let x = 0; x < outWidth; x++) {
-    const index = Math.min(height - 1, Math.floor(y / scale)) * width + Math.min(width - 1, Math.floor(x / scale));
+    // 首尾采样覆盖完整矩阵边界，避免缩放取整丢掉最后几行/列。
+    const sourceX = outWidth === 1 ? Math.floor(width / 2) : Math.round(x * (width - 1) / (outWidth - 1));
+    const sourceY = outHeight === 1 ? Math.floor(height / 2) : Math.round(y * (height - 1) / (outHeight - 1));
+    const index = sourceY * width + sourceX;
     const gray = mapHUToUint8(intensity(index), voi, frame.photometricInterpretation);
     const offset = (y * outWidth + x) * 4;
     rgba[offset] = rgba[offset + 1] = rgba[offset + 2] = gray; rgba[offset + 3] = 255;

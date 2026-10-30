@@ -72,6 +72,7 @@ export function MprWorkspace({
   layoutReady,
   onLoadSample,
 }: MprWorkspaceProps) {
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const layout = LAYOUTS[mode];
   const orthoPanes = useMemo(() => orthographicPanes(layout), [layout]);
 
@@ -562,6 +563,15 @@ export function MprWorkspace({
     return () => window.removeEventListener(CAMERA_CHANGED, updateCrosshairOverlays);
   }, [updateCrosshairOverlays]);
 
+  // 与渲染器的尺寸观察器配合，适配后重投影准星，世界坐标保持唯一真源。
+  useEffect(() => {
+    const element = workspaceRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateCrosshairOverlays);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [updateCrosshairOverlays]);
+
   const resetView = () => {
     if (!renderer) return;
     for (const pane of layout.panes) {
@@ -642,7 +652,7 @@ export function MprWorkspace({
   const empty = !activeSeriesHandle;
 
   return (
-    <div className="flex-1 flex flex-col relative overflow-hidden select-none min-w-0 min-h-0 z-10">
+    <div ref={workspaceRef} className="flex-1 flex flex-col relative overflow-hidden select-none min-w-0 min-h-0 z-10">
       {/* 顶部状态条：标题 + 体积状态 + 数据提醒 + 复位 */}
       <div
         className="px-4 bg-panel border-b border-line flex items-center justify-between text-[12px] text-txt-dim relative z-20 shrink-0 gap-4"

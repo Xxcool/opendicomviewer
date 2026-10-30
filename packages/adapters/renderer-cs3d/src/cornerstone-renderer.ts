@@ -83,6 +83,8 @@ export class CornerstoneRenderer implements RendererPort {
   private readonly viewportFrameCounts = new Map<string, number>();
   /** STACK 视口的真实层号（对外语义；与 CS3D 的 imageId 索引一致） */
   private readonly viewportStackIndex = new Map<string, number>();
+  /** 用户尚未手动缩放/平移时，尺寸变化继续完整适配。 */
+  private readonly autoFitViewports = new Set<string>();
   /** ORTHOGRAPHIC 视口当前挂载的体积（含几何，供层号换算） */
   private readonly viewportVolumes = new Map<string, VolumeHandle>();
   /** 本适配器创建过的体积 id：销毁/重建时据此清理 cache */
@@ -210,6 +212,7 @@ export class CornerstoneRenderer implements RendererPort {
       this.resizeObserver?.disconnect();
       this.resizeObserver = null;
       this.viewports.clear();
+      this.autoFitViewports.clear();
       this.viewportKinds.clear();
       this.viewportOrientations.clear();
       engine.destroy();
@@ -276,6 +279,7 @@ export class CornerstoneRenderer implements RendererPort {
       for (const viewportId of added) {
         engine.disableElement?.(viewportId);
         this.viewports.delete(viewportId);
+        this.autoFitViewports.delete(viewportId);
         this.viewportKinds.delete(viewportId);
         this.viewportOrientations.delete(viewportId);
       }
@@ -287,6 +291,10 @@ export class CornerstoneRenderer implements RendererPort {
     //    423×378 的格子里），画面被拉伸，按画布反算的比例尺也跟着错。
     this.resizeNow();
     for (const viewportId of layout.viewportIds) {
+      if (this.viewportSeries.has(viewportId) || this.viewportVolumes.has(viewportId)) {
+        this.autoFitViewports.add(viewportId);
+        this.viewports.get(viewportId)?.resetCamera?.();
+      }
       this.viewports.get(viewportId)?.render();
     }
   }
@@ -369,8 +377,9 @@ export class CornerstoneRenderer implements RendererPort {
     this.viewportStackIndex.set(viewportId, initialIndex);
     this.clearPendingSeries(viewportId, token, nextSeriesUid);
     // CS3D 会复用上条序列的视图呈现；首帧就绪后按当前尺寸重新适配，避免放大裁切。
-    this.resizeNow();
+    this.resizeNow(false);
     viewport.resetCamera?.();
+    this.autoFitViewports.add(viewportId);
     viewport.render();
   }
 
@@ -478,7 +487,9 @@ export class CornerstoneRenderer implements RendererPort {
     }
     // 8-bit 显示区间固定，不跟随用户调窗（ARCHITECTURE §5.2）
     viewport.setProperties({ voiRange: VOLUME_VOI_RANGE });
+    this.resizeNow(false);
     viewport.resetCamera?.();
+    this.autoFitViewports.add(viewportId);
     viewport.render();
 
     const previous = this.viewportVolumes.get(viewportId);
@@ -613,8 +624,9 @@ export class CornerstoneRenderer implements RendererPort {
 
   public resetView(viewportId: string): void {
     const viewport = this.viewportOf(viewportId);
-    this.resizeNow();
+    this.resizeNow(false);
     viewport.resetCamera?.();
+    this.autoFitViewports.add(viewportId);
     viewport.render();
   }
 
@@ -625,6 +637,7 @@ export class CornerstoneRenderer implements RendererPort {
     const current = viewport.getZoom();
     if (!Number.isFinite(current) || current <= 0) throw new Error('当前相机缩放无效');
     viewport.setZoom(Math.min(20, Math.max(0.05, current * factor)));
+    this.autoFitViewports.delete(viewportId);
     viewport.render();
   }
 
@@ -632,6 +645,7 @@ export class CornerstoneRenderer implements RendererPort {
     if (![delta.x, delta.y].every(Number.isFinite)) throw new Error('平移坐标必须为有限数值');
     const viewport = this.viewportOf(viewportId);
     if (!viewport.getPan || !viewport.setPan) throw new Error('当前视口不支持平移');
+    this.autoFitViewports.delete(viewportId);
     const [x, y] = viewport.getPan();
     if (x === undefined || y === undefined || ![x, y].every(Number.isFinite)) {
       throw new Error('当前相机平移无效');
@@ -708,6 +722,7 @@ export class CornerstoneRenderer implements RendererPort {
     this.engine?.disableElement?.(viewportId);
     this.unobserveElement(element);
     this.viewports.delete(viewportId);
+    this.autoFitViewports.delete(viewportId);
     this.viewportKinds.delete(viewportId);
     this.viewportOrientations.delete(viewportId);
     this.viewportStackIndex.delete(viewportId);
@@ -738,6 +753,7 @@ export class CornerstoneRenderer implements RendererPort {
       this.engine?.disableElement?.(viewportId);
     }
     this.viewports.clear();
+    this.autoFitViewports.clear();
     this.viewportKinds.clear();
     this.viewportOrientations.clear();
     this.viewportSeries.clear();
@@ -829,9 +845,14 @@ export class CornerstoneRenderer implements RendererPort {
   }
 
   /** CS3D 发现显示尺寸与画布尺寸一致时内部会直接跳过，这里不必自己判重 */
-  private resizeNow(): void {
+  private resizeNow(refit = true): void {
     if (this.destroyed) return;
     this.engine?.resize?.(true, true);
+    if (refit) for (const id of this.autoFitViewports) {
+      const viewport = this.viewports.get(id);
+      viewport?.resetCamera?.();
+      viewport?.render();
+    }
   }
 
   /**
