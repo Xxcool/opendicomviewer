@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
 import config from '../vite.config';
@@ -16,6 +17,7 @@ describe('示例数据静态构建', () => {
         ...config,
         configFile: false,
         root,
+        publicDir: fileURLToPath(new URL('../public', import.meta.url)),
         logLevel: 'silent',
         build: { outDir },
       });
@@ -33,6 +35,13 @@ describe('示例数据静态构建', () => {
           const bytes = await readFile(join(outDir, 'samples', dataset.id, file));
           expect(bytes.subarray(128, 132).toString('ascii')).toBe('DICM');
         }
+      }
+      // 欢迎页使用真实示例预览，必须随纯静态部署一起发布。
+      for (const id of ['brain-mr', 'ct-body']) {
+        const png = await readFile(join(outDir, 'sample-previews', `${id}.png`));
+        expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+        expect(png.readUInt32BE(16)).toBeGreaterThan(0);
+        expect(png.readUInt32BE(20)).toBeGreaterThan(0);
       }
     } finally {
       await rm(root, { recursive: true, force: true });

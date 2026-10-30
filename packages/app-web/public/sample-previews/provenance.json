@@ -1,0 +1,20 @@
+[
+  {
+    "id": "brain-mr",
+    "source": "sample-dicom/brain-mr/000018.dcm",
+    "sha256": "c3c966d4d0affe7c09a943f2d7602ea256943dbd7310f06ca99da1139d5bb89a",
+    "width": 232,
+    "height": 256,
+    "windowWidth": 760,
+    "windowCenter": 380
+  },
+  {
+    "id": "ct-body",
+    "source": "sample-dicom/ct-body/ct-slice-001.dcm",
+    "sha256": "d743aa9631b9a83009947f730a925176b5106c8da3c0f45604b7b0e4713b0b2d",
+    "width": 512,
+    "height": 512,
+    "windowWidth": 400,
+    "windowCenter": 40
+  }
+]

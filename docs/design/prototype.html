@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>OpenDicomViewer · 界面原型 v1</title>
+<title>OpenDicomViewer · 界面原型 v2</title>
 <style>
 /* ────────────────────────────────────────────────────────────
    设计 Token（与 docs/design/tokens.md 一一对应）
@@ -24,7 +24,7 @@
   --border-width: 1px;
 
   --header-h: 56px;
-  --left-w: 264px;
+  --left-w: 224px;
   --right-w: 288px;
   --viewport-bar-h: 36px;
   --slider-bar-h: 48px;
@@ -49,7 +49,7 @@
   --border-strong: #374151;
   --text-primary: #E5E7EB;
   --text-secondary: #9CA3AF;
-  --text-muted: #6B7280;
+  --text-muted: #929BA9;
   --accent: #2563EB;
   --accent-hover: #3B82F6;
   --color-ok: #34D399;
@@ -70,7 +70,7 @@
   --border-strong: #B6BFCC;
   --text-primary: #101418;
   --text-secondary: #4B5563;
-  --text-muted: #6B7280;
+  --text-muted: #929BA9;
   --accent: #1D4ED8;
   --accent-hover: #2563EB;
   --color-ok: #047857;
@@ -97,7 +97,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ── 骨架 ── */
 .app {
   display: grid;
-  grid-template-rows: var(--header-h) 1fr;
+  grid-template-rows: var(--header-h) 44px 1fr;
   height: 100vh;
   min-width: 1024px;
 }
@@ -376,9 +376,35 @@ button { font: inherit; color: inherit; cursor: pointer; }
 [hidden] { display: none !important; }
 :root[data-state="empty"] .only-loaded,
 :root[data-state="degraded"] .only-normal { display: none; }
+
+/* 工作区 v2：面板可收起；影像保持纯黑。 */
+.workspace-v2-controls{display:flex;gap:8px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--border);font-size:13px}
+.workspace-v2-controls button{background:var(--bg-panel);color:var(--text-primary);border:1px solid var(--border);padding:6px 10px;border-radius:6px;cursor:pointer}
+.workspace-v2-controls button[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
+.workspace-v2-controls button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+body{--proto-left:var(--left-w);--proto-right:0px}
+.main{grid-template-columns:var(--proto-left) 1fr var(--proto-right)}
+body[data-series="false"]{--proto-left:0px}
+body[data-inspector="true"]{--proto-right:var(--right-w)}
+body[data-series="false"] .left{visibility:hidden}
+body:not([data-inspector="true"]) .right{visibility:hidden}
+body[data-focus="true"] .main,html[data-state="empty"] .main{grid-template-columns:1fr}
+body[data-focus="true"] aside,html[data-state="empty"] aside{display:none}
+.welcome-prototype{width:min(760px,100%);margin:auto;text-align:center;color:var(--text-primary)}
+.welcome-prototype h1{font-size:32px;margin:0 0 10px}.welcome-prototype>p{font-size:15px;color:var(--text-secondary)}
+.welcome-prototype>.btn{height:44px;margin:16px 0 6px}.welcome-prototype-divider{margin:24px 0 14px}
+.welcome-prototype-samples{display:flex;justify-content:center;gap:24px}.welcome-prototype-samples button{display:flex;flex-direction:column;gap:0;width:168px;padding:0;overflow:hidden;background:var(--bg-panel);border:1px solid var(--border-strong);border-radius:7px}
+.welcome-prototype-samples img{width:100%;height:144px;object-fit:contain;background:var(--canvas-bg)}.welcome-prototype-samples span{padding:12px;font-size:12px}
+.welcome-prototype-drop{border:1px dashed var(--border-strong);padding:24px;margin-top:24px;border-radius:8px;font-size:14px;line-height:2}.welcome-prototype-drop small{font-size:12px;color:var(--text-muted)}
+.welcome-prototype-steps{display:flex;justify-content:space-around;gap:20px;border-top:1px solid var(--border);margin-top:24px;padding-top:20px;font-size:13px}
+html[data-state="empty"] .workspace-v2-controls,html[data-state="empty"] .vp-bar,html[data-state="empty"] .vp-foot{display:none}
+html[data-state="empty"] .app{grid-template-rows:var(--header-h) 1fr}html[data-state="empty"] .center{grid-template-rows:1fr}
+html[data-state="empty"] .vp-placeholder{justify-content:flex-start;overflow-y:auto;background:var(--bg-app);padding:24px}
 </style>
 </head>
 <body>
+
+
 <div class="app">
   <!-- ══ 顶栏 ══ -->
   <header class="header">
@@ -392,7 +418,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
       <button class="btn btn-primary" id="btnSample">载入示例</button>
       <button class="btn btn-ghost">打开文件</button>
       <button class="btn btn-ghost">打开文件夹</button>
-      <button class="btn btn-ghost" disabled title="需要 Tauri 桌面端与光盘驱动能力，浏览器内不可用">读光盘</button>
       <span class="sep"></span>
       <button class="btn" title="设置（快捷键 Ctrl+,）">设置</button>
       <button class="btn" id="btnTheme" title="切换深色/浅色（教学投屏用浅色）">浅色</button>
@@ -407,6 +432,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
       </div>
     </div>
   </header>
+<nav class="workspace-v2-controls" aria-label="工作区 v2 交互原型">
+  <strong>阅片工作区</strong>
+  <button type="button" data-proto-tool aria-pressed="true">翻页</button>
+  <button type="button" data-proto-tool aria-pressed="false">调窗</button>
+  <button type="button" data-proto-tool aria-pressed="false">平移</button>
+  <button type="button" data-proto-tool aria-pressed="false">缩放</button>
+  <button type="button" id="protoSeries" aria-pressed="true">序列</button><button type="button" id="protoInspector" aria-pressed="false">影像详情</button>
+  <button type="button" id="protoFocus" aria-pressed="false">专注阅片</button>
+  <span>原型演示工具选择与面板；实际图像操作在应用中验证</span>
+</nav>
 
   <div class="main">
     <!-- ══ 左栏 ══ -->
@@ -490,9 +525,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
         </div>
 
         <div class="vp-placeholder" hidden data-when="empty">
-          <div class="big">拖入 DICOM 文件夹开始</div>
-          <div>或点击顶栏「打开文件夹」／「载入示例」</div>
-          <div class="muted-note" style="padding:0">全程本机处理 · 无任何网络请求</div>
+          <div class="welcome-prototype"><h1>打开本地影像</h1><p>影像留在当前设备，无需上传</p>
+          <button class="btn btn-primary">打开影像文件夹</button><p class="welcome-prototype-divider">或者试试示例影像</p>
+          <div class="welcome-prototype-samples"><button class="btn" onclick="document.querySelector('[data-set=normal]').click()"><img src="../../packages/app-web/public/sample-previews/brain-mr.png" alt="真实 MR 脑部示例预览"><span>MR 脑部影像 · 36 帧</span></button><button class="btn" onclick="document.querySelector('[data-set=normal]').click()"><img src="../../packages/app-web/public/sample-previews/ct-body.png" alt="真实 CT 示例示例预览"><span>CT 示例影像 · 单层</span></button></div>
+          <div class="welcome-prototype-drop">拖放 DICOM 文件或 ZIP 到这里<br><small>文件夹请使用「打开影像文件夹」选择</small></div>
+          <div class="welcome-prototype-steps"><span>① 打开影像</span><span>② 浏览序列</span><span>③ 调整视图</span></div></div>
         </div>
       </div>
 
@@ -546,17 +583,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
         </div>
       </section>
 
-      <section class="sec">
-        <div class="sec-head">测量与工具</div>
-        <div class="rows">
-          <div class="row"><span class="k">当前工具</span><span class="v only-loaded">直线测量</span></div>
-          <div class="row"><span class="k">直线</span><span class="v num only-loaded">8.2 mm</span></div>
-          <div class="row"><span class="k">ROI 均值</span><span class="v num only-loaded">−720 HU</span></div>
-          <div class="row"><span class="k">ROI 标准差</span><span class="v num only-loaded">31.4</span></div>
-        </div>
-        <div class="note only-loaded"><span>⚠</span><span>测量值仅供参考，不构成诊断依据。</span></div>
-        <div class="muted-note" data-when="empty">未载入影像时不提供测量工具。</div>
-      </section>
+      <section class="sec"><div class="sec-head">操作提示</div><div class="rows">
+        <div class="row"><span class="k">滚轮</span><span class="v">翻页</span></div>
+        <div class="row"><span class="k">右键 / Shift+左键</span><span class="v">调窗</span></div>
+        <div class="row"><span class="k">中键</span><span class="v">平移</span></div>
+        <div class="row"><span class="k">F</span><span class="v">专注阅片</span></div>
+      </div></section>
 
       <section class="sec">
         <div class="sec-head">能力与降级</div>
@@ -844,6 +876,23 @@ document.getElementById('btnSample').addEventListener('click', () => setState('n
 
 /* 首屏初始化：让 [data-when] 与 aria-pressed 从正确状态开始 */
 setState('normal');
+</script>
+<script>
+document.querySelectorAll('[data-proto-tool]').forEach(button=>button.addEventListener('click',()=>{
+  document.querySelectorAll('[data-proto-tool]').forEach(item=>item.setAttribute('aria-pressed',String(item===button)));
+}));
+document.getElementById('protoFocus').addEventListener('click',event=>{
+  const focused=document.body.dataset.focus!=='true';document.body.dataset.focus=String(focused);
+  event.currentTarget.setAttribute('aria-pressed',String(focused));
+});
+document.getElementById('protoSeries').addEventListener('click',event=>{
+  const open=document.body.dataset.series==='false';document.body.dataset.series=String(open);
+  event.currentTarget.setAttribute('aria-pressed',String(open));document.body.dataset.focus='false';
+});
+document.getElementById('protoInspector').addEventListener('click',event=>{
+  const open=document.body.dataset.inspector!=='true';document.body.dataset.inspector=String(open);
+  event.currentTarget.setAttribute('aria-pressed',String(open));document.body.dataset.focus='false';
+});
 </script>
 </body>
 </html>

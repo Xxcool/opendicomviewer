@@ -22,6 +22,7 @@ import type {
 import type { VOIRange, VolumeHandle, WorldPoint } from '@opendicomviewer/core';
 import { buildVolumeFromSeries } from '../bridge/volume-builder';
 import { measureMmPerPx } from './scale-bar';
+import { blocksViewerShortcut, CAMERA_CHANGED } from './viewport-gestures';
 import {
   LAYOUTS,
   STACK_VIEWPORT_ID,
@@ -45,10 +46,11 @@ import {
 import {
   clampLayer,
   isDraggableSlider,
-  nextLayerIndex,
   parseLayerInput,
+  queueLayerNavigation,
+  type LayerRequest,
 } from './slice-navigation';
-import { WINDOW_PRESETS as PRESETS } from './window-presets';
+import { WINDOW_PRESETS } from './window-presets';
 
 interface MprWorkspaceProps {
   readonly renderer: CornerstoneRenderer | null;
@@ -83,7 +85,9 @@ export function MprWorkspace({
   const setMprStatus = useViewerStore((s) => s.setMprStatus);
   const setImportStatus = useViewerStore((s) => s.setImportStatus);
 
-  const [activePaneId, setActivePaneId] = useState<string>(STACK_VIEWPORT_ID);
+  const activePaneId = useViewerStore((s) => s.activeViewportId);
+  const setActivePaneId = useViewerStore((s) => s.setActiveViewportId);
+  const PRESETS = activeSeriesHandle?.meta.modality === 'CT' ? WINDOW_PRESETS : [];
   const [attachedVolume, setAttachedVolume] = useState<VolumeHandle | null>(null);
 
   // 命令式 DOM 句柄：每个视口一格
@@ -152,6 +156,7 @@ export function MprWorkspace({
 
   const syncAllPaneUi = useCallback(() => {
     for (const pane of layout.panes) syncPaneUi(pane);
+    navSyncRef.current?.();
   }, [layout, syncPaneUi]);
 
   const syncPaneVoi = useCallback(
@@ -411,51 +416,49 @@ export function MprWorkspace({
 
   // 4. 导航：Stack 走 setStackIndex，MPR 走 stepSlice，随后沿对应轴移动准星
   const navigate = useCallback(
-    (pane: PaneSpec, target: number) => {
+    (pane: PaneSpec, target: LayerRequest) => {
       const total = paneSliceCount(pane, activeSeriesHandle, mprVolume);
-      if (total <= 0) return;
-      const current = sliceIndexRef.current.get(pane.viewportId) ?? 0;
-      const clamped = clampLayer(target, total);
-      if (clamped === current) {
-        syncPaneUi(pane);
-        return;
-      }
-
-      enqueue(async () => {
-        if (!renderer) return;
-        if (pane.kind === 'stack') {
-          await renderer.setStackIndex(pane.viewportId, clamped);
-          const applied = (readIndex(pane.viewportId) ?? clamped) - current;
-          if (applied !== 0 && activeSeriesHandle) {
-            const plane = activeSeriesHandle.meta.planes[current];
-            const base =
-              crosshairRef.current ?? (plane ? planeCenter(plane) : null);
-            if (base) {
-              crosshairRef.current = moveToStackSlice(
-                base,
-                activeSeriesHandle.meta.planes,
-                current,
-                current + applied,
+      if (!renderer || total <= 0) return;
+      queueLayerNavigation({
+        enqueue, request: target, total,
+        isCurrent: () => useViewerStore.getState().activeSeriesHandle === activeSeriesHandle,
+        readIndex: () => readIndex(pane.viewportId),
+        apply: async (current, clamped) => {
+          if (clamped === current) { syncPaneUi(pane); navSyncRef.current?.(); return; }
+          if (pane.kind === 'stack') {
+            await renderer.setStackIndex(pane.viewportId, clamped);
+            const applied = (readIndex(pane.viewportId) ?? clamped) - current;
+            if (applied !== 0 && activeSeriesHandle) {
+              const plane = activeSeriesHandle.meta.planes[current];
+              const base =
+                crosshairRef.current ?? (plane ? planeCenter(plane) : null);
+              if (base) {
+                crosshairRef.current = moveToStackSlice(
+                  base,
+                  activeSeriesHandle.meta.planes,
+                  current,
+                  current + applied,
+                );
+              }
+            }
+          } else {
+            await renderer.stepSlice(pane.viewportId, clamped - current);
+            const applied = (readIndex(pane.viewportId) ?? current) - current;
+            if (applied !== 0 && crosshairRef.current && mprVolume) {
+              crosshairRef.current = moveAlongAxis(
+                mprVolume,
+                crosshairRef.current,
+                pane.axis ?? 2,
+                applied,
               );
             }
           }
-        } else {
-          await renderer.stepSlice(pane.viewportId, clamped - current);
-          const applied = (readIndex(pane.viewportId) ?? current) - current;
-          if (applied !== 0 && crosshairRef.current && mprVolume) {
-            crosshairRef.current = moveAlongAxis(
-              mprVolume,
-              crosshairRef.current,
-              pane.axis ?? 2,
-              applied,
-            );
-          }
-        }
 
-        await focusAllAtCrosshair();
-        syncAllPaneUi();
-        updateCrosshairOverlays();
-        navSyncRef.current?.();
+          await focusAllAtCrosshair();
+          syncAllPaneUi();
+          updateCrosshairOverlays();
+          navSyncRef.current?.();
+        },
       });
     },
     [
@@ -475,8 +478,7 @@ export function MprWorkspace({
     (pane: PaneSpec, delta: number) => {
       const total = paneSliceCount(pane, activeSeriesHandle, mprVolume);
       if (total <= 1) return;
-      const current = sliceIndexRef.current.get(pane.viewportId) ?? 0;
-      navigate(pane, nextLayerIndex(current, delta, total));
+      navigate(pane, { delta });
     },
     [activeSeriesHandle, mprVolume, navigate],
   );
@@ -555,6 +557,11 @@ export function MprWorkspace({
     return { windowWidth: 400, windowCenter: 40 };
   };
 
+  useEffect(() => {
+    window.addEventListener(CAMERA_CHANGED, updateCrosshairOverlays);
+    return () => window.removeEventListener(CAMERA_CHANGED, updateCrosshairOverlays);
+  }, [updateCrosshairOverlays]);
+
   const resetView = () => {
     if (!renderer) return;
     for (const pane of layout.panes) {
@@ -577,10 +584,7 @@ export function MprWorkspace({
   // 6. 键盘：方向键/翻页键作用于当前激活视口；1-5 仅 Stack 生效
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
-        return;
-      }
+      if (blocksViewerShortcut(e)) return;
       if (!renderer || !activeSeriesHandle) return;
 
       if (activePane.kind === 'stack') {
@@ -720,6 +724,10 @@ export function MprWorkspace({
               windowingEnabled={pane.kind === 'stack' && !empty}
               onActivate={() => setActivePaneId(pane.viewportId)}
               onStep={(delta) => stepPane(pane, delta)}
+              onPan={(x, y) => renderer?.panBy(pane.viewportId, { x, y })}
+              onZoom={(factor) => renderer?.zoomBy(pane.viewportId, factor)}
+              onError={(error) => setImportStatus({ loading: false,
+                error: `图像操作失败：${error instanceof Error ? error.message : String(error)}` })}
               onVoiPreview={(voi) => {
                 if (!renderer) return;
                 renderer.setVOI(pane.viewportId, voi);
@@ -767,7 +775,7 @@ export function MprWorkspace({
       {/* 底部控制栏：层号导航作用于当前激活视口；预设仅 Stack 可用 */}
       {activeSeriesHandle && (
         <div
-          className="px-4 bg-panel border-t border-line flex items-center justify-between text-[12px] shrink-0"
+          className="workspace-slice-footer px-4 bg-panel border-t border-line flex items-center justify-between text-[12px] shrink-0"
           style={{ height: 'var(--vp-foot-h)' }}
         >
           <div className="flex items-center gap-3 shrink-0">
@@ -835,13 +843,16 @@ export function MprWorkspace({
             )}
           </div>
 
-          <div className="flex items-center gap-1 shrink-0 min-w-0 overflow-hidden">
+          <div className="viewport-presets flex items-center gap-1 min-w-0 overflow-x-auto">
             {activePane.kind === 'stack' ? (
               <>
                 <span className="text-[11px] text-txt-muted mr-1 shrink-0 select-none">
                   预设
                 </span>
                 <div className="flex gap-1 shrink-0">
+                  <button type="button" className="workspace-control" onClick={() => {
+                    if (stackDefaultVoiRef.current) applyPreset(stackDefaultVoiRef.current, '默认');
+                  }} title="恢复序列初次装载的窗宽窗位">默认窗</button>
                   {PRESETS.map((preset, idx) => (
                     <button
                       key={preset.name}

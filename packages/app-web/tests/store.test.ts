@@ -14,6 +14,25 @@ describe('useViewerStore', () => {
     expect(state.importStatus.loading).toBe(false);
   });
 
+  it('专注模式退出后保留此前的面板开关', () => {
+    const actions = useViewerStore.getState();
+    actions.toggleInspector();
+    actions.toggleSeriesPanel();
+    actions.toggleFocusMode();
+    expect(useViewerStore.getState().focusMode).toBe(true);
+    actions.toggleFocusMode();
+    expect(useViewerStore.getState()).toMatchObject({ focusMode: false, inspectorOpen: true, seriesPanelOpen: false });
+  });
+
+  it('布局切换回原始视口，防止工具命令落到已被销毁的 MPR 视口', () => {
+    const actions = useViewerStore.getState();
+    actions.setActiveTool('window');
+    actions.setActiveViewportId('mpr-coronal');
+    expect(useViewerStore.getState().activeTool).toBe('pan');
+    actions.setLayoutMode('1x1');
+    expect(useViewerStore.getState().activeViewportId).toBe('default-viewport');
+  });
+
   it('MPR 中切换到缺层序列时回到原始切片布局，避免隐藏入口后无法退出', () => {
     const planes: ImagePlane[] = [0, 1, 3].map((z) => ({
       imageId: `slice-${z}`, sopInstanceUid: `sop-${z}`,

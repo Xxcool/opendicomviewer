@@ -34,8 +34,22 @@ export interface MprBuildStatus {
 
 /** 体积构建的初始态：空闲且无错误 */
 export const IDLE_MPR_STATUS: MprBuildStatus = { phase: 'idle' };
+export type ViewTool = 'browse' | 'window' | 'pan' | 'zoom';
+export type InspectorTab = 'image' | 'warnings';
 
 export interface ViewerState {
+  readonly activeTool: ViewTool;
+  readonly activeViewportId: string;
+  readonly seriesPanelOpen: boolean;
+  readonly inspectorOpen: boolean;
+  readonly inspectorTab: InspectorTab;
+  readonly focusMode: boolean;
+  setActiveTool: (tool: ViewTool) => void;
+  setActiveViewportId: (id: string) => void;
+  toggleSeriesPanel: () => void;
+  toggleInspector: () => void;
+  setInspectorTab: (tab: InspectorTab) => void;
+  toggleFocusMode: () => void;
   readonly studies: readonly StudyMeta[];
   readonly activeStudyUid: string | null;
   readonly activeSeriesUid: string | null;
@@ -67,6 +81,20 @@ export interface ViewerState {
 }
 
 export const useViewerStore = create<ViewerState>((set, get) => ({
+  activeTool: 'browse',
+  activeViewportId: 'default-viewport',
+  seriesPanelOpen: true,
+  inspectorOpen: false,
+  inspectorTab: 'image',
+  focusMode: false,
+  setActiveTool: (activeTool) => set({ activeTool }),
+  setActiveViewportId: (activeViewportId) => set((state) => ({ activeViewportId,
+    activeTool: activeViewportId !== 'default-viewport' && state.activeTool === 'window' ? 'pan' : state.activeTool })),
+  toggleSeriesPanel: () => set((state) => ({ seriesPanelOpen: !state.seriesPanelOpen, focusMode: false })),
+  toggleInspector: () => set((state) => ({ inspectorOpen: !state.inspectorOpen, focusMode: false })),
+  setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true, focusMode: false }),
+  // 专注模式只改变呈现，保留两个面板的原始开关，退出时完整恢复。
+  toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
   studies: [],
   activeStudyUid: null,
   activeSeriesUid: null,
@@ -100,6 +128,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       ? '1x1' : currentLayout;
     set({
       layoutMode,
+      activeViewportId: 'default-viewport',
       activeSeriesHandle: handle,
       activeSeriesUid: handle.meta.seriesInstanceUid,
       activeStudyUid: handle.meta.studyInstanceUid,
@@ -114,7 +143,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setImportStatus: (status) => set({ importStatus: status }),
   setWarnings: (warnings) => set({ warnings }),
   setRendererCapabilities: (caps) => set({ rendererCapabilities: caps }),
-  setLayoutMode: (layoutMode) => set({ layoutMode }),
+  setLayoutMode: (layoutMode) => set({ layoutMode, activeViewportId: 'default-viewport' }),
   setMprVolume: (mprVolume) => set({ mprVolume }),
   setMprStatus: (mprStatus) => set({ mprStatus }),
 
@@ -131,6 +160,12 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     }
     set({
       studies: [],
+      activeTool: 'browse',
+      activeViewportId: 'default-viewport',
+      focusMode: false,
+      seriesPanelOpen: true,
+      inspectorOpen: false,
+      inspectorTab: 'image',
       activeStudyUid: null,
       activeSeriesUid: null,
       activeSeriesHandle: null,

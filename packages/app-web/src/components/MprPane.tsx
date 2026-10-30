@@ -12,6 +12,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { VOIRange } from '@opendicomviewer/core';
 import { SpinnerIcon, WarningIcon } from './Icons';
 import { ScaleBar } from './ScaleBar';
+import { bindViewportGestures } from './viewport-gestures';
+import { useViewerStore } from '../state/viewer-store';
 import type { PaneSpec } from '../layout/viewport-layouts';
 
 export interface CrosshairPoint {
@@ -37,6 +39,9 @@ export interface MprPaneProps {
   readonly windowingEnabled: boolean;
   readonly onActivate: () => void;
   readonly onStep: (delta: number) => void;
+  readonly onPan: (x: number, y: number) => void;
+  readonly onZoom: (factor: number) => void;
+  readonly onError: (error: unknown) => void;
   readonly onVoiPreview: (voi: VOIRange) => void;
   /** 拖拽开始时读当前窗；读失败由调用方给兜底值，不在渲染循环里重试 */
   readonly readVoi: () => VOIRange;
@@ -62,11 +67,13 @@ export function MprPane({
   windowingEnabled,
   onActivate,
   onStep,
+  onPan, onZoom, onError,
   onVoiPreview,
   readVoi,
   measureScale,
   register,
 }: MprPaneProps) {
+  const activeTool = useViewerStore((state) => state.activeTool);
   const rootRef = useRef<HTMLDivElement>(null);
   const sliceRef = useRef<HTMLSpanElement>(null);
   const voiRef = useRef<HTMLSpanElement>(null);
@@ -90,9 +97,8 @@ export function MprPane({
   const readVoiRef = useRef(readVoi);
   readVoiRef.current = readVoi;
 
-  const draggingRef = useRef(false);
-  const startPosRef = useRef({ x: 0, y: 0 });
-  const startVoiRef = useRef<VOIRange | null>(null);
+  const cameraRef = useRef({ onPan, onZoom, onError });
+  cameraRef.current = { onPan, onZoom, onError };
 
   // 注册命令式句柄：父组件翻层后只写 DOM，不触发 React 重渲染
   useEffect(() => {
@@ -144,65 +150,26 @@ export function MprPane({
       onStepRef.current(Math.sign(e.deltaY) * step);
     };
 
-    const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-    };
-
-    const handlePointerDown = (e: PointerEvent) => {
-      onActivateRef.current();
-      if (!windowingEnabled) return;
-      if (e.button !== 2 && !(e.button === 0 && e.shiftKey)) return;
-      e.preventDefault();
-      draggingRef.current = true;
-      startPosRef.current = { x: e.clientX, y: e.clientY };
-      startVoiRef.current = readVoiRef.current();
-      el.setPointerCapture(e.pointerId);
-    };
-
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!draggingRef.current || !startVoiRef.current) return;
-      e.preventDefault();
-      const dx = e.clientX - startPosRef.current.x;
-      const dy = e.clientY - startPosRef.current.y;
-      const current = startVoiRef.current;
-      const next: VOIRange = {
-        windowWidth: Math.max(1, Math.round(current.windowWidth + dx * 2)),
-        windowCenter: Math.round(current.windowCenter + dy * 2),
-      };
-      onVoiPreviewRef.current(next);
-    };
-
-    const stopDrag = (e: PointerEvent) => {
-      if (!draggingRef.current) return;
-      draggingRef.current = false;
-      startVoiRef.current = null;
-      try {
-        el.releasePointerCapture(e.pointerId);
-      } catch {
-        // 指针已释放时忽略
-      }
-    };
-
+    const unbind = bindViewportGestures(el, {
+      enabled: () => totalSlices > 0,
+      windowingEnabled: () => windowingEnabled,
+      tool: () => useViewerStore.getState().activeTool,
+      activate: () => onActivateRef.current(),
+      readVOI: () => readVoiRef.current(),
+      window: (voi) => onVoiPreviewRef.current(voi),
+      pan: (x, y) => cameraRef.current.onPan(x, y),
+      zoom: (factor) => cameraRef.current.onZoom(factor),
+      step: (delta) => onStepRef.current(delta),
+      error: (error) => cameraRef.current.onError(error),
+    });
     el.addEventListener('wheel', handleWheel, { passive: false });
-    el.addEventListener('contextmenu', handleContextMenu);
-    el.addEventListener('pointerdown', handlePointerDown);
-    el.addEventListener('pointermove', handlePointerMove);
-    el.addEventListener('pointerup', stopDrag);
-    el.addEventListener('pointercancel', stopDrag);
-
-    return () => {
-      el.removeEventListener('wheel', handleWheel);
-      el.removeEventListener('contextmenu', handleContextMenu);
-      el.removeEventListener('pointerdown', handlePointerDown);
-      el.removeEventListener('pointermove', handlePointerMove);
-      el.removeEventListener('pointerup', stopDrag);
-      el.removeEventListener('pointercancel', stopDrag);
-    };
+    return () => { unbind(); el.removeEventListener('wheel', handleWheel); };
   }, [totalSlices, windowingEnabled]);
 
   return (
     <div
       ref={rootRef}
+      data-tool={activeTool}
       data-odv-pane={spec.viewportId}
       style={{ gridArea: spec.gridArea }}
       className={`relative min-h-0 min-w-0 overflow-hidden select-none pointer-events-auto ${

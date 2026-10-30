@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, type RefObject } from 'react';
 import { pickScaleBar } from './scale-bar';
+import { CAMERA_CHANGED } from './viewport-gestures';
 
 interface ScaleBarProps {
   /** 测量对象：必须是真实画布宿主，不能用本组件自己的包裹层 */
@@ -87,12 +88,14 @@ export function ScaleBar({
     const observer =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleUpdate);
     observer?.observe(host);
+    window.addEventListener(CAMERA_CHANGED, scheduleUpdate);
     return () => {
       if (timer !== undefined) clearTimeout(timer);
       if (frame !== null && typeof cancelAnimationFrame === 'function') {
         cancelAnimationFrame(frame);
       }
       observer?.disconnect();
+      window.removeEventListener(CAMERA_CHANGED, scheduleUpdate);
     };
   }, [hostRef, measure, refreshKey]);
 

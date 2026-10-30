@@ -49,3 +49,23 @@ export function nextLayerIndex(
 ): number {
   return clampLayer(current + delta, total);
 }
+
+export type LayerRequest = number | { readonly delta: number };
+
+/** 必须在串行任务开始时读取层号；入队前读会让连续相对翻页丢步。 */
+export function queueLayerNavigation(options: {
+  enqueue: (task: () => Promise<void>) => void;
+  isCurrent: () => boolean;
+  readIndex: () => number | null;
+  request: LayerRequest;
+  total: number;
+  apply: (current: number, target: number) => Promise<void>;
+}): void {
+  options.enqueue(async () => {
+    if (!options.isCurrent()) return;
+    const current = options.readIndex();
+    if (current === null) throw new Error('视口尚未就绪，请等待装载完成');
+    const target = clampLayer(typeof options.request === 'number' ? options.request : current + options.request.delta, options.total);
+    await options.apply(current, target);
+  });
+}

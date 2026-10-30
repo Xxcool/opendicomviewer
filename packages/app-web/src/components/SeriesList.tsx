@@ -2,32 +2,15 @@ import { useEffect, useState } from 'react';
 import type {
   DataSourcePort,
   DataWarning,
-  Modality,
   SeriesSummary,
 } from '@opendicomviewer/core';
+import { SeriesThumbnail } from './SeriesThumbnail';
 import { useViewerStore } from '../state/viewer-store';
 import { badgeClass, seriesBadge } from './warning-presentation';
 import { ChevronIcon, LayersIcon, SearchIcon, SpinnerIcon } from './Icons';
 
 interface SeriesListProps {
   readonly dataSource: DataSourcePort;
-}
-
-/**
- * 模态缩略块配色：无渲染器缩略图可用时，用模态首字母 + 色调区分，
- * 比空白色块更容易在长列表里快速定位（参考 DICOM Vision / Voxenra 的缩略块）。
- */
-const MODALITY_TINT: Record<string, string> = {
-  MR: 'bg-accent/15 text-accent border-accent/25',
-  CT: 'bg-info/15 text-info border-info/25',
-  US: 'bg-warn/15 text-warn border-warn/25',
-  CR: 'bg-txt-muted/15 text-txt-dim border-line-strong',
-  DX: 'bg-txt-muted/15 text-txt-dim border-line-strong',
-  PT: 'bg-danger/15 text-danger border-danger/25',
-};
-
-function modalityTint(modality: Modality): string {
-  return MODALITY_TINT[modality] ?? 'bg-txt-muted/15 text-txt-dim border-line-strong';
 }
 
 export function SeriesList({ dataSource }: SeriesListProps) {
@@ -136,7 +119,8 @@ export function SeriesList({ dataSource }: SeriesListProps) {
       })
       .map((group) => ({
         ...group,
-        items: query.trim()
+        items: query.trim() && ![group.label, group.study?.patientId, group.study?.studyDescription, group.study?.studyDate]
+          .filter(Boolean).join(' ').toLowerCase().includes(needle)
           ? group.items.filter((item) =>
               [
                 item.seriesDescription,
@@ -320,13 +304,7 @@ export function SeriesList({ dataSource }: SeriesListProps) {
                           />
                         )}
 
-                        {/* 模态缩略块：无逐帧缩略图时用模态字母 + 色调区分 */}
-                        <span
-                          className={`w-9 h-9 shrink-0 rounded border flex items-center justify-center text-[10px] font-semibold ${modalityTint(item.modality)}`}
-                          aria-hidden
-                        >
-                          {item.modality}
-                        </span>
+                        <SeriesThumbnail source={dataSource} series={item} />
 
                         <span className="flex-1 min-w-0 flex flex-col gap-0.5">
                           <span
@@ -336,7 +314,7 @@ export function SeriesList({ dataSource }: SeriesListProps) {
                           >
                             {item.seriesDescription || '未命名序列'}
                           </span>
-                          <span className="flex items-center gap-1.5 text-[10px] text-txt-muted font-mono">
+                          <span className="flex items-center gap-1.5 text-[11px] text-txt-muted font-mono">
                             <span className="truncate">
                               {item.seriesNumber !== undefined
                                 ? `#${item.seriesNumber}`

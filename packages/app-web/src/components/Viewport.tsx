@@ -25,14 +25,18 @@ import {
   parseLayerInput,
 } from './slice-navigation';
 import { sliceProjection } from './slice-geometry';
-import { WINDOW_PRESETS as PRESETS } from './window-presets';
+import { WINDOW_PRESETS } from './window-presets';
 import { ScaleBar } from './ScaleBar';
 import { measureMmPerPx } from './scale-bar';
+import { bindViewportGestures, blocksViewerShortcut } from './viewport-gestures';
+import { WelcomeScreen } from './WelcomeScreen';
 
 interface ViewportProps {
   readonly renderer: CornerstoneRenderer | null;
   readonly viewportId?: string;
   readonly onLoadSample?: (datasetId?: string) => void;
+  readonly onOpenFolder?: () => void;
+  readonly onOpenFiles?: () => void;
 }
 
 /** 翻页键步长：与 Shift+滚轮 对齐（§3.3 / §8 键位表） */
@@ -42,6 +46,8 @@ export function Viewport({
   renderer,
   viewportId = 'default-viewport',
   onLoadSample,
+  onOpenFolder,
+  onOpenFiles,
 }: ViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sliceTextRef = useRef<HTMLSpanElement>(null);
@@ -60,9 +66,7 @@ export function Viewport({
   const nextLayerRef = useRef<HTMLButtonElement>(null);
 
   const currentSliceIndexRef = useRef<number>(0);
-  const draggingRef = useRef<boolean>(false);
-  const startPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const startVoiRef = useRef<VOIRange | null>(null);
+  const navigationRef = useRef<Promise<void>>(Promise.resolve());
   /**
    * 当前序列装载完成时的默认窗（DICOM 标签窗或 CS3D 按像素统计推算）。
    * 「复位」要能把预设/手调过的窗拉回这个值——RendererPort 的 resetView 按契约只复位相机，
@@ -70,8 +74,9 @@ export function Viewport({
    */
   const defaultVoiRef = useRef<VOIRange | null>(null);
 
-  const { activeSeriesHandle, activeStudyUid, studies, warnings, setImportStatus } =
+  const { activeSeriesHandle, activeStudyUid, studies, warnings, setImportStatus, activeTool } =
     useViewerStore();
+  const PRESETS = activeSeriesHandle?.meta.modality === 'CT' ? WINDOW_PRESETS : [];
 
   /**
    * 告警改为「状态条角标 + 点开浮层」，不再在画布上盖一条横幅。
@@ -243,117 +248,35 @@ export function Viewport({
     };
   }, [renderer, viewportId, activeSeriesHandle, setImportStatus]);
 
-  // 2. 高频交互：滚轮切片翻页与鼠标右键调窗（R4: 渲染循环内绝对禁止 setState）
+  // 共用交互绑定：工具选择是低频 UI 态；拖动过程中只更新渲染器和 DOM。
   useEffect(() => {
     const el = containerRef.current;
     if (!el || !renderer) return;
-
-    let rafId: number | null = null;
-    let pendingVOI: VOIRange | null = null;
-
-    const handleWheel = (e: WheelEvent) => {
+    const wheel = (event: WheelEvent) => {
       if (!activeSeriesHandle) return;
-      e.preventDefault();
-
-      const total = activeSeriesHandle.meta.planes.length;
-      if (total <= 1) return;
-
-      // Shift+滚轮步长 10：大序列下逐层滚到目标层不现实（§3.3）
-      const step = e.shiftKey ? PAGE_STEP : 1;
-      const nextIndex = nextLayerIndex(
-        currentSliceIndexRef.current,
-        Math.sign(e.deltaY) * step,
-        total,
-      );
-
-      if (nextIndex !== currentSliceIndexRef.current) {
-        currentSliceIndexRef.current = nextIndex;
-        if (sliceTextRef.current) {
-          sliceTextRef.current.textContent = `层数 ${nextIndex + 1} / ${total}`;
-        }
-        syncSliceUi(nextIndex, total);
-        void renderer.setStackIndex(viewportId, nextIndex);
-      }
+      event.preventDefault();
+      const delta = Math.sign(event.deltaY) * (event.shiftKey ? PAGE_STEP : 1);
+      jumpToSlice(nextLayerIndex(currentSliceIndexRef.current, delta, activeSeriesHandle.meta.planes.length), activeSeriesHandle.meta.planes.length);
     };
-
-    const handleContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-    };
-
-    const handlePointerDown = (e: PointerEvent) => {
-      if (!activeSeriesHandle) return;
-      // 允许右键 (button 2) 或 Shift+左键调窗
-      if (e.button === 2 || (e.button === 0 && e.shiftKey)) {
-        e.preventDefault();
-        draggingRef.current = true;
-        startPosRef.current = { x: e.clientX, y: e.clientY };
-        try {
-          startVoiRef.current = renderer.getVOI(viewportId);
-        } catch {
-          startVoiRef.current = { windowWidth: 400, windowCenter: 40 };
-        }
-        el.setPointerCapture(e.pointerId);
-      }
-    };
-
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!draggingRef.current || !startVoiRef.current) return;
-      e.preventDefault();
-
-      const dx = e.clientX - startPosRef.current.x;
-      const dy = e.clientY - startPosRef.current.y;
-
-      const nextWidth = Math.max(1, Math.round(startVoiRef.current.windowWidth + dx * 2));
-      const nextCenter = Math.round(startVoiRef.current.windowCenter + dy * 2);
-
-      pendingVOI = { windowWidth: nextWidth, windowCenter: nextCenter };
-
-      // rAF 节流避免高频触控板过度提交 (N4)
-      if (rafId === null) {
-        rafId = requestAnimationFrame(() => {
-          if (pendingVOI) {
-            renderer.setVOI(viewportId, pendingVOI);
-            // 直接更新 DOM ref，零 React setState 开销 (R4)
-            syncVoiUi(pendingVOI, '自定义');
-          }
-          rafId = null;
-        });
-      }
-    };
-
-    const handlePointerUp = (e: PointerEvent) => {
-      if (draggingRef.current) {
-        draggingRef.current = false;
-        try {
-          el.releasePointerCapture(e.pointerId);
-        } catch {
-          // ignore
-        }
-      }
-    };
-
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    el.addEventListener('contextmenu', handleContextMenu);
-    el.addEventListener('pointerdown', handlePointerDown);
-    el.addEventListener('pointermove', handlePointerMove);
-    el.addEventListener('pointerup', handlePointerUp);
-    el.addEventListener('pointercancel', handlePointerUp);
-
-    return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      el.removeEventListener('wheel', handleWheel);
-      el.removeEventListener('contextmenu', handleContextMenu);
-      el.removeEventListener('pointerdown', handlePointerDown);
-      el.removeEventListener('pointermove', handlePointerMove);
-      el.removeEventListener('pointerup', handlePointerUp);
-      el.removeEventListener('pointercancel', handlePointerUp);
-    };
-  }, [renderer, viewportId, activeSeriesHandle]);
+    const unbind = bindViewportGestures(el, {
+      enabled: () => activeSeriesHandle !== null,
+      windowingEnabled: () => true,
+      tool: () => useViewerStore.getState().activeTool,
+      readVOI: () => renderer.getVOI(viewportId),
+      window: (voi) => { renderer.setVOI(viewportId, voi); syncVoiUi(voi, '自定义'); },
+      pan: (x, y) => renderer.panBy(viewportId, { x, y }),
+      zoom: (factor) => renderer.zoomBy(viewportId, factor),
+      step: (delta) => jumpToSlice(currentSliceIndexRef.current + delta, totalFrames),
+      error: (error) => setImportStatus({ loading: false, error: `图像操作失败：${error instanceof Error ? error.message : String(error)}` }),
+    });
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => { unbind(); el.removeEventListener('wheel', wheel); };
+  }, [renderer, viewportId, activeSeriesHandle, setImportStatus]);
 
   // 3. 键盘快捷键（1-5 预设，R 复位，方向键/翻页键切片）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!activeSeriesHandle || !renderer) return;
+      if (!activeSeriesHandle || !renderer || blocksViewerShortcut(e)) return;
 
       const num = Number(e.key);
       if (num >= 1 && num <= PRESETS.length) {
@@ -427,7 +350,12 @@ export function Viewport({
       sliceTextRef.current.textContent = `层数 ${target + 1} / ${total}`;
     }
     syncSliceUi(target, total);
-    void renderer.setStackIndex(viewportId, target);
+    const series = activeSeriesHandle;
+    navigationRef.current = navigationRef.current.catch(() => undefined).then(async () => {
+      if (useViewerStore.getState().activeSeriesHandle !== series) return;
+      await renderer.setStackIndex(viewportId, target);
+    }).catch((error: unknown) => setImportStatus({ loading: false,
+      error: `切片切换失败：${error instanceof Error ? error.message : String(error)}` }));
   };
 
   const handleLayerInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -453,6 +381,7 @@ export function Viewport({
       {/* ══ 视口顶部状态条（prototype .vp-bar, 36px, 不透明实色底 + relative 让 z-10 生效） ══ */}
       <div
         className="px-4 bg-panel border-b border-line flex items-center justify-between text-[12px] text-txt-dim relative z-10 shrink-0"
+        hidden={!activeSeriesHandle}
         style={{ height: 'var(--vp-bar-h)' }}
       >
         {/* 左组：视口标题 + 预设 chip + 层数 */}
@@ -557,6 +486,7 @@ export function Viewport({
           CS3D 挂载容器由 App 持有并位于本层之下；这里只做事件宿主与叠加层 */}
       <div
         ref={containerRef}
+        data-tool={activeTool}
         className="flex-1 relative overflow-hidden min-h-0 touch-none cursor-crosshair"
       >
 
@@ -646,30 +576,14 @@ export function Viewport({
             <span>正在挂载渲染视口...</span>
           </div>
         ) : !activeSeriesHandle ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-overlay/70 text-sm p-4 pointer-events-auto select-none z-20">
-            <p className="font-medium text-overlay text-[18px] mb-2">拖入 DICOM 文件夹开始</p>
-            <p className="text-[11px] text-overlay/60 max-w-sm">
-              全程本机处理 · 无任何网络请求
-            </p>
-            {onLoadSample && (
-              <div className="mt-5">
-                <button
-                  type="button"
-                  onClick={() => onLoadSample()}
-                  className="px-4 py-2 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium transition cursor-pointer shadow-md"
-                >
-                  载入示例（脑部 MR 36 帧 + 胸腹 CT）
-                </button>
-              </div>
-            )}
-          </div>
+          <WelcomeScreen onOpenFolder={onOpenFolder} onOpenFiles={onOpenFiles} onLoadSample={onLoadSample} />
         ) : null}
       </div>
 
       {/* ══ 视口底部控制栏（极简专业：克制、无多余边框、轨道感弱） ══ */}
       {activeSeriesHandle && (
         <div
-          className="px-4 bg-panel border-t border-line flex items-center justify-between text-[12px] shrink-0"
+          className="workspace-slice-footer px-4 bg-panel border-t border-line flex items-center justify-between text-[12px] shrink-0"
           style={{ height: 'var(--vp-foot-h)' }}
         >
           {/* 左：层号导航 —— Figma/Xcode 风：按钮无边框、靠 hover 淡入背景，
@@ -751,11 +665,15 @@ export function Viewport({
 
           {/* 右：预设 chips —— 极简：无边框、透明底、hover 淡入，选中后用 accent 背景
               Phase 2 将按 BodyPartExamined 分组，当前 5 个通用预设写死 */}
-          <div className="flex items-center gap-1 shrink-0 min-w-0 overflow-hidden">
+          <div className="viewport-presets flex items-center gap-1 min-w-0 overflow-x-auto">
             <span className="text-[11px] text-txt-muted mr-1 shrink-0 select-none" title="窗口预设；Phase 2 将按 BodyPartExamined 分组">
               预设
             </span>
             <div className="flex gap-1 shrink-0">
+              <button type="button" className="workspace-control" onClick={() => {
+                const voi = defaultVoiRef.current;
+                if (voi) applyPreset(voi, '默认');
+              }} title="恢复序列初次装载的窗宽窗位">默认窗</button>
               {PRESETS.map((preset, idx) => (
                 <button
                   key={preset.name}

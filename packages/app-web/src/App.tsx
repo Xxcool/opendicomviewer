@@ -17,6 +17,7 @@ import { MetadataPanel } from './components/MetadataPanel';
 import { ImportFailuresDialog } from './components/ImportFailuresDialog';
 import { useViewerStore } from './state/viewer-store';
 import { LAYOUTS, type LayoutMode } from './layout/viewport-layouts';
+import { WorkspaceToolbar } from './components/WorkspaceToolbar';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
 
 export function App() {
@@ -41,6 +42,7 @@ export function App() {
     setRendererCapabilities,
     layoutMode,
     activeSeriesHandle,
+    seriesPanelOpen, inspectorOpen, focusMode,
   } = useViewerStore();
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
@@ -155,6 +157,8 @@ export function App() {
         onCancelImport={cancelImport}
       />
 
+      {activeSeriesHandle && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
+
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (
         <div className="absolute inset-0 bg-app/90 border-2 border-dashed border-accent z-50 flex items-center justify-center backdrop-blur-xs pointer-events-none">
@@ -183,7 +187,7 @@ export function App() {
 
       {/* 导入进度提示模态框 */}
       {importStatus.loading && (
-        <div className="absolute inset-0 bg-canvas/60 backdrop-blur-xs flex items-center justify-center z-50">
+        <div role="dialog" aria-modal="true" aria-label="正在导入影像" className="absolute inset-0 bg-canvas/60 backdrop-blur-xs flex items-center justify-center z-50">
           <div className="bg-elevated border border-line rounded-lg p-6 shadow-2xl flex flex-col items-center space-y-3 max-w-sm text-center">
             <SpinnerIcon className="w-8 h-8 text-accent" />
             <div className="text-sm font-semibold text-txt">
@@ -192,6 +196,7 @@ export function App() {
             <div className="text-xs text-txt-dim">
               正在执行魔数探测、DICOMDIR 校验与几何构建
             </div>
+            <button className="workspace-control" onClick={cancelImport}>取消导入</button>
           </div>
         </div>
       )}
@@ -207,7 +212,9 @@ export function App() {
       {/* 主工作区：三栏布局，宽度统一走 CSS token */}
       <div className="flex-1 flex overflow-hidden min-w-0">
         <div
-          className="shrink-0 border-r border-line bg-panel overflow-hidden"
+          id="series-panel"
+          hidden={!activeSeriesHandle || !seriesPanelOpen || focusMode}
+          className="workspace-series shrink-0 border-r border-line bg-panel overflow-hidden"
           style={{ width: 'var(--left-w)' }}
         >
           <SeriesList dataSource={dataSource} />
@@ -221,7 +228,7 @@ export function App() {
           <div
             className="absolute inset-x-0 z-0"
             style={{
-              top: 'var(--vp-bar-h)',
+              top: activeSeriesHandle ? 'var(--vp-bar-h)' : 0,
               bottom: activeSeriesHandle ? 'var(--vp-foot-h)' : '0',
             }}
           >
@@ -250,6 +257,8 @@ export function App() {
                 renderer={renderer}
                 viewportId="default-viewport"
                 onLoadSample={loadSample}
+                onOpenFolder={() => document.getElementById('odv-folder-input')?.click()}
+                onOpenFiles={() => document.getElementById('odv-file-input')?.click()}
               />
             ) : (
               <MprWorkspace
@@ -263,7 +272,7 @@ export function App() {
             <div
               className="absolute inset-x-0 z-10 flex items-center justify-center text-xs text-txt-dim pointer-events-none"
               style={{
-                top: 'var(--vp-bar-h)',
+                top: activeSeriesHandle ? 'var(--vp-bar-h)' : 0,
                 bottom: activeSeriesHandle ? 'var(--vp-foot-h)' : '0',
               }}
             >
@@ -272,7 +281,9 @@ export function App() {
             </div>
           )}
         </div>
-        <MetadataPanel />
+        <div id="inspector-panel" hidden={!activeSeriesHandle || !inspectorOpen || focusMode} className="workspace-inspector shrink-0 h-full">
+          <MetadataPanel />
+        </div>
       </div>
     </div>
   );

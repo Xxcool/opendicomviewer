@@ -6,9 +6,32 @@ import {
   isDraggableSlider,
   nextLayerIndex,
   parseLayerInput,
+  queueLayerNavigation,
 } from '../src/components/slice-navigation';
 
 describe('切片导航纯逻辑（ui-spec §3.3）', () => {
+  it('连续五次相对翻页排队后全部执行，从第 49 层到第 54 层', async () => {
+    let index = 48;
+    let chain = Promise.resolve();
+    const enqueue = (task: () => Promise<void>) => { chain = chain.then(task); };
+    for (let n = 0; n < 5; n++) queueLayerNavigation({
+      enqueue, isCurrent: () => true, readIndex: () => index, request: { delta: 1 }, total: 96,
+      apply: async (_current, target) => { await Promise.resolve(); index = target; },
+    });
+    await chain;
+    expect(index + 1).toBe(54);
+  });
+
+  it('排队期间切换序列后不再读取或移动旧视口', async () => {
+    let queued: (() => Promise<void>) | undefined;
+    let applied = false;
+    queueLayerNavigation({ enqueue: (task) => { queued = task; }, isCurrent: () => false,
+      readIndex: () => { throw new Error('旧视口不应被读取'); }, request: { delta: 1 }, total: 96,
+      apply: async () => { applied = true; },
+    });
+    await queued?.();
+    expect(applied).toBe(false);
+  });
   describe('hasSliceNavigation / isDraggableSlider', () => {
     it('单帧序列不显示翻页控件', () => {
       expect(hasSliceNavigation(1)).toBe(false);
