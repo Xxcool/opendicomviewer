@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type RefObject,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import type {
@@ -52,9 +53,15 @@ import {
 } from './slice-navigation';
 import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
 
+export interface MprNavigationSession {
+  seriesUid: string | null;
+  crosshair: WorldPoint | null;
+}
+
 interface MprWorkspaceProps {
   readonly renderer: CornerstoneRenderer | null;
   readonly mode: LayoutMode;
+  readonly navigationSession: RefObject<MprNavigationSession>;
   /** App 的 setLayout 已成功应用当前模式 */
   readonly layoutReady: boolean;
   readonly onLoadSample?: (datasetId?: string) => void;
@@ -70,6 +77,7 @@ export function MprWorkspace({
   renderer,
   mode,
   layoutReady,
+  navigationSession,
   onLoadSample,
 }: MprWorkspaceProps) {
   const workspaceRef = useRef<HTMLDivElement>(null);
@@ -94,8 +102,7 @@ export function MprWorkspace({
 
   // 命令式 DOM 句柄：每个视口一格
   const paneHandles = useRef(new Map<string, MprPaneHandle>());
-  /** 准星所在的世界坐标；null = 尚未建立（等体积） */
-  const crosshairRef = useRef<WorldPoint | null>(null);
+  // 准星由 App 持有，布局切换重挂载时仍保留同一序列的位置。
   /** 每个视口当前层号，避免每帧去渲染器读相机 */
   const sliceIndexRef = useRef(new Map<string, number>());
   const loadedSeriesUidRef = useRef<string | null>(null);
@@ -176,7 +183,7 @@ export function MprWorkspace({
 
   /** 准星投影到每个视口的画布坐标；越界由 Pane 自己隐藏 */
   const updateCrosshairOverlays = useCallback(() => {
-    const world = crosshairRef.current;
+    const world = navigationSession.current.crosshair;
     for (const pane of layout.panes) {
       const handle = paneHandles.current.get(pane.viewportId);
       if (!handle) continue;
@@ -200,7 +207,7 @@ export function MprWorkspace({
    * 真正的装载失败由 setVolume / setStack 的 catch 显式上报。
    */
   const focusAllAtCrosshair = useCallback(async () => {
-    const world = crosshairRef.current;
+    const world = navigationSession.current.crosshair;
     if (!renderer || !world) return;
     for (const pane of layout.panes) {
       try {
@@ -254,7 +261,7 @@ export function MprWorkspace({
         syncPaneVoi(layout.panes[0]!);
 
         // 体积可能先于 Stack 装载完成；此时补一次定位，保证轴位与准星对齐
-        if (crosshairRef.current) {
+        if (navigationSession.current.crosshair) {
           await focusAllAtCrosshair();
           if (cancelled) return;
           syncAllPaneUi();
@@ -362,8 +369,8 @@ export function MprWorkspace({
         }
         if (cancelled) return;
 
-        if (!crosshairRef.current) {
-          crosshairRef.current = volumeCenter(mprVolume);
+        if (!navigationSession.current.crosshair) {
+          navigationSession.current.crosshair = volumeCenter(mprVolume);
         }
         await focusAllAtCrosshair();
         if (cancelled) return;
@@ -412,9 +419,13 @@ export function MprWorkspace({
   // 切序列：准星/索引/默认窗全部作废
   useEffect(() => {
     setAttachedVolume(null);
-    crosshairRef.current = null;
+    const seriesUid = activeSeriesHandle?.meta.seriesInstanceUid ?? null;
+    if (navigationSession.current.seriesUid !== seriesUid) {
+      navigationSession.current.seriesUid = seriesUid;
+      navigationSession.current.crosshair = null;
+    }
     sliceIndexRef.current.clear();
-  }, [activeSeriesHandle]);
+  }, [activeSeriesHandle, navigationSession]);
 
   // 4. 导航：Stack 走 setStackIndex，MPR 走 stepSlice，随后沿对应轴移动准星
   const navigate = useCallback(
@@ -433,9 +444,9 @@ export function MprWorkspace({
             if (applied !== 0 && activeSeriesHandle) {
               const plane = activeSeriesHandle.meta.planes[current];
               const base =
-                crosshairRef.current ?? (plane ? planeCenter(plane) : null);
+                navigationSession.current.crosshair ?? (plane ? planeCenter(plane) : null);
               if (base) {
-                crosshairRef.current = moveToStackSlice(
+                navigationSession.current.crosshair = moveToStackSlice(
                   base,
                   activeSeriesHandle.meta.planes,
                   current,
@@ -446,10 +457,10 @@ export function MprWorkspace({
           } else {
             await renderer.stepSlice(pane.viewportId, clamped - current);
             const applied = (readIndex(pane.viewportId) ?? current) - current;
-            if (applied !== 0 && crosshairRef.current && mprVolume) {
-              crosshairRef.current = moveAlongAxis(
+            if (applied !== 0 && navigationSession.current.crosshair && mprVolume) {
+              navigationSession.current.crosshair = moveAlongAxis(
                 mprVolume,
-                crosshairRef.current,
+                navigationSession.current.crosshair,
                 pane.axis ?? 2,
                 applied,
               );
@@ -583,9 +594,14 @@ export function MprWorkspace({
   useEffect(() => {
     const element = workspaceRef.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(updateCrosshairOverlays);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      // 引擎在同次 ResizeObserver 中更新相机；下一帧再读取新的画布坐标。
+      frame = requestAnimationFrame(updateCrosshairOverlays);
+    });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [updateCrosshairOverlays]);
 
   const resetView = () => {
@@ -599,7 +615,7 @@ export function MprWorkspace({
         .get(activePane.viewportId)
         ?.setVoi(formatVoi(stackDefaultVoiRef.current));
     }
-    if (crosshairRef.current) {
+    if (navigationSession.current.crosshair) {
       enqueue(async () => {
         await focusAllAtCrosshair();
         updateCrosshairOverlays();

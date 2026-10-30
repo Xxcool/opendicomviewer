@@ -12,7 +12,7 @@ import { useImportFlow } from './import-flow';
 import { Header } from './components/Header';
 import { SeriesList } from './components/SeriesList';
 import { Viewport } from './components/Viewport';
-import { MprWorkspace } from './components/MprWorkspace';
+import { MprWorkspace, type MprNavigationSession } from './components/MprWorkspace';
 import { MetadataPanel } from './components/MetadataPanel';
 import { ImportFailuresDialog } from './components/ImportFailuresDialog';
 import { useViewerStore } from './state/viewer-store';
@@ -25,6 +25,8 @@ export function App() {
   const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
+  /** MPR 准星会话跨布局保留，不参与高频 React 状态更新。 */
+  const mprNavigation = useRef<MprNavigationSession>({ seriesUid: null, crosshair: null });
   /** setLayout 已成功应用的模式；null = 尚在切换中，MPR 组件不得提前装载数据 */
   const [appliedLayout, setAppliedLayout] = useState<LayoutMode | null>(null);
   /**
@@ -44,6 +46,9 @@ export function App() {
     activeSeriesHandle,
     seriesPanelOpen, inspectorOpen, focusMode,
   } = useViewerStore();
+  useEffect(() => {
+    if (!activeSeriesHandle) mprNavigation.current = { seriesUid: null, crosshair: null };
+  }, [activeSeriesHandle]);
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
     pendingFailures,
@@ -264,6 +269,7 @@ export function App() {
               <MprWorkspace
                 renderer={renderer}
                 mode={layoutMode}
+                navigationSession={mprNavigation}
                 layoutReady={appliedLayout === layoutMode}
                 onLoadSample={loadSample}
               />

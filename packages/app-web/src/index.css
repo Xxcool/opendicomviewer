@@ -289,3 +289,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .sample-card-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
 
 @media (max-width: 900px) { .workspace-header { height: auto; min-height: var(--header-h); flex-wrap: wrap; gap: 6px 12px; padding-top: 6px; padding-bottom: 6px; } .workspace-header-actions { flex-wrap: wrap; max-width: 100%; } }
+
+/* 窄侧栏中保留工具可达性，允许横向滚动，避免右侧按钮被裁掉。 */
+.workspace-toolbar { overflow-x: auto; }
+.workspace-toolbar > *, .workspace-toolbar .workspace-control { flex-shrink: 0; }
