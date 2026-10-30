@@ -1,22 +1,10 @@
 import type { SVGProps } from 'react';
 
+/** 顶栏与主入口共享同一个打开文件夹图形。 */
 export function FolderIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-    </svg>
-  );
+  return <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true" {...props}>
+    <path d="M3 4h6l3 3h8v3H6l-3 9H2V6a2 2 0 0 1 1-2Zm4 7h16l-4 9H4Z" />
+  </svg>;
 }
 
 export function WarningIcon(props: SVGProps<SVGSVGElement>) {
@@ -208,25 +196,19 @@ export function SettingsIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** 打开文件（参考：lucide file） */
+/** 与打开文件夹保持一致的填充折角文件图形。 */
 export function FileIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...props}
-    >
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-    </svg>
-  );
+  return <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true" {...props}>
+    <path d="M5 2h8v6h6v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" />
+    <path d="m15 2 6 6h-6Z" opacity=".65" />
+  </svg>;
+}
+
+export function BookOpenIcon(props: SVGProps<SVGSVGElement>) {
+  return <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>
+    <path d="M12 5C9 3 5 3 2 4v16c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Zm0 0v16" />
+  </svg>;
 }
 
 /** 载入示例 / 导入（参考：lucide download） */

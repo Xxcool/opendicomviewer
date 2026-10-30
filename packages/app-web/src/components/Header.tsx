@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import type { ImportCandidate } from '@opendicomviewer/core';
 import { fileToImportCandidate } from '../bridge/candidate';
 import { useViewerStore } from '../state/viewer-store';
-import { FileIcon, FolderIcon, ImportIcon, MoonIcon, SettingsIcon, SpinnerIcon, SunIcon } from './Icons';
+import { BookOpenIcon, ChevronIcon, FileIcon, FolderIcon, MoonIcon, SettingsIcon, SpinnerIcon, SunIcon } from './Icons';
 import { SettingsDialog } from './SettingsDialog';
 
 interface HeaderProps {
@@ -14,17 +14,24 @@ interface HeaderProps {
 export function Header({ onImportCandidates, onLoadSample, onCancelImport }: HeaderProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const themeMenuRef = useRef<HTMLDetailsElement>(null);
   const { importStatus, theme, setTheme } = useViewerStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
     folderInputRef.current?.setAttribute('webkitdirectory', '');
+    const closeThemeMenu = (event: PointerEvent) => {
+      const menu = themeMenuRef.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+    };
     const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && themeMenuRef.current) themeMenuRef.current.open = false;
       if ((event.ctrlKey || event.metaKey) && event.key === ',') {
         event.preventDefault(); setSettingsOpen(true);
       }
     };
     window.addEventListener('keydown', keydown);
-    return () => window.removeEventListener('keydown', keydown);
+    window.addEventListener('pointerdown', closeThemeMenu);
+    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('pointerdown', closeThemeMenu); };
   }, []);
   // 演示链接仍走统一导入链路，StrictMode 下每个挂载仅触发一次。
   const autoLoadedRef = useRef(false);
@@ -40,26 +47,35 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport }: Hea
     event.target.value = '';
     if (files.length) onImportCandidates(files.map(fileToImportCandidate));
   };
-  return <header className="workspace-header">
-    <div className="workspace-brand">
-      <span className="workspace-logo" aria-hidden="true">ODV</span>
-      <div><span className="workspace-brand-name">OpenDicomViewer</span><span className="workspace-brand-caption">本地影像工作台</span></div>
-      <span className="workspace-use-badge">科研 · 教学 · 非诊断参考</span>
-    </div>
-    <div className="workspace-header-actions">
+  const selectTheme = (value: 'dark' | 'light') => {
+    setTheme(value);
+    if (themeMenuRef.current) themeMenuRef.current.open = false;
+  };
+  return <header className="workspace-header" aria-label="全局操作">
+    <nav className="workspace-header-actions" aria-label="影像导入">
       <input id="odv-folder-input" ref={folderInputRef} type="file" multiple hidden onChange={selected} />
       <input id="odv-file-input" ref={fileInputRef} type="file" multiple hidden onChange={selected} />
       {importStatus.loading ? <button className="workspace-control cancel-import" onClick={onCancelImport}>
-        <SpinnerIcon className="w-4 h-4" />取消导入</button> : <>
-        <button className="workspace-primary" onClick={() => folderInputRef.current?.click()}><FolderIcon className="w-4 h-4" />打开文件夹</button>
-        <button className="workspace-control" onClick={() => fileInputRef.current?.click()}><FileIcon className="w-4 h-4" /><span>打开文件</span></button>
-        <button className="workspace-control" onClick={() => onLoadSample()}><ImportIcon className="w-4 h-4" /><span>示例</span></button>
+        <SpinnerIcon />取消导入</button> : <>
+        <button className="workspace-control" onClick={() => folderInputRef.current?.click()}><FolderIcon />打开文件夹</button>
+        <button className="workspace-control" onClick={() => fileInputRef.current?.click()}><FileIcon />打开文件</button>
+        <span className="header-divider" aria-hidden="true" />
+        <button className="workspace-control" onClick={() => onLoadSample()}><BookOpenIcon />示例</button>
       </>}
-      <span className="toolbar-divider" />
-      <button className="workspace-control icon-control" aria-label="设置" title="设置（Ctrl/⌘+,）" onClick={() => setSettingsOpen(true)}><SettingsIcon className="w-4 h-4" /></button>
-      <button className="workspace-control icon-control" aria-label={theme === 'dark' ? '切换浅色主题' : '切换深色主题'}
-        title={theme === 'dark' ? '切换浅色主题' : '切换深色主题'} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-        {theme === 'dark' ? <SunIcon className="w-4 h-4" /> : <MoonIcon className="w-4 h-4" />}</button>
+    </nav>
+    <div className="workspace-header-preferences">
+      <button className="workspace-control" title="设置（Ctrl/⌘+,）" onClick={() => setSettingsOpen(true)}><SettingsIcon aria-hidden="true" />设置</button>
+      <span className="header-divider" aria-hidden="true" />
+      <details ref={themeMenuRef} className="theme-menu">
+        <summary className="workspace-control" aria-label={`选择界面主题，当前${theme === 'dark' ? '深色' : '浅色'}主题`}>
+          {theme === 'dark' ? <MoonIcon aria-hidden="true" /> : <SunIcon aria-hidden="true" />}
+          <span>{theme === 'dark' ? '深色主题' : '浅色主题'}</span><ChevronIcon className="theme-chevron" aria-hidden="true" />
+        </summary>
+        <div className="theme-options" role="group" aria-label="主题选项">
+          <button className="workspace-control" aria-pressed={theme === 'dark'} onClick={() => selectTheme('dark')}><MoonIcon aria-hidden="true" />深色主题</button>
+          <button className="workspace-control" aria-pressed={theme === 'light'} onClick={() => selectTheme('light')}><SunIcon aria-hidden="true" />浅色主题</button>
+        </div>
+      </details>
     </div>
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </header>;

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
 import config from '../vite.config';
@@ -43,6 +44,11 @@ describe('示例数据静态构建', () => {
         expect(png.readUInt32BE(16)).toBeGreaterThan(0);
         expect(png.readUInt32BE(20)).toBeGreaterThan(0);
       }
+      const cover = await readFile(join(outDir, 'sample-covers/reference.png'));
+      const provenance = JSON.parse(await readFile(join(outDir, 'sample-covers/provenance.json'), 'utf8'));
+      expect(createHash('sha256').update(cover).digest('hex')).toBe(provenance.sha256);
+      expect(cover.readUInt32BE(16)).toBe(provenance.width);
+      expect(cover.readUInt32BE(20)).toBe(provenance.height);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

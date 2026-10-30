@@ -14,15 +14,18 @@ export function WelcomeScreen({ onOpenFolder, onOpenFiles, onLoadSample }: {
       <section className="welcome-samples" aria-label="示例影像">
         <div className="welcome-section-label"><span>或者试试示例影像</span></div>
         <div className="sample-grid">
-          <button className="sample-card" aria-label="载入 MR 脑部示例（36 帧）" onClick={() => onLoadSample?.('brain-mr')}>
-            <img src="./sample-previews/brain-mr.png" width="232" height="256" alt="MR 脑部真实示例切片" draggable={false} />
-            <span className="sample-caption"><strong>MR 脑部影像</strong><small>36 帧 · 切片浏览</small></span>
+          <button className="sample-card" aria-label="载入 MR 脑部示例（36 帧）" title="载入预置 MR 示例；封面为影像类型示意" onClick={() => onLoadSample?.('brain-mr')}>
+            <span className="sample-card-image sample-cover-brain" role="img" aria-label="具有完整头部轮廓的矢状面封面示意" style={{ backgroundImage: 'url("./sample-covers/reference.png")' }} />
+            <span className="sample-caption"><strong>MR 脑部影像</strong></span>
           </button>
-          <button className="sample-card" aria-label="载入 CT 示例（单层）" onClick={() => onLoadSample?.('ct-body')}>
-            <img src="./sample-previews/ct-body.png" width="512" height="512" alt="CT 真实示例切片" draggable={false} />
-            <span className="sample-caption"><strong>CT 示例影像</strong><small>单层 · 基础操作</small></span>
+          <button className="sample-card" aria-label="载入 CT 预置示例（单层）" title="载入预置单层 CT 示例；封面为影像类型示意" onClick={() => onLoadSample?.('ct-body')}>
+            <span className="sample-card-image sample-cover-chest" role="img" aria-label="显示胸廓的 CT 横断面封面示意" style={{ backgroundImage: 'url("./sample-covers/reference.png")' }} />
+            <span className="sample-caption"><strong>CT 胸腹影像</strong></span>
           </button>
         </div>
+        <details className="sample-cover-note"><summary>封面与预置样本说明</summary>
+          <p>封面仅展示影像类型；点击后载入本地预置示例（MR 36 帧、CT 单层），与封面不是同一切片。</p>
+        </details>
       </section>
       <button className="welcome-drop-zone" onClick={onOpenFiles} aria-label="选择 DICOM 文件或 ZIP，也可拖入窗口">
         <WorkspaceIcon name="upload" />

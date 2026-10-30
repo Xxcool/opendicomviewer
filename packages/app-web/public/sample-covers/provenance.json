@@ -1,0 +1,22 @@
+{
+  "source": "用户在 2026-10-30 会话中提供的两卡参考图",
+  "kind": "user-supplied-reference",
+  "sha256": "910491bc3dbfb4e30729f072ae9a8e51bb761791d1bc40eadde1267a23b12eff",
+  "width": 584,
+  "height": 234,
+  "views": {
+    "brain": {
+      "x": 108,
+      "y": 18,
+      "width": 172,
+      "height": 154
+    },
+    "chest": {
+      "x": 312,
+      "y": 18,
+      "width": 172,
+      "height": 154
+    }
+  },
+  "usage": "仅作入口封面示意；不代表当前预置 DICOM 的实际切片"
+}
