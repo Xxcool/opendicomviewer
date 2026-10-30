@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useViewerStore } from '../state/viewer-store';
 import { MoonIcon, SettingsIcon, SunIcon } from './Icons';
-import { WINDOW_PRESETS } from './window-presets';
+import { getWindowPresets, normalizeBodyPart } from './window-presets';
 
 interface SettingsDialogProps {
   readonly onClose: () => void;
@@ -21,10 +21,11 @@ const TABS: readonly { readonly id: TabId; readonly label: string }[] = [
  *
  * 结构对齐参考稿：左导航 + 右侧分页内容。只放**能确认为真**的项——
  * 主题切换、窗预设只读画廊、隐私口径、能力现状。不摆假开关：
- * 未实现的（脱敏、按部位分组）明确写"尚未实现"，而不是给个点了没反应的控件。
+ * 未实现的（脱敏）明确写"尚未实现"，而不是给个点了没反应的控件。
  */
 export function SettingsDialog({ onClose }: SettingsDialogProps) {
-  const { reset, studies, theme, setTheme } = useViewerStore();
+  const { reset, studies, theme, setTheme, activeSeriesHandle } = useViewerStore();
+  const WINDOW_PRESETS = getWindowPresets(activeSeriesHandle?.meta);
   const [tab, setTab] = useState<TabId>('general');
 
   useEffect(() => {
@@ -148,10 +149,12 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                   <div className="flex items-baseline justify-between gap-2">
                     <h3 className="font-semibold text-txt-dim">窗宽窗位预设</h3>
                     <span className="text-[10px] text-txt-muted font-mono">
-                      快捷键 1–5
+                      自动：1 · 部位预设：2–4
                     </span>
                   </div>
+                  <p className="text-txt-muted">{activeSeriesHandle ? `${activeSeriesHandle.meta.modality} · ${normalizeBodyPart(activeSeriesHandle.meta.planes[0]?.bodyPartExamined)}` : '未载入序列'}</p>
                   <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-md border border-line bg-panel px-2.5 py-2"><strong>自动（1）</strong><p>优先文件窗；缺失时按像素分位估算</p></div>
                     {WINDOW_PRESETS.map((p, idx) => (
                       <div
                         key={p.name}
@@ -162,7 +165,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                             {p.name}
                           </span>
                           <span className="text-[10px] font-mono text-txt-muted">
-                            {idx + 1}
+                            {idx + 2}
                           </span>
                         </div>
                         <div className="text-[10px] text-txt-muted mt-0.5">
@@ -175,8 +178,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                     ))}
                   </div>
                   <p className="text-[11px] text-txt-muted leading-relaxed">
-                    当前为 5 个通用预设。按 BodyPartExamined 自动分组、以及「自动」预设，
-                    尚未实现。
+                    CT 按 BodyPartExamined 自动选择部位预设，缺失或未识别时使用通用组；其他模态仅提供自动窗。自动估算使用已换算强度的 2%–98% 分位，结果标记为「自动（估算）」。此处为说明，实际应用请使用原始切片视口的预设按钮。
                   </p>
                 </section>
 

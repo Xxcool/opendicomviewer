@@ -174,7 +174,10 @@ describe('cs3d-bridge & candidate utilities', () => {
       // @ts-expect-error mock renderer
       const bridge = registerCs3dBridge(mockRenderer);
       expect(typeof bridge.unregister).toBe('function');
-      bridge.unregister();
+      try {
+        const image = await cs3d.imageLoader.loadImage('odv://bridge-meta-window#0');
+        expect([image.windowWidth, image.windowCenter]).toEqual([400, 40]);
+      } finally { bridge.unregister(); }
     });
   });
 });

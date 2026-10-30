@@ -12,3 +12,5 @@ export * from './pipeline/sort';
 export * from './pipeline/lut';
 export * from './volume/index';
 export * from './testing/phantom';
+
+export * from './pipeline/window-presets';

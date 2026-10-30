@@ -149,6 +149,7 @@ export function parseDicomMetadata(
     rescaleSlope: dataSet.floatString('x00281053') ?? 1.0,
     rescaleIntercept: dataSet.floatString('x00281052') ?? 0.0,
     modalityLUT,
+    bodyPartExamined: dataSet.string('x00180015'),
     windowCenter: dataSet.floatString('x00281050'),
     windowWidth: dataSet.floatString('x00281051'),
     bitsAllocated: dataSet.uint16('x00280100') ?? 16,

@@ -25,7 +25,7 @@ import {
   parseLayerInput,
 } from './slice-navigation';
 import { describeSliceOrientation, sliceProjection } from './slice-geometry';
-import { WINDOW_PRESETS } from './window-presets';
+import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
 import { ScaleBar } from './ScaleBar';
 import { measureMmPerPx } from './scale-bar';
 import { bindViewportGestures, blocksViewerShortcut } from './viewport-gestures';
@@ -76,7 +76,8 @@ export function Viewport({
 
   const { activeSeriesHandle, activeStudyUid, studies, warnings, setImportStatus, activeTool } =
     useViewerStore();
-  const PRESETS = activeSeriesHandle?.meta.modality === 'CT' ? WINDOW_PRESETS : [];
+  const autoPresetRequest = useRef(0);
+  const PRESETS = getWindowPresets(activeSeriesHandle?.meta);
 
   /**
    * 告警改为「状态条角标 + 点开浮层」，不再在画布上盖一条横幅。
@@ -275,14 +276,15 @@ export function Viewport({
     return () => { unbind(); el.removeEventListener('wheel', wheel); };
   }, [renderer, viewportId, activeSeriesHandle, setImportStatus]);
 
-  // 3. 键盘快捷键（1-5 预设，R 复位，方向键/翻页键切片）
+  // 3. 键盘快捷键（1 自动 / 2-4 部位预设，R 复位，方向键/翻页键切片）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!activeSeriesHandle || !renderer || blocksViewerShortcut(e)) return;
 
       const num = Number(e.key);
-      if (num >= 1 && num <= PRESETS.length) {
-        const preset = PRESETS[num - 1]!;
+      if (num === 1) { void applyAutomatic(); return; }
+      if (num >= 2 && num <= PRESETS.length + 1) {
+        const preset = PRESETS[num - 2]!;
         applyPreset(preset.voi, preset.name);
         return;
       }
@@ -314,7 +316,22 @@ export function Viewport({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [renderer, viewportId, activeSeriesHandle]);
 
+  const applyAutomatic = async () => {
+    if (!renderer || !activeSeriesHandle) return;
+    const handle = activeSeriesHandle;
+    const request = ++autoPresetRequest.current;
+    try {
+      const frame = await handle.pixel(renderer.currentSliceIndex(viewportId));
+      if (request !== autoPresetRequest.current || useViewerStore.getState().activeSeriesHandle !== handle) return;
+      const result = pickAdaptiveVOI(frame);
+      applyPreset(result.voi, result.estimated ? '自动（估算）' : '自动');
+    } catch (error) {
+      if (request === autoPresetRequest.current && useViewerStore.getState().activeSeriesHandle === handle) setImportStatus({ loading: false, error: `自动窗失败：${error instanceof Error ? error.message : String(error)}` });
+    }
+  };
+
   const applyPreset = (voi: VOIRange, presetName?: string) => {
+    autoPresetRequest.current++;
     if (!renderer) return;
     // setVOI 内部已包含 render 提交，去除外层冗余 render (N3)
     renderer.setVOI(viewportId, voi);
@@ -664,24 +681,20 @@ export function Viewport({
             </div>
           ) : null}
 
-          {/* 右：预设 chips —— 极简：无边框、透明底、hover 淡入，选中后用 accent 背景
-              Phase 2 将按 BodyPartExamined 分组，当前 5 个通用预设写死 */}
+          {/* 自动与当前 CT 部位预设共用核心数值；非 CT 不显示 CT 窗值。 */}
           <div className="viewport-presets flex items-center gap-1 min-w-0 overflow-x-auto">
-            <span className="text-[11px] text-txt-muted mr-1 shrink-0 select-none" title="窗口预设；Phase 2 将按 BodyPartExamined 分组">
+            <span className="text-[11px] text-txt-muted mr-1 shrink-0 select-none" title="自动窗及当前 CT 部位预设">
               预设
             </span>
             <div className="flex gap-1 shrink-0">
-              <button type="button" className="workspace-control" onClick={() => {
-                const voi = defaultVoiRef.current;
-                if (voi) applyPreset(voi, '默认');
-              }} title="恢复序列初次装载的窗宽窗位">默认窗</button>
+              <button type="button" className="workspace-control" onClick={() => void applyAutomatic()} title="自动窗（快捷键 1）：优先文件窗，缺失时按当前帧像素估算">自动</button>
               {PRESETS.map((preset, idx) => (
                 <button
                   key={preset.name}
                   type="button"
                   onClick={() => applyPreset(preset.voi, preset.name)}
                   className="px-2 h-6 text-[11px] rounded-md border border-transparent bg-transparent hover:bg-hover text-txt-dim hover:text-txt transition cursor-pointer whitespace-nowrap"
-                  title={`${preset.name} (快捷键 ${idx + 1}): WW ${preset.voi.windowWidth}, WL ${preset.voi.windowCenter}`}
+                  title={`${preset.name} (快捷键 ${idx + 2}): WW ${preset.voi.windowWidth}, WL ${preset.voi.windowCenter}`}
                 >
                   {preset.name}
                 </button>

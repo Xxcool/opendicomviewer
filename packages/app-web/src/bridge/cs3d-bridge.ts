@@ -9,7 +9,7 @@
 
 import * as cs3d from '@cornerstonejs/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
-import { rawToHU, type ImagePlane } from '@opendicomviewer/core';
+import { pickAdaptiveVOI, rawToHU, type ImagePlane } from '@opendicomviewer/core';
 
 export interface BridgeRegistration {
   readonly unregister: () => void;
@@ -146,14 +146,12 @@ export function registerCs3dBridge(
         ? Float32Array.from(frame.pixelData, (value) => rawToHU(value, slope, intercept, modalityLUT))
         : frame.pixelData;
       const [min, max] = computeMinMax(displayPixels);
-      const defaultCenter =
-        frame.defaultVOI?.windowCenter ??
-        plane?.windowCenter ??
-        Math.round((max + min) / 2);
-      const defaultWidth =
-        frame.defaultVOI?.windowWidth ??
-        plane?.windowWidth ??
-        Math.max(1, max - min);
+      const automatic = pickAdaptiveVOI({ ...frame, rescaleSlope: slope, rescaleIntercept: intercept, modalityLUT,
+        defaultVOI: frame.defaultVOI ?? (plane?.windowWidth !== undefined && plane.windowCenter !== undefined
+          ? { windowWidth: plane.windowWidth, windowCenter: plane.windowCenter } : undefined),
+      });
+      const defaultCenter = automatic.voi.windowCenter;
+      const defaultWidth = automatic.voi.windowWidth;
 
       const invert =
         frame.photometricInterpretation === 'MONOCHROME1' ||

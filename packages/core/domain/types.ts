@@ -58,6 +58,8 @@ export interface ImagePlane {
   readonly rescaleIntercept?: number;
   /** Modality LUT 序列查表项，存在时优先于线性 Rescale（S2） */
   readonly modalityLUT?: ModalityLUT;
+  /** 检查部位 (0018,0015)，仅用于预设分组，不推测缺失标签。 */
+  readonly bodyPartExamined?: string;
   /** 默认窗宽 */
   readonly windowWidth?: number;
   /** 默认窗位 */

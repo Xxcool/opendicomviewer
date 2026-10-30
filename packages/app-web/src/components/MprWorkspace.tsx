@@ -50,7 +50,7 @@ import {
   queueLayerNavigation,
   type LayerRequest,
 } from './slice-navigation';
-import { WINDOW_PRESETS } from './window-presets';
+import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
 
 interface MprWorkspaceProps {
   readonly renderer: CornerstoneRenderer | null;
@@ -88,7 +88,8 @@ export function MprWorkspace({
 
   const activePaneId = useViewerStore((s) => s.activeViewportId);
   const setActivePaneId = useViewerStore((s) => s.setActiveViewportId);
-  const PRESETS = activeSeriesHandle?.meta.modality === 'CT' ? WINDOW_PRESETS : [];
+  const autoPresetRequest = useRef(0);
+  const PRESETS = getWindowPresets(activeSeriesHandle?.meta);
   const [attachedVolume, setAttachedVolume] = useState<VolumeHandle | null>(null);
 
   // 命令式 DOM 句柄：每个视口一格
@@ -540,7 +541,22 @@ export function MprWorkspace({
     jumpActive(Number(e.target.value));
   };
 
+  const applyAutomatic = async () => {
+    if (!renderer || !activeSeriesHandle) return;
+    const handle = activeSeriesHandle;
+    const request = ++autoPresetRequest.current;
+    try {
+      const frame = await handle.pixel(renderer.currentSliceIndex(STACK_VIEWPORT_ID));
+      if (request !== autoPresetRequest.current || useViewerStore.getState().activeSeriesHandle !== handle) return;
+      const result = pickAdaptiveVOI(frame);
+      applyPreset(result.voi, result.estimated ? '自动（估算）' : '自动');
+    } catch (error) {
+      if (request === autoPresetRequest.current && useViewerStore.getState().activeSeriesHandle === handle) setImportStatus({ loading: false, error: `自动窗失败：${error instanceof Error ? error.message : String(error)}` });
+    }
+  };
+
   const applyPreset = (voi: VOIRange, presetName?: string) => {
+    autoPresetRequest.current++;
     if (!renderer || activePane.kind !== 'stack') return;
     renderer.setVOI(activePane.viewportId, voi);
     const handle = paneHandles.current.get(activePane.viewportId);
@@ -591,7 +607,7 @@ export function MprWorkspace({
     }
   };
 
-  // 6. 键盘：方向键/翻页键作用于当前激活视口；1-5 仅 Stack 生效
+  // 6. 键盘：方向键/翻页键作用于当前激活视口；1 自动 / 2-4 部位预设，仅 Stack 生效
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (blocksViewerShortcut(e)) return;
@@ -599,8 +615,9 @@ export function MprWorkspace({
 
       if (activePane.kind === 'stack') {
         const num = Number(e.key);
-        if (num >= 1 && num <= PRESETS.length) {
-          const preset = PRESETS[num - 1]!;
+        if (num === 1) { void applyAutomatic(); return; }
+        if (num >= 2 && num <= PRESETS.length + 1) {
+          const preset = PRESETS[num - 2]!;
           applyPreset(preset.voi, preset.name);
           return;
         }
@@ -860,16 +877,14 @@ export function MprWorkspace({
                   预设
                 </span>
                 <div className="flex gap-1 shrink-0">
-                  <button type="button" className="workspace-control" onClick={() => {
-                    if (stackDefaultVoiRef.current) applyPreset(stackDefaultVoiRef.current, '默认');
-                  }} title="恢复序列初次装载的窗宽窗位">默认窗</button>
+                  <button type="button" className="workspace-control" onClick={() => void applyAutomatic()} title="自动窗（快捷键 1）：优先文件窗，缺失时按当前帧像素估算">自动</button>
                   {PRESETS.map((preset, idx) => (
                     <button
                       key={preset.name}
                       type="button"
                       onClick={() => applyPreset(preset.voi, preset.name)}
                       className="px-2 h-6 text-[11px] rounded-md border border-transparent bg-transparent hover:bg-hover text-txt-dim hover:text-txt transition cursor-pointer whitespace-nowrap"
-                      title={`${preset.name} (快捷键 ${idx + 1}): WW ${preset.voi.windowWidth}, WL ${preset.voi.windowCenter}`}
+                      title={`${preset.name} (快捷键 ${idx + 2}): WW ${preset.voi.windowWidth}, WL ${preset.voi.windowCenter}`}
                     >
                       {preset.name}
                     </button>
