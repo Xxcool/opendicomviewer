@@ -6,6 +6,7 @@ import {
   registerCs3dBridge,
 } from '../src/bridge/cs3d-bridge';
 import { fileToImportCandidate } from '../src/bridge/candidate';
+import * as cs3d from '@cornerstonejs/core';
 
 describe('cs3d-bridge & candidate utilities', () => {
   describe('computeMinMax', () => {
@@ -80,6 +81,51 @@ describe('cs3d-bridge & candidate utilities', () => {
   });
 
   describe('registerCs3dBridge', () => {
+    it.each([
+      { name: 'CT 水与空气', frame: { width: 2, height: 2, pixelData: new Uint16Array([0, 1024, 1029, 4095]), rescaleIntercept: -1024 }, expected: [-1024, 0, 5, 3071], copied: true },
+      { name: 'Modality LUT 优先于线性缩放', frame: { width: 2, height: 2, pixelData: new Uint16Array([0, 1, 2, 3]), rescaleSlope: 100,
+        modalityLUT: { firstMappedPixelValue: 0, bitsStored: 16, lutData: [10, 20, 40, 80] } }, expected: [10, 20, 40, 80], copied: true },
+      { name: '恒等变换保留缓冲', frame: { width: 2, height: 2, pixelData: new Uint16Array([0, 10, 20, 30]) }, expected: [0, 10, 20, 30], copied: false },
+    ])('$name 的显示标量正确且不重复换算', async ({ frame, expected, copied }) => {
+      const fake = { frameRegistry: {
+        lookup: () => ({ handle: { meta: { modality: 'CT', planes: [] } }, frameIndex: 0 }),
+        resolveFrame: async () => frame,
+      } };
+      // @ts-expect-error 仅注入加载器需要的帧登记端口。
+      const bridge = registerCs3dBridge(fake);
+      try {
+        const image = await cs3d.imageLoader.loadImage('odv://bridge-transform-test#0');
+        expect(Array.from(image.getPixelData())).toEqual(expected);
+        expect(image.getPixelData() === frame.pixelData).toBe(!copied);
+        expect([image.slope, image.intercept]).toEqual([1, 0]);
+      } finally { bridge.unregister(); }
+    });
+
+    it('真正 loader 输出已重标定的显示缓冲，物理窗不再把头部截为黑白，原始帧不变', async () => {
+      const raw = new Int16Array([-7733, -5455, 0, 32767]);
+      const pixel: PixelFrame = { width: 2, height: 2, pixelData: raw,
+        rescaleSlope: 0.001513414551, rescaleIntercept: 49.57891846,
+        defaultVOI: { windowWidth: 100, windowCenter: 50 } };
+      const fake = { frameRegistry: {
+        lookup: () => ({ handle: { meta: { modality: 'MR', planes: [] } }, frameIndex: 0 }),
+        resolveFrame: async () => pixel,
+      } };
+      // @ts-expect-error 仅注入加载器需要的帧登记端口。
+      const bridge = registerCs3dBridge(fake);
+      try {
+        const image = await cs3d.imageLoader.loadImage('odv://bridge-rescale-test#0');
+        expect(image.getPixelData()).toBeInstanceOf(Float32Array);
+        expect(image.getPixelData()[1]).toBeCloseTo(41.32324, 4);
+        expect(image.getPixelData()[2]).toBeCloseTo(49.578918, 4);
+        expect(image.preScale?.scaled).toBe(true);
+        expect([image.slope, image.intercept]).toEqual([1, 0]);
+        expect(image.windowWidth).toBe(100);
+        expect(image.windowCenter).toBe(50);
+        expect(image.minPixelValue).toBeCloseTo(37.8756737, 4);
+        expect(raw).toEqual(new Int16Array([-7733, -5455, 0, 32767]));
+      } finally { bridge.unregister(); }
+    });
+
     it('注册元数据提供程序与 imageLoader 回调', async () => {
       const mockPixelFrame: PixelFrame = {
         width: 2,

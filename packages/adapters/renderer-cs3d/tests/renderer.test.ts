@@ -698,6 +698,25 @@ describe('CornerstoneRenderer · 调窗与坐标', () => {
     expect(viewport.getProperties().voiRange).toEqual(before);
   });
 
+  it('新序列首帧就绪后按当前尺寸适配，翻层保留用户缩放和平移', async () => {
+    const { renderer, engine } = makeRenderer();
+    await renderer.mount({ containerId: 'root' }, { rows: 1, cols: 1, viewportIds: ['vp'] });
+    const viewport = engine.viewportOf('vp');
+    const resize = vi.spyOn(engine, 'resize');
+    const reset = vi.spyOn(viewport, 'resetCamera');
+    viewport.onStackDone = () => { viewport.zoom = 3; viewport.pan = [40, -20]; };
+    await renderer.setStack('vp', makeHandle(3));
+    expect(viewport.zoom).toBe(1);
+    expect(viewport.pan).toEqual([0, 0]);
+    expect(resize.mock.invocationCallOrder[0]).toBeLessThan(reset.mock.invocationCallOrder[0]!);
+    viewport.zoom = 2;
+    viewport.pan = [5, 10];
+    await renderer.setStackIndex('vp', 1);
+    expect(viewport.zoom).toBe(2);
+    expect(viewport.pan).toEqual([5, 10]);
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
   it('缩放相对于当前相机，限制极值，复位后恢复适应窗口且不改 VOI', async () => {
     const { renderer, viewport } = await mounted();
     const voi = renderer.getVOI('vp');

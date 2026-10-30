@@ -9,7 +9,7 @@
 
 import * as cs3d from '@cornerstonejs/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
-import type { ImagePlane } from '@opendicomviewer/core';
+import { rawToHU, type ImagePlane } from '@opendicomviewer/core';
 
 export interface BridgeRegistration {
   readonly unregister: () => void;
@@ -19,7 +19,7 @@ export interface BridgeRegistration {
  * 计算像素缓冲的极值 [min, max]
  */
 export function computeMinMax(
-  pixelData: Int16Array | Uint16Array | Uint8Array,
+  pixelData: Int16Array | Uint16Array | Uint8Array | Float32Array,
 ): [number, number] {
   let min = Infinity;
   let max = -Infinity;
@@ -136,7 +136,16 @@ export function registerCs3dBridge(
       const ref = renderer.frameRegistry.lookup(imageId);
       const plane = ref ? ref.handle.meta.planes[ref.frameIndex] : undefined;
 
-      const [min, max] = computeMinMax(frame.pixelData);
+      const slope = frame.rescaleSlope ?? plane?.rescaleSlope ?? 1;
+      const intercept = frame.rescaleIntercept ?? plane?.rescaleIntercept ?? 0;
+      const modalityLUT = frame.modalityLUT ?? plane?.modalityLUT;
+      // GPU Stack 直接用 scalarData 映射物理窗，不会替自定义 loader 应用 slope/intercept。
+      // 仅创建显示副本，原始帧继续作为数据计算真源；标记已缩放以避免 CPU 再次换算。
+      const scaled = slope !== 1 || intercept !== 0 || modalityLUT !== undefined;
+      const displayPixels = scaled
+        ? Float32Array.from(frame.pixelData, (value) => rawToHU(value, slope, intercept, modalityLUT))
+        : frame.pixelData;
+      const [min, max] = computeMinMax(displayPixels);
       const defaultCenter =
         frame.defaultVOI?.windowCenter ??
         plane?.windowCenter ??
@@ -151,22 +160,28 @@ export function registerCs3dBridge(
         plane?.photometricInterpretation === 'MONOCHROME1';
 
       const dataType: cs3d.Types.PixelDataTypedArrayString =
-        frame.pixelData instanceof Int16Array
-          ? 'Int16Array'
-          : frame.pixelData instanceof Uint8Array
-            ? 'Uint8Array'
-            : 'Uint16Array';
+        displayPixels instanceof Float32Array
+          ? 'Float32Array'
+          : displayPixels instanceof Int16Array
+            ? 'Int16Array'
+            : displayPixels instanceof Uint8Array
+              ? 'Uint8Array'
+              : 'Uint16Array';
 
       const image: cs3d.Types.IImage = {
         imageId,
         minPixelValue: min,
         maxPixelValue: max,
-        slope: frame.rescaleSlope ?? plane?.rescaleSlope ?? 1,
-        intercept: frame.rescaleIntercept ?? plane?.rescaleIntercept ?? 0,
+        slope: 1,
+        intercept: 0,
+        preScale: {
+          enabled: true, scaled,
+          scalingParameters: { rescaleSlope: slope, rescaleIntercept: intercept, modality: ref?.handle.meta.modality ?? 'OT' },
+        },
         windowCenter: defaultCenter,
         windowWidth: defaultWidth,
         voiLUTFunction: cs3d.Enums.VOILUTFunctionType.LINEAR,
-        getPixelData: () => frame.pixelData,
+        getPixelData: () => displayPixels,
         getCanvas: () => {
           // 提供离屏 canvas 避免内部路径访问空抛错 (N6)
           const canvas = document.createElement('canvas');
@@ -185,7 +200,7 @@ export function registerCs3dBridge(
         rowPixelSpacing: plane?.pixelSpacing?.[0] ?? 1,
         sliceThickness: plane?.sliceThickness,
         invert,
-        sizeInBytes: frame.pixelData.byteLength,
+        sizeInBytes: displayPixels.byteLength,
         dataType,
       };
 

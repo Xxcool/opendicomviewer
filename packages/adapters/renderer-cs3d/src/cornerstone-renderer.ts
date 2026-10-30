@@ -368,6 +368,10 @@ export class CornerstoneRenderer implements RendererPort {
     this.viewportFrameCounts.set(viewportId, frameCount);
     this.viewportStackIndex.set(viewportId, initialIndex);
     this.clearPendingSeries(viewportId, token, nextSeriesUid);
+    // CS3D 会复用上条序列的视图呈现；首帧就绪后按当前尺寸重新适配，避免放大裁切。
+    this.resizeNow();
+    viewport.resetCamera?.();
+    viewport.render();
   }
 
   public async setStackIndex(viewportId: string, index: number): Promise<void> {
@@ -609,6 +613,7 @@ export class CornerstoneRenderer implements RendererPort {
 
   public resetView(viewportId: string): void {
     const viewport = this.viewportOf(viewportId);
+    this.resizeNow();
     viewport.resetCamera?.();
     viewport.render();
   }
