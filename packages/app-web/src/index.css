@@ -175,6 +175,10 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .workspace-header-actions, .workspace-header-preferences, .tool-group { display: flex; align-items: center; }
 .workspace-header-actions { gap: 20px; flex-shrink: 0; }
 .workspace-header-preferences { gap: 12px; flex-shrink: 0; }
+.workspace-brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.workspace-brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--color-accent); color: var(--color-overlay); font-size: 11px; font-weight: 700; }
+.workspace-brand-name { font-size: 14px; font-weight: 600; color: var(--color-txt); }
+@media (max-width: 1024px) { .workspace-brand-name { display: none; } }
 .workspace-header .workspace-control { height: 36px; padding: 0 10px; font-size: 16px; font-weight: 400; gap: 9px; color: var(--color-txt); }
 .workspace-header svg { width: 20px; height: 20px; flex-shrink: 0; }
 .header-divider { height: 26px; width: 1px; background: var(--color-line-strong); flex-shrink: 0; }

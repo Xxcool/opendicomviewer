@@ -76,6 +76,11 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport }: Hea
           <button className="workspace-control" aria-pressed={theme === 'light'} onClick={() => selectTheme('light')}><SunIcon aria-hidden="true" />浅色主题</button>
         </div>
       </details>
+      <span className="header-divider" aria-hidden="true" />
+      <div className="workspace-brand" role="img" aria-label="OpenDicomViewer">
+        <span className="workspace-brand-mark" aria-hidden="true">ODV</span>
+        <span className="workspace-brand-name" aria-hidden="true">OpenDicomViewer</span>
+      </div>
     </div>
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </header>;
