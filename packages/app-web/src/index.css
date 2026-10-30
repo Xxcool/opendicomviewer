@@ -178,18 +178,9 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .workspace-brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .workspace-brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--color-accent); color: var(--color-overlay); font-size: 11px; font-weight: 700; }
 .workspace-brand-name { font-size: 14px; font-weight: 600; color: var(--color-txt); }
-@media (max-width: 1024px) { .workspace-brand-name { display: none; } }
 .workspace-header .workspace-control { height: 36px; padding: 0 10px; font-size: 16px; font-weight: 400; gap: 9px; color: var(--color-txt); }
 .workspace-header svg { width: 20px; height: 20px; flex-shrink: 0; }
 .header-divider { height: 26px; width: 1px; background: var(--color-line-strong); flex-shrink: 0; }
-.theme-menu { position: relative; }
-.theme-menu summary { list-style: none; user-select: none; }
-.theme-menu summary::-webkit-details-marker { display: none; }
-.workspace-header .theme-chevron { width: 12px; height: 12px; margin-left: 2px; color: var(--color-txt-muted); transition: transform .12s; }
-.theme-menu[open] .theme-chevron { transform: rotate(180deg); }
-.theme-options { position: absolute; top: calc(100% + 6px); right: 0; z-index: var(--z-popover); display: flex; flex-direction: column; min-width: 156px; padding: 6px; border: 1px solid var(--color-line-strong); border-radius: 7px; background: var(--color-elevated); box-shadow: 0 8px 24px var(--overlay-scrim); }
-.theme-options .workspace-control { justify-content: flex-start; width: 100%; font-size: 14px; }
-.theme-menu:not([open]) .theme-options { display: none; }
 .workspace-control, .workspace-primary { height: var(--control-h); display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid transparent; border-radius: 6px; padding: 0 10px; font-size: var(--text-caption); font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color .12s, color .12s; }
 .workspace-control { background: transparent; color: var(--color-txt-dim); }
 .workspace-control:hover { background: var(--color-hover); color: var(--color-txt); }
@@ -296,3 +287,5 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 }
 
 .sample-card-image img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+@media (max-width: 900px) { .workspace-header { height: auto; min-height: var(--header-h); flex-wrap: wrap; gap: 6px 12px; padding-top: 6px; padding-bottom: 6px; } .workspace-header-actions { flex-wrap: wrap; max-width: 100%; } }
