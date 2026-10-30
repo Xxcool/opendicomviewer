@@ -8,7 +8,7 @@
  * 真实数据集命名不规律（brain-mr 是 000018.dcm），早期实现按 `0000NN.dcm` 拼路径
  * 会 404 —— 这也是示例必须走 manifest 的原因。
  *
- * 隐私：当前两份样本是公开测试数据集（PatientName 为 `Dummy` / `MISTER^CT`），
+ * 隐私：样本包括公开平均头部模板与测试数据集（`Dummy` / `MISTER^CT`），
  * 不含真实患者信息。**禁止把真实临床数据放进 sample-dicom/ 并提交**。
  */
 
@@ -58,7 +58,7 @@ async function loadOne(datasetId: string, fileName: string): Promise<ImportCandi
 /**
  * 载入指定数据集（不传则载入全部）。
  *
- * 传 undefined 时会同时载入 MR 与 CT —— 这是演示"跨序列切换"的必要条件：
+ * 传 undefined 时会同时载入平均头部模板、原 MR 序列与 CT —— 这是演示"跨序列切换"的必要条件：
  * 单数据集只有一条序列，左栏只有一个可点项，等于没法验证切换。
  */
 export async function loadSampleCandidates(datasetId?: string): Promise<ImportCandidate[]> {

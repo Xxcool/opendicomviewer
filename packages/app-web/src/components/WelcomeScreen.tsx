@@ -14,8 +14,8 @@ export function WelcomeScreen({ onOpenFolder, onOpenFiles, onLoadSample }: {
       <section className="welcome-samples" aria-label="示例影像">
         <div className="welcome-section-label"><span>或者试试示例影像</span></div>
         <div className="sample-grid">
-          <button className="sample-card" aria-label="载入 MR 脑部示例（36 帧）" title="载入预置 MR 示例；封面为影像类型示意" onClick={() => onLoadSample?.('brain-mr')}>
-            <span className="sample-card-image sample-cover-brain" role="img" aria-label="具有完整头部轮廓的矢状面封面示意" style={{ backgroundImage: 'url("./sample-covers/reference.png")' }} />
+          <button className="sample-card" aria-label="载入完整头部矢状面 MR 教学示例（单层）" title="载入 ICBM152 平均头部矢状面教学示例" onClick={() => onLoadSample?.('brain-head-mr')}>
+            <span className="sample-card-image"><img src="./sample-previews/brain-head-mr.png" width="229" height="193" alt="实际可载入的 ICBM152 平均头部矢状面" draggable={false} /></span>
             <span className="sample-caption"><strong>MR 脑部影像</strong></span>
           </button>
           <button className="sample-card" aria-label="载入 CT 预置示例（单层）" title="载入预置单层 CT 示例；封面为影像类型示意" onClick={() => onLoadSample?.('ct-body')}>
@@ -24,7 +24,7 @@ export function WelcomeScreen({ onOpenFolder, onOpenFiles, onLoadSample }: {
           </button>
         </div>
         <details className="sample-cover-note"><summary>封面与预置样本说明</summary>
-          <p>封面仅展示影像类型；点击后载入本地预置示例（MR 36 帧、CT 单层），与封面不是同一切片。</p>
+          <p>脑部预览来自实际载入的 ICBM152 平均头部教学模板（单层）；CT 封面为示意图，载入预置单层 CT。顶部「示例」仍包含原有 36 帧 MR 序列。</p>
         </details>
       </section>
       <button className="welcome-drop-zone" onClick={onOpenFiles} aria-label="选择 DICOM 文件或 ZIP，也可拖入窗口">

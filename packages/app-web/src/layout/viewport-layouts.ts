@@ -50,7 +50,7 @@ export interface LayoutSpec {
 
 export const STACK_VIEWPORT_ID = 'default-viewport';
 
-const STACK_TITLE = '横断面 (Axial)';
+const STACK_TITLE = '原始切片 (Stack)';
 
 function pane(
   base: Omit<PaneSpec, 'gridArea'>,
@@ -63,7 +63,7 @@ const STACK_BASE = {
   viewportId: STACK_VIEWPORT_ID,
   kind: 'stack' as const,
   title: STACK_TITLE,
-  shortTitle: 'Axial',
+  shortTitle: 'Stack',
 };
 
 const AXIAL_BASE = {
@@ -95,11 +95,11 @@ const SAGITTAL_BASE = {
 
 const SINGLE_STACK = pane(STACK_BASE, '1 / 1 / 2 / 2');
 
-/** 2×2：左上全分辨率轴位，其余三格为 MPR 三向切面（等分） */
+/** 2×2：左上全分辨率原始切片，其余三格为 MPR 三向切面（等分） */
 const GRID_2X2: LayoutSpec = {
   mode: '2x2',
   label: '2×2',
-  hint: '全分辨率轴位 + MPR 三视图',
+  hint: '全分辨率原始切片 + MPR 三视图',
   panes: [
     pane(STACK_BASE, '1 / 1 / 2 / 2'),
     pane(AXIAL_BASE, '1 / 2 / 2 / 3'),
@@ -146,7 +146,7 @@ const GRID_2X2: LayoutSpec = {
 const GRID_1_PLUS_3: LayoutSpec = {
   mode: '1+3',
   label: '1+3',
-  hint: '左侧大图轴位 + 右侧 MPR 三视图',
+  hint: '左侧大图原始切片 + 右侧 MPR 三视图',
   panes: [
     pane(STACK_BASE, '1 / 1 / 4 / 2'),
     pane(AXIAL_BASE, '1 / 2 / 2 / 3'),
@@ -171,7 +171,7 @@ const GRID_1_PLUS_3: LayoutSpec = {
 const SINGLE: LayoutSpec = {
   mode: '1x1',
   label: '1×1',
-  hint: '单视口轴位浏览',
+  hint: '单视口原始切片浏览',
   panes: [SINGLE_STACK],
   viewportLayout: {
     rows: 1,

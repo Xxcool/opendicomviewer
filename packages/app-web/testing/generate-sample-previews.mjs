@@ -34,6 +34,7 @@ function chunk(type, data) {
 fs.mkdirSync(output, { recursive: true });
 const manifest = [];
 for (const [id, file] of [
+  ['brain-head-mr', 'sample-dicom/brain-head-mr/head-sagittal.dcm'],
   ['brain-mr', 'sample-dicom/brain-mr/000018.dcm'],
   ['ct-body', 'sample-dicom/ct-body/ct-slice-001.dcm'],
 ]) {
@@ -68,4 +69,4 @@ for (const [id, file] of [
   manifest.push({ id, source: file, sha256: crypto.createHash('sha256').update(source).digest('hex'), width: columns, height: rows, ...voi });
 }
 fs.writeFileSync(path.join(output, 'provenance.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-log('已生成两份真实示例预览及来源记录。');
+log(`已生成 ${manifest.length} 份真实示例预览及来源记录。`);

@@ -73,3 +73,14 @@ pnpm --filter @opendicomviewer/app-web preview
 ## 许可证
 
 本项目基于 [Apache License 2.0](LICENSE) 授权开源。
+
+### 完整头部教学示例
+
+欢迎页的「MR 脑部影像」现在实际载入 `sample-dicom/brain-head-mr/head-sagittal.dcm`：从 [McGill ICBM152 2009c 平均 T1 头部模板](https://nist.mni.mcgill.ca/icbm-152-nonlinear-atlases-2009/) 导出的中线矢状面，包含完整颅脑轮廓。预览 PNG 来自同一份 DICOM。它是单层教学模板，不是个人原始检查，不提供完整体积 MPR。原有 36 帧 MR 仍可从顶部「示例」载入全部后选择。
+
+来源、许可、派生方法和哈希见该目录的 `README.md`、`LICENSE.txt` 与 `provenance.json`。重现步骤：
+
+```bash
+python3 packages/app-web/testing/generate-head-sample.py /path/to/mni_icbm152_nlin_asym_09c_nifti.zip
+node packages/app-web/testing/generate-sample-previews.mjs
+```

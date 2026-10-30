@@ -28,7 +28,7 @@ describe('示例数据静态构建', () => {
         await readFile(join(outDir, 'samples/manifest.json'), 'utf8'),
       );
       expect(manifest.datasets.map((dataset) => dataset.id)).toEqual(
-        expect.arrayContaining(['brain-mr', 'ct-body']),
+        expect.arrayContaining(['brain-head-mr', 'brain-mr', 'ct-body']),
       );
       for (const dataset of manifest.datasets) {
         expect(dataset.files.length).toBeGreaterThan(0);
@@ -38,7 +38,7 @@ describe('示例数据静态构建', () => {
         }
       }
       // 欢迎页使用真实示例预览，必须随纯静态部署一起发布。
-      for (const id of ['brain-mr', 'ct-body']) {
+      for (const id of ['brain-head-mr', 'brain-mr', 'ct-body']) {
         const png = await readFile(join(outDir, 'sample-previews', `${id}.png`));
         expect([...png.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
         expect(png.readUInt32BE(16)).toBeGreaterThan(0);

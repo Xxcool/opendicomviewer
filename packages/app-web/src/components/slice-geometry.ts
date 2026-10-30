@@ -7,6 +7,29 @@
 
 export type Vec3 = readonly [number, number, number];
 
+/** 仅在有效、轴对齐的 IOP 下标注解剖方向；不把矢状面误写成固定轴位。 */
+export function describeSliceOrientation(iop: ReadonlyArray<number> | undefined, missing = false) {
+  const unknown = { label: '切面未知', top: '', bottom: '', left: '', right: '' };
+  if (missing || !iop || iop.length !== 6 || !iop.every(Number.isFinite)) return unknown;
+  const row = iop.slice(0, 3);
+  const col = iop.slice(3, 6);
+  if (Math.abs(Math.hypot(...row) - 1) > 0.001 || Math.abs(Math.hypot(...col) - 1) > 0.001
+    || Math.abs(row.reduce((sum, value, i) => sum + value * col[i]!, 0)) > 0.001) return unknown;
+  const normal = sliceNormal(iop);
+  const axisOf = (vector: ReadonlyArray<number>) => vector.findIndex((value) => Math.abs(value) > 0.999);
+  const axis = axisOf(normal);
+  const rowAxis = axisOf(row);
+  const colAxis = axisOf(col);
+  if (axis < 0 || rowAxis < 0 || colAxis < 0) return { ...unknown, label: '斜切面 (Oblique)' };
+  const direction = (vector: ReadonlyArray<number>, index: number, sign: number) =>
+    (vector[index]! * sign > 0 ? ['L', 'P', 'S'] : ['R', 'A', 'I'])[index]!;
+  return {
+    label: ['矢状面 (Sagittal)', '冠状面 (Coronal)', '横断面 (Axial)'][axis]!,
+    top: direction(col, colAxis, -1), bottom: direction(col, colAxis, 1),
+    left: direction(row, rowAxis, -1), right: direction(row, rowAxis, 1),
+  };
+}
+
 /**
  * 切面法向 = row × col（右手系），与 core 排序管线是同一方向。
  * IOP 缺失或退化时返回单位 +Z，避免除零得到 NaN。

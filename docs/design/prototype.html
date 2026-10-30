@@ -403,6 +403,7 @@ html[data-state="empty"] .vp-placeholder{justify-content:flex-start;overflow-y:a
 :root{--header-h:50px}.header{padding:0 32px}.header .btn,.prototype-theme summary{font-size:16px;gap:9px}.header svg,.prototype-theme summary svg{width:20px;height:20px}.prototype-theme{position:relative}.prototype-theme summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none}.prototype-theme>div{position:absolute;top:36px;right:0;background:var(--bg-panel);border:1px solid var(--border-strong);padding:8px;z-index:60}
 .welcome-prototype{margin:0 auto}.welcome-prototype h1{font-size:40px;line-height:54px;margin:0 0 18px}.welcome-prototype>p:not(.welcome-prototype-divider){font-size:22px;line-height:33px;margin:0}.welcome-prototype>.btn{width:min(294px,100%);height:60px;margin:36px 0 0;font-size:20px;border-radius:10px;background:#066df0;gap:12px}.welcome-prototype>.btn svg{width:24px;height:24px}.welcome-prototype-divider{margin:32px 0 16px}
 html[data-state="empty"] .vp-placeholder{padding-top:86px}.welcome-prototype-samples{gap:30px}.welcome-prototype-samples button{width:174px}.welcome-prototype-samples .prototype-cover{display:block;width:100%;aspect-ratio:172/154;padding:0;background-image:url('../../packages/app-web/public/sample-covers/reference.png');background-size:339.534884% 151.948052%;background-repeat:no-repeat}.prototype-cover-brain{background-position:26.213592% 22.5%}.prototype-cover-chest{background-position:75.728155% 22.5%}.welcome-prototype-samples button>span:last-child{height:38px;box-sizing:border-box;padding:10px 6px;font-size:14px}
+.welcome-prototype-samples img.prototype-head-preview{width:100%;height:154px;object-fit:contain;background:var(--canvas-bg)}
 </style>
 </head>
 <body>
@@ -517,7 +518,7 @@ html[data-state="empty"] .vp-placeholder{padding-top:86px}.welcome-prototype-sam
         <div class="vp-placeholder" hidden data-when="empty">
           <div class="welcome-prototype"><h1>打开本地影像</h1><p>影像留在当前设备，无需上传</p>
           <button class="btn btn-primary"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 4h6l3 3h8v3H6l-3 9H2V6a2 2 0 0 1 1-2Zm4 7h16l-4 9H4Z"/></svg>打开影像文件夹</button><p class="welcome-prototype-divider">或者试试示例影像</p>
-          <div class="welcome-prototype-samples"><button class="btn" onclick="document.querySelector('[data-set=normal]').click()"><span class="prototype-cover prototype-cover-brain"></span><span>MR 脑部影像</span></button><button class="btn" onclick="document.querySelector('[data-set=normal]').click()"><span class="prototype-cover prototype-cover-chest"></span><span>CT 胸腹影像</span></button></div>
+          <div class="welcome-prototype-samples"><button class="btn" onclick="document.querySelector('[data-set=normal]').click()"><img class="prototype-head-preview" src="../../packages/app-web/public/sample-previews/brain-head-mr.png" alt="实际可载入的 ICBM152 完整头部矢状面预览"><span>MR 脑部影像</span></button><button class="btn" onclick="document.querySelector('[data-set=normal]').click()"><span class="prototype-cover prototype-cover-chest"></span><span>CT 胸腹影像</span></button></div>
           <div class="welcome-prototype-drop">拖放 DICOM 文件或 ZIP 到这里<br><small>文件夹请使用「打开影像文件夹」选择</small></div>
           <div class="welcome-prototype-steps"><span>① 打开影像</span><span>② 浏览序列</span><span>③ 调整视图</span></div></div>
         </div>

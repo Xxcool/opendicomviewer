@@ -1,0 +1,33 @@
+{
+  "name": "ICBM152 2009c average head, mid-sagittal T1",
+  "sourceUrl": "https://nist.mni.mcgill.ca/icbm-152-nonlinear-atlases-2009/",
+  "archiveUrl": "https://packages.bic.mni.mcgill.ca/mni-models/icbm152/mni_icbm152_nlin_asym_09c_nifti.zip",
+  "sourceFile": "mni_icbm152_t1_tal_nlin_asym_09c.nii",
+  "sourceSha256": "67fe8b2e8fed7fa318d293e79a31416f5b31d70f0330312f58125fcd3dde43a1",
+  "outputSha256": "b7a96d4e25b4aabfd67e614d0d8cb96b48e8e4e13dc39ecc58de6bf4fb7af718",
+  "derived": true,
+  "sourceMidlineX": 96,
+  "columns": 229,
+  "rows": 193,
+  "frames": 1,
+  "iopLps": [
+    0,
+    1,
+    0,
+    0,
+    0,
+    -1
+  ],
+  "ippLps": [
+    0,
+    -96,
+    114
+  ],
+  "pixelSpacing": [
+    1,
+    1
+  ],
+  "rescaleSlope": 0.001513414551,
+  "rescaleIntercept": 49.57891846,
+  "description": "Educational derived average-template image; not an individual patient scan."
+}

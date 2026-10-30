@@ -1,5 +1,14 @@
 [
   {
+    "id": "brain-head-mr",
+    "source": "sample-dicom/brain-head-mr/head-sagittal.dcm",
+    "sha256": "b7a96d4e25b4aabfd67e614d0d8cb96b48e8e4e13dc39ecc58de6bf4fb7af718",
+    "width": 229,
+    "height": 193,
+    "windowWidth": 100,
+    "windowCenter": 50
+  },
+  {
     "id": "brain-mr",
     "source": "sample-dicom/brain-mr/000018.dcm",
     "sha256": "c3c966d4d0affe7c09a943f2d7602ea256943dbd7310f06ca99da1139d5bb89a",

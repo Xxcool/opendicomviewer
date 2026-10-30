@@ -24,7 +24,7 @@ import {
   nextLayerIndex,
   parseLayerInput,
 } from './slice-navigation';
-import { sliceProjection } from './slice-geometry';
+import { describeSliceOrientation, sliceProjection } from './slice-geometry';
 import { WINDOW_PRESETS } from './window-presets';
 import { ScaleBar } from './ScaleBar';
 import { measureMmPerPx } from './scale-bar';
@@ -115,6 +115,8 @@ export function Viewport({
   const patientLabel = currentStudy?.patientName?.trim() || '未知患者';
   const patientIdLabel = currentStudy?.patientId?.trim() || '无编号';
 
+  const firstPlane = activeSeriesHandle?.meta.planes[0];
+  const orientation = describeSliceOrientation(firstPlane?.imageOrientationPatient, firstPlane?.hasMissingGeometry);
   const totalFrames = activeSeriesHandle?.meta.planes.length ?? 0;
   const showNav = hasSliceNavigation(totalFrames);
   const sliderDraggable = isDraggableSlider(totalFrames);
@@ -172,7 +174,7 @@ export function Viewport({
 
     const spacing = activeSeriesHandle?.meta.spacing?.[2];
     el.textContent =
-      `Z ${projection.toFixed(1)} mm` +
+      `位置 ${projection.toFixed(1)} mm` +
       (spacing === undefined ? '' : ` · ${spacing.toFixed(2)} mm/层`);
   };
 
@@ -388,7 +390,7 @@ export function Viewport({
         <div className="flex items-center gap-4 min-w-0">
           <span className="font-medium text-txt truncate">
             {activeSeriesHandle
-              ? `${activeSeriesHandle.meta.modality} · 横断面 (Axial)`
+              ? `${activeSeriesHandle.meta.modality} · ${orientation.label}`
               : '就绪'}
           </span>
 
@@ -543,7 +545,7 @@ export function Viewport({
                 （ref 节点会被 textContent 覆写，所以静态的层厚放在它外层） */}
             <div className="absolute bottom-3 right-3 text-right flex flex-col gap-0.5 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
               <div ref={posCornerRef} className="font-mono">
-                Z -- mm
+                位置 -- mm
               </div>
               {sliceThickness !== undefined && (
                 <div className="font-mono text-[10px] opacity-75">
@@ -552,19 +554,18 @@ export function Viewport({
               )}
             </div>
 
-            {/* 方位标记：轴位固定；放射学惯例——图像左侧为患者右侧
-                参考 DICOM Vision：四边中点，白色文字 + 投影 */}
+            {/* 方位来自有效 IOP；矢状面、冠状面和反向采集不能沿用固定轴位标记。 */}
             <span className="absolute top-1.5 left-1/2 -translate-x-1/2 font-semibold text-overlay/85 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
-              A
+              {orientation.top}
             </span>
             <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 font-semibold text-overlay/85 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
-              P
+              {orientation.bottom}
             </span>
             <span className="absolute left-2 top-1/2 -translate-y-1/2 font-semibold text-overlay/85 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
-              R
+              {orientation.left}
             </span>
             <span className="absolute right-2 top-1/2 -translate-y-1/2 font-semibold text-overlay/85 [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
-              L
+              {orientation.right}
             </span>
           </div>
         )}
