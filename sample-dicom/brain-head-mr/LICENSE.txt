@@ -20,7 +20,8 @@ VS Fonov et al. Unbiased nonlinear average age-appropriate brain templates from
 birth to adulthood. NeuroImage 47(Suppl 1), S102 (2009).
 DOI: 10.1016/S1053-8119(09)70884-5
 
-This distribution contains a derived single mid-sagittal plane from the ICBM152
-2009c average T1 template, converted to DICOM for an educational viewing example.
+This distribution contains a complete 193-slice axial volume and a mid-sagittal
+reference plane from the ICBM152 2009c average T1 template, converted to DICOM
+for an educational viewing example.
 No interpolation or new anatomy was generated. Original int16 voxel values and
 NIfTI intensity scaling are retained. It is not an individual patient scan.

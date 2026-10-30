@@ -1,4 +1,4 @@
-"""从公开 ICBM152 T1 模板导出中线矢状面教学 DICOM，不推测缺失几何。"""
+"""从公开 ICBM152 T1 模板导出连续轴位及中线矢状面，不推测缺失几何。"""
 import hashlib
 import json
 import math
@@ -98,6 +98,41 @@ def generate(source):
     output = ROOT / 'sample-dicom/brain-head-mr'
     output.mkdir(parents=True, exist_ok=True)
     (output / 'head-sagittal.dcm').write_bytes(result)
+    # 同一模板的完整轴位体积：x/y 反向得到 LPS +L/+P，z 自下而上为 +S。
+    # 不补层、不插值；中线参考图与三维序列可逐体素交叉核对。
+    axial_files = []
+    for z in range(nz):
+        axial_pixels = bytearray()
+        for y in range(ny - 1, -1, -1):
+            position = int(offset) + 2 * nx * (y + ny * z)
+            row = struct.unpack_from(f'<{nx}h', data, position)
+            axial_pixels.extend(struct.pack(f'<{nx}h', *reversed(row)))
+        axial_sop = uid(f'axial-sop-{z}')
+        overrides = {
+            (8, 0x18): ('UI', axial_sop),
+            (8, 0x103e): ('LO', 'ICBM152 Head - Axial volume (193 slices)'),
+            (8, 0x2111): ('ST', 'Complete axial volume from McGill ICBM152 2009c average T1 template; not a patient scan.'),
+            (0x20, 0x0e): ('UI', uid('axial-series')),
+            (0x20, 0x11): ('IS', '2'), (0x20, 0x13): ('IS', str(z + 1)),
+            (0x20, 0x32): ('DS', f'-96\\-96\\{z - 78}'),
+            (0x20, 0x37): ('DS', '1\\0\\0\\0\\1\\0'),
+            (0x28, 0x10): ('US', struct.pack('<H', ny)),
+            (0x28, 0x11): ('US', struct.pack('<H', nx)),
+            (0x7fe0, 0x10): ('OW', bytes(axial_pixels)),
+        }
+        axial_fields = [(g, t, *overrides.get((g, t), (vr, value)))
+                        for g, t, vr, value in fields]
+        axial_fields.append((0x18, 0x88, 'DS', '1'))
+        axial_meta = b''.join([
+            element(2, 1, 'OB', b'\0\1'), element(2, 2, 'UI', sop_class),
+            element(2, 3, 'UI', axial_sop), element(2, 0x10, 'UI', '1.2.840.10008.1.2.1'),
+            element(2, 0x12, 'UI', uid('implementation')),
+        ])
+        axial_result = bytes(128) + b'DICM' + element(2, 0, 'UL', struct.pack('<I', len(axial_meta))) + axial_meta
+        axial_result += b''.join(element(*field) for field in sorted(axial_fields, key=lambda f: f[:2]))
+        name = f'head-axial-{z:03d}.dcm'
+        (output / name).write_bytes(axial_result)
+        axial_files.append({'file': name, 'sha256': hashlib.sha256(axial_result).hexdigest()})
     (output / 'provenance.json').write_text(json.dumps({
         'name': 'ICBM152 2009c average head, mid-sagittal T1', 'sourceUrl': SOURCE_URL,
         'archiveUrl': ARCHIVE_URL, 'sourceFile': SOURCE_NAME, 'sourceSha256': source_sha,
@@ -107,8 +142,16 @@ def generate(source):
         'pixelSpacing': [1, 1], 'rescaleSlope': float(f'{slope:.10g}'),
         'rescaleIntercept': float(f'{intercept:.10g}'),
         'description': 'Educational derived average-template image; not an individual patient scan.',
+        'axialVolume': {
+            'seriesInstanceUid': uid('axial-series'),
+            'dimensions': [nx, ny, nz], 'spacing': [1, 1, 1],
+            'originLps': [-96, -96, -78], 'iopLps': [1, 0, 0, 0, 1, 0],
+            'description': 'Complete volume, no interpolation; first series on sample import.',
+            'files': axial_files,
+        },
     }, indent=2) + '\n')
     print('Generated', output / 'head-sagittal.dcm', len(result), 'bytes')
+    print('Generated', len(axial_files), 'continuous axial slices')
 
 
 if __name__ == '__main__':

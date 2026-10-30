@@ -44,7 +44,8 @@ export function MetadataPanel() {
           <Fact label="层间距">{meta?.spacing?.[2] !== undefined ? `${meta.spacing[2].toFixed(2)} mm` : null}</Fact>
         </dl></section>
         <section className="inspector-section"><h2>空间重建</h2>
-          <p className="inspector-note">{mprReason || (mprStatus.phase === 'ready' ? 'MPR 已就绪' : mprStatus.phase === 'building' ? 'MPR 构建中' : '可从工具条进入 MPR')}</p>
+          {mprReason ? <details><summary>MPR 不可用 · 查看原因</summary><p className="inspector-note">{mprReason}</p></details>
+            : <p className="inspector-note">{mprStatus.phase === 'ready' ? 'MPR 已就绪，可用十字准星与翻层联动定位' : mprStatus.phase === 'building' ? 'MPR 构建中' : '在工具栏选择 2×2 或 1+3，进入 MPR 三视图与十字准星联动'}</p>}
         </section>
         <section className="inspector-section"><h2>操作提示</h2><dl className="shortcut-list">
           <Fact label="滚轮 / Shift+滚轮">逐层 / 跨 10 层</Fact><Fact label="右键 / Shift+左键">调窗</Fact>

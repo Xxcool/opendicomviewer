@@ -76,7 +76,7 @@ pnpm --filter @opendicomviewer/app-web preview
 
 ### 完整头部教学示例
 
-欢迎页的「MR 脑部影像」现在实际载入 `sample-dicom/brain-head-mr/head-sagittal.dcm`：从 [McGill ICBM152 2009c 平均 T1 头部模板](https://nist.mni.mcgill.ca/icbm-152-nonlinear-atlases-2009/) 导出的中线矢状面，包含完整颅脑轮廓。预览 PNG 来自同一份 DICOM。它是单层教学模板，不是个人原始检查，不提供完整体积 MPR。原有 36 帧 MR 仍可从顶部「示例」载入全部后选择。
+欢迎页的「MR 脑部影像」载入 [McGill ICBM152 2009c 平均 T1 头部模板](https://nist.mni.mcgill.ca/icbm-152-nonlinear-atlases-2009/) 派生的 **193 层连续轴位序列**，可在工具栏选择 **2×2 / 1+3**，使用现有 MPR 十字准星和翻层联动。数据集还包含一张中线矢状面参考图，欢迎页的人头预览来自这张图；单独选择参考图时不支持 MPR。这是平均教学模板，不是个人原始检查。原有 36 帧 MR 仍保留，但实测网格不连续，不能用作 MPR 演示。
 
 来源、许可、派生方法和哈希见该目录的 `README.md`、`LICENSE.txt` 与 `provenance.json`。重现步骤：
 
