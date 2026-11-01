@@ -4,7 +4,7 @@ import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
 import { useViewerStore } from '../state/viewer-store';
 import { LAYOUTS, SPLIT_PANES, type PaneSpec } from '../layout/viewport-layouts';
 import { MprPane, type MprPaneHandle } from './MprPane';
-import { describeSliceOrientation } from './slice-geometry';
+import { describeSeriesImages } from './image-presentation';
 import { blocksViewerShortcut, CAMERA_CHANGED, notifyCameraChanged } from './viewport-gestures';
 import { parseLayerInput, queueLayerNavigation, type LayerRequest } from './slice-navigation';
 import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
@@ -28,6 +28,7 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
   const ready = !!handle && status.handle === handle && status.phase === 'ready';
   const readyRef = useRef(false); readyRef.current = ready;
   const count = handle?.meta.planes.length ?? 0;
+  const imageInfo = describeSeriesImages(handle?.meta);
   const current = () => live.current && !!handle && useViewerStore.getState().splitSeries[pane.viewportId] === handle;
   const error = (err: unknown) => useViewerStore.getState().setImportStatus({ loading: false,
     error: `${pane.shortTitle}：${err instanceof Error ? err.message : String(err)}` });
@@ -42,10 +43,20 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
   };
   const navigate = (request: LayerRequest) => {
     if (!readyRef.current) return;
+    const windowRequest = ++autoRequest.current;
     queueLayerNavigation({ request, total: count, isCurrent: current,
       readIndex: () => renderer.currentSliceIndex(pane.viewportId),
       enqueue: task => { chain.current = chain.current.catch(() => undefined).then(task).catch(err => { if (current()) error(err); }); },
-      apply: async (_from, to) => { await renderer.setStackIndex(pane.viewportId, to); if (current()) paint(); },
+      apply: async (_from, to) => {
+        await renderer.setStackIndex(pane.viewportId, to);
+        if (handle && current() && imageInfo.nonVolumetric) {
+          const frame = await handle.pixel(to);
+          if (!current()) return;
+          renderer.resetView(pane.viewportId);
+          if (windowRequest === autoRequest.current) renderer.setVOI(pane.viewportId, pickAdaptiveVOI(frame).voi);
+        }
+        if (current()) paint();
+      },
     });
   };
   const preset = (voi: VOIRange, name: string) => {
@@ -88,8 +99,8 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
     return () => window.removeEventListener(CAMERA_CHANGED, changed);
   }, [handle, renderer]);
   const registerHud = useCallback((_id: string, value: MprPaneHandle | null) => { hud.current = value; }, []);
-  const measure = useCallback((id: string, w: number, h: number) => handle ? measureMmPerPx(renderer, id, w, h) : null, [renderer, handle]);
-  const orientation = describeSliceOrientation(handle?.meta.planes[0]?.imageOrientationPatient, handle?.meta.planes[0]?.hasMissingGeometry);
+  const measure = useCallback((id: string, w: number, h: number) => imageInfo.physicalScale ? measureMmPerPx(renderer, id, w, h) : null, [renderer, imageInfo.physicalScale]);
+  const orientation = imageInfo.orientation;
   const study = useViewerStore(state => state.studies.find(item => item.studyInstanceUid === handle?.meta.studyInstanceUid));
   const activate = () => { const state = useViewerStore.getState(); if (state.activeViewportId !== pane.viewportId) state.setActiveViewportId(pane.viewportId); };
   return <MprPane spec={{ ...pane, title: `${pane.shortTitle}${handle ? ` · ${orientation.label}` : ' · 空'}` }} active={active} selectable

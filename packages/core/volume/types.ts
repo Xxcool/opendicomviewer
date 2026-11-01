@@ -40,6 +40,7 @@ export interface VolumeWindow {
 }
 
 export type VolumeRejectCode =
+  | 'NON_VOLUMETRIC_SERIES'
   | 'INSUFFICIENT_SLICES'
   | 'MISSING_GEOMETRY'
   | 'OBLIQUE_ORIENTATION'

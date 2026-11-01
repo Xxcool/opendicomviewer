@@ -35,3 +35,5 @@ test-results/
 
 # Tauri build
 src-tauri/target/
+**/src-tauri/target/
+**/src-tauri/gen/

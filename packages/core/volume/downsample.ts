@@ -12,6 +12,7 @@
 import type { PixelFrame, SeriesMeta } from '../domain/types';
 import { rawToHU, voiToRange } from '../pipeline/lut';
 import { computeNormal } from '../pipeline/sort';
+import { isNonVolumetricSeries } from '../pipeline/image-kind';
 import type { Vec3 } from '../pipeline/vector3';
 import { validateVolumeGrid } from './geometry';
 import type {
@@ -73,6 +74,9 @@ export function planVolumeDownsample(
   meta: SeriesMeta,
   options: VolumePlanOptions = {},
 ): VolumePlanResult {
+  if (isNonVolumetricSeries(meta.planes)) {
+    return reject('NON_VOLUMETRIC_SERIES', '定位像或二次采集图像支持二维浏览，不用于断层体积重建（MPR）');
+  }
   const maxDim = Math.max(1, Math.floor(options.maxDim ?? VOLUME_MAX_DIM));
   const maxTiltDeg = options.maxTiltDeg ?? MAX_VOLUME_TILT_DEG;
   const planeCount = meta.planes.length;

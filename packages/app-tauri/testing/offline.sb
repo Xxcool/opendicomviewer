@@ -1,0 +1,4 @@
+(version 1)
+(allow default)
+; 仅用于本机离线烟测，不改变系统网络设置。
+(deny network-outbound)

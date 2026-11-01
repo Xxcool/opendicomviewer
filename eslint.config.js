@@ -113,6 +113,8 @@ export default tseslint.config(
       '**/dist/**',
       '**/.pnpm-store/**',
       '**/build/**',
+      '**/src-tauri/target/**',
+      '**/src-tauri/gen/**',
     ],
   },
 );

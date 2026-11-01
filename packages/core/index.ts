@@ -9,6 +9,7 @@ export * from './domain/types';
 export * from './ports/index';
 export * from './pipeline/vector3';
 export * from './pipeline/sort';
+export * from './pipeline/image-kind';
 export * from './pipeline/lut';
 export * from './volume/index';
 export * from './testing/phantom';

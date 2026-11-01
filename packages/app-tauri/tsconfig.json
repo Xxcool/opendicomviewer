@@ -1,0 +1,4 @@
+{
+  "extends": "../app-web/tsconfig.json",
+  "include": ["src/**/*", "tests/**/*", "vite.config.ts", "../adapters/source-local/src/dicom-parser.d.ts", "../adapters/codec-wasm/src/jpeg-lossless-decoder-js.d.ts"]
+}

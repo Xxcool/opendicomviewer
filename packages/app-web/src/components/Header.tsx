@@ -4,14 +4,19 @@ import { fileToImportCandidate } from '../bridge/candidate';
 import { useViewerStore } from '../state/viewer-store';
 import { BookOpenIcon, FileIcon, FolderIcon, MoonIcon, SettingsIcon, SpinnerIcon, SunIcon } from './Icons';
 import { SettingsDialog } from './SettingsDialog';
+import { PROJECT_REPOSITORY_URL } from '../bridge/project-links';
+import { GitHubIcon } from './Icons';
 
 interface HeaderProps {
   readonly onImportCandidates: (candidates: readonly ImportCandidate[]) => void;
   readonly onLoadSample: (datasetId?: string) => void;
   readonly onCancelImport: () => void;
+  readonly onOpenFolder?: () => void;
+  readonly onOpenFiles?: () => void;
+  readonly onOpenProject?: () => void;
 }
 
-export function Header({ onImportCandidates, onLoadSample, onCancelImport }: HeaderProps) {
+export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpenFolder, onOpenFiles, onOpenProject }: HeaderProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { importStatus, theme, setTheme } = useViewerStore();
@@ -47,17 +52,20 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport }: Hea
         <span className="workspace-brand-name" aria-hidden="true">OpenDicomViewer</span>
       </div>
       <span className="header-divider" aria-hidden="true" />
-      <input id="odv-folder-input" ref={folderInputRef} type="file" multiple hidden onChange={selected} />
-      <input id="odv-file-input" ref={fileInputRef} type="file" multiple hidden onChange={selected} />
+      {!onOpenFolder && <input id="odv-folder-input" ref={folderInputRef} type="file" multiple hidden onChange={selected} />}
+      {!onOpenFiles && <input id="odv-file-input" ref={fileInputRef} type="file" multiple hidden onChange={selected} />}
       {importStatus.loading ? <button className="workspace-control cancel-import" onClick={onCancelImport}>
         <SpinnerIcon />取消导入</button> : <>
-        <button className="workspace-control" onClick={() => folderInputRef.current?.click()}><FolderIcon />打开文件夹</button>
-        <button className="workspace-control" onClick={() => fileInputRef.current?.click()}><FileIcon />打开文件</button>
+        <button className="workspace-control" onClick={() => onOpenFolder ? onOpenFolder() : folderInputRef.current?.click()}><FolderIcon />打开文件夹</button>
+        <button className="workspace-control" onClick={() => onOpenFiles ? onOpenFiles() : fileInputRef.current?.click()}><FileIcon />打开文件</button>
         <span className="header-divider" aria-hidden="true" />
         <button className="workspace-control" onClick={() => onLoadSample()}><BookOpenIcon />示例</button>
       </>}
     </nav>
     <div className="workspace-header-preferences">
+      <a className="workspace-control github-link" href={PROJECT_REPOSITORY_URL} target="_blank" rel="noopener noreferrer"
+        aria-label="打开 GitHub 项目仓库（外部链接）" title="GitHub · OpenDicomViewer"
+        onClick={event => { if (onOpenProject) { event.preventDefault(); onOpenProject(); } }}><GitHubIcon /></a>
       <button className="workspace-control" title="设置（Ctrl/⌘+,）" onClick={() => setSettingsOpen(true)}><SettingsIcon aria-hidden="true" />设置</button>
       <span className="header-divider" aria-hidden="true" />
       <button type="button" className="workspace-control"
@@ -67,7 +75,6 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport }: Hea
         {theme === 'dark' ? <SunIcon aria-hidden="true" /> : <MoonIcon aria-hidden="true" />}
         <span>{theme === 'dark' ? '浅色' : '深色'}</span>
       </button>
-
     </div>
     {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
   </header>;

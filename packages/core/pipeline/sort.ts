@@ -12,6 +12,7 @@
 
 import type { DataWarning, ImagePlane } from '../domain/types';
 import { cross, dot, normalize } from './vector3';
+import { isNonVolumetricSeries } from './image-kind';
 
 export interface SortResult {
   readonly sortedPlanes: readonly ImagePlane[];
@@ -114,6 +115,16 @@ interface ProjectablePlane {
  * 基于物理坐标投影对切片进行排序与几何校验
  */
 export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
+  // 定位像/SC 不是断层体积。保留全部原图，绝不拿占位 IOP 判断朝向冲突。
+  // 只有二维导入顺序，不赋予层间距意义；MPR 规划会显式拒绝这类序列。
+  if (isNonVolumetricSeries(planes)) {
+    return {
+      sortedPlanes: [...planes], excludedPlanes: [], sliceDistances: [], expectedSpacing: 1,
+      warnings: [{ code: 'NON_VOLUMETRIC_SERIES', severity: 'info',
+        message: `序列含定位像或二次采集图像，全部 ${planes.length} 帧按导入顺序二维浏览；不作为断层体积进行 MPR`,
+      }],
+    };
+  }
   const [firstPlane] = planes;
   if (!firstPlane) {
     return {

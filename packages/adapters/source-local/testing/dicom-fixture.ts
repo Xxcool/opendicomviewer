@@ -28,6 +28,7 @@ export interface DicomFixtureOptions {
   readonly imagePositionPatient?: [number, number, number];
   readonly imageOrientationPatient?: [number, number, number, number, number, number];
   readonly pixelSpacing?: [number, number];
+  readonly omitPixelSpacing?: boolean;
   readonly rows?: number;
   readonly columns?: number;
   readonly transferSyntaxUid?: string;
@@ -365,9 +366,11 @@ export function buildDicomBuffer(options: DicomFixtureOptions = {}): Uint8Array 
 
   // (0028,0030) Pixel Spacing
   const ps = options.pixelSpacing ?? [0.7, 0.7];
-  dsElements.push(
-    ...encodeElement(0x0028, 0x0030, 'DS', stringToBytes(`${ps[0]}\\${ps[1]}`)),
-  );
+  if (!options.omitPixelSpacing) {
+    dsElements.push(
+      ...encodeElement(0x0028, 0x0030, 'DS', stringToBytes(`${ps[0]}\\${ps[1]}`)),
+    );
+  }
 
   // Image Pixel 模块：仅在提供像素数据时写入，避免影响纯元数据用例
   if (options.pixelData || options.encapsulatedPixelData) {

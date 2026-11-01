@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "本地阅片窗口可订阅文件选择结果；仅允许用户点击打开固定 GitHub 仓库链接，无任意 URL 或文件打开权限。",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/Xxcool/opendicomviewer"
+        }
+      ]
+    }
+  ]
+}

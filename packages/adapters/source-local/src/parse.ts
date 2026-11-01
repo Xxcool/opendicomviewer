@@ -102,10 +102,10 @@ export function parseDicomMetadata(
       ]
     : [1, 0, 0, 0, 1, 0];
 
-  const psFloats = parseFloats(dataSet.string('x00280030'), 2) ?? [1.0, 1.0];
+  const psFloats = parseFloats(dataSet.string('x00280030'), 2);
   const pixelSpacing: [number, number] = [
-    psFloats[0] ?? 1.0,
-    psFloats[1] ?? 1.0,
+    psFloats?.[0] ?? 1.0,
+    psFloats?.[1] ?? 1.0,
   ];
 
   // N1: 解析 ModalityLUTSequence (0028,3002)
@@ -136,6 +136,9 @@ export function parseDicomMetadata(
   }
 
   const plane: ImagePlane = {
+    sopClassUid: dataSet.string('x00080016'),
+    imageType: dataSet.string('x00080008')?.split('\\').map(value => value.trim().toUpperCase()),
+    hasMissingPixelSpacing: !psFloats,
     imageId: candidate.id,
     sopInstanceUid,
     instanceNumber: dataSet.intString('x00200013'),

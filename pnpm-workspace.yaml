@@ -2,6 +2,7 @@ packages:
   - 'packages/core'
   - 'packages/adapters/*'
   - 'packages/app-web'
+  - 'packages/app-tauri'
 
 allowBuilds:
   esbuild: true

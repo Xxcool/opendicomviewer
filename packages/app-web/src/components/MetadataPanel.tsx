@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { planVolumeDownsample, type RenderBackendType } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
 import { countBySeverity, sortBySeverity, warningBoxClass } from './warning-presentation';
+import { describeSeriesImages } from './image-presentation';
 
 const BACKEND_LABEL: Record<RenderBackendType, string> = { webgl2: 'WebGL2', webgpu: 'WebGPU', cpu: 'CPU 软件渲染' };
 function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -17,6 +18,7 @@ export function MetadataPanel() {
   const study = studies.find((item) => item.studyInstanceUid === activeStudyUid);
   const meta = activeSeriesHandle?.meta;
   const matrix = meta?.planes[0];
+  const imageInfo = describeSeriesImages(meta);
   const counts = countBySeverity(warnings);
   return <aside className="inspector-panel" aria-label="影像详情">
     <div className="inspector-tabs" role="tablist" aria-label="详情分类" onKeyDown={(event) => {
@@ -40,8 +42,10 @@ export function MetadataPanel() {
         <section className="inspector-section"><h2>当前序列</h2><dl>
           <Fact label="序列">{meta?.seriesDescription}</Fact><Fact label="模态">{meta?.modality}</Fact>
           <Fact label="帧数">{meta?.planes.length}</Fact><Fact label="矩阵">{matrix ? `${matrix.columns} × ${matrix.rows}` : null}</Fact>
-          <Fact label="像素间距">{meta?.spacing ? `${meta.spacing[0].toFixed(2)} × ${meta.spacing[1].toFixed(2)} mm` : null}</Fact>
-          <Fact label="层间距">{meta?.spacing?.[2] !== undefined ? `${meta.spacing[2].toFixed(2)} mm` : null}</Fact>
+          <Fact label="影像类型">{imageInfo.nonVolumetric ? '定位像 / 二次采集（二维）' : matrix?.imageType?.join(' / ')}</Fact>
+          <Fact label="像素间距">{imageInfo.pixelSpacing}</Fact>
+          <Fact label="层厚">{matrix?.sliceThickness !== undefined ? `${matrix.sliceThickness.toFixed(2)} mm` : undefined}</Fact>
+          <Fact label="层间距">{imageInfo.layerSpacing}</Fact>
         </dl></section>
         <section className="inspector-section"><h2>空间重建</h2>
           {mprReason ? <details><summary>MPR 不可用 · 查看原因</summary><p className="inspector-note">{mprReason}</p></details>

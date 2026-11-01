@@ -2,7 +2,7 @@
 
 > "像看照片一样看 CT —— 纯本地运行，守护每位患者的隐私。"
 
-[![CI](https://github.com/opendicomviewer/opendicomviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/opendicomviewer/opendicomviewer/actions/workflows/ci.yml)
+[GitHub 项目仓库](https://github.com/Xxcool/opendicomviewer)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 ---

@@ -64,6 +64,7 @@ const BADGE_LABEL: Record<DataWarning['code'], string> = {
   ORIENTATION_MISMATCH: '⚠ 朝向不一致',
   NON_AXIAL_ORIENTATION: '⚠ 非轴位',
   MISSING_GEOMETRY: '⚠ 几何缺失',
+  NON_VOLUMETRIC_SERIES: '二维影像',
   BURNED_IN_INFO: '⚠ 含烧录信息',
   UNSUPPORTED_TRANSFER_SYNTAX: '⚠ 语法不支持',
   DECODE_PARTIAL_FAILURE: '⚠ 部分解码失败',

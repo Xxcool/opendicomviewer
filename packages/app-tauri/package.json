@@ -1,0 +1,26 @@
+{
+  "name": "@opendicomviewer/app-tauri",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenDicomViewer Tauri 2 desktop validation shell",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node testing/check-bundle.mjs",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build --bundles app",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opendicomviewer/core": "workspace:*",
+    "@tauri-apps/api": "2.12.4",
+    "@tauri-apps/plugin-opener": "^2.7.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "typescript": "~5.7.3",
+    "vite": "^7.3.7"
+  }
+}

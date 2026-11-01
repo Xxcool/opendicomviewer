@@ -34,6 +34,18 @@ function createPlane(
 }
 
 describe('sortByPosition 几何与层序排序', () => {
+  it('定位像与无几何 SC 保留原始二维顺序，不拿占位方向误报冲突', () => {
+    const planes = [
+      createPlane(20, 9, { imageType: ['ORIGINAL', 'PRIMARY', 'LOCALIZER'], imageOrientationPatient: SAGITTAL_IOP }),
+      createPlane(0, 1, { sopClassUid: '1.2.840.10008.5.1.4.1.1.7', hasMissingGeometry: true }),
+    ];
+    const result = sortByPosition(planes);
+    expect(result.sortedPlanes).toEqual(planes);
+    expect(result.excludedPlanes).toEqual([]);
+    expect(result.sliceDistances).toEqual([]);
+    expect(result.warnings.map(warning => [warning.code, warning.severity])).toEqual([['NON_VOLUMETRIC_SERIES', 'info']]);
+  });
+
   it('R3：严禁用 InstanceNumber 排序，必须以 IPP 沿法向投影物理坐标为准', () => {
     // 模拟 InstanceNumber 颠倒混乱，基准层厚 10mm
     const planes = [

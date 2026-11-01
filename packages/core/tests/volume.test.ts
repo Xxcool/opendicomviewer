@@ -75,6 +75,14 @@ function createFrame(values: number[], width: number, height: number): PixelFram
 }
 
 describe('planVolumeDownsample 几何规划', () => {
+  it.each([
+    { imageType: ['ORIGINAL', 'PRIMARY', 'LOCALIZER'] },
+    { sopClassUid: '1.2.840.10008.5.1.4.1.1.7' },
+  ])('几何完整且数量足够的定位像/SC 仍不能冒充断层体积：%j', planeOverrides => {
+    const result = planVolumeDownsample(createMeta({ slices: 3, planeOverrides }));
+    expect(result).toMatchObject({ ok: false, code: 'NON_VOLUMETRIC_SERIES' });
+  });
+
   it('512×512×300 按整数因子 2 降采样到 256×256×150，间距同比放大', () => {
     const meta = createMeta({ slices: 300, spacing: [0.7, 0.7, 2.0] });
     const result = planVolumeDownsample(meta);

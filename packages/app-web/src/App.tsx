@@ -20,8 +20,9 @@ import { useViewerStore } from './state/viewer-store';
 import { LAYOUTS, type LayoutMode } from './layout/viewport-layouts';
 import { WorkspaceToolbar } from './components/WorkspaceToolbar';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
+import type { HostFilePicker } from './bridge/host-file-picker';
 
-export function App() {
+export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; openProject?: () => Promise<void> }) {
   // 压缩像素解码器由组合根注入；重解码库本身在 PixelCodec 内部按需动态加载
   const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
@@ -63,6 +64,25 @@ export function App() {
     cancel: cancelImport,
     confirmPendingFailures,
   } = useImportFlow(dataSource);
+
+  const openLocal = (mode: 'files' | 'folder') => {
+    if (!filePicker) {
+      document.getElementById(mode === 'folder' ? 'odv-folder-input' : 'odv-file-input')?.click();
+      return;
+    }
+    void filePicker.pick(mode).then(files => { if (files.length) return importCandidates(files); })
+      .catch(error => setImportStatus({ loading: false, error: `打开本地影像失败：${error instanceof Error ? error.message : String(error)}` }));
+  };
+  useEffect(() => {
+    if (!filePicker) return;
+    let cancelled = false;
+    let stop: (() => void) | undefined;
+    void filePicker.subscribe(files => { if (!cancelled) void importCandidates(files); },
+      error => { if (!cancelled) setImportStatus({ loading: false, error }); })
+      .then(unsubscribe => { if (cancelled) unsubscribe(); else stop = unsubscribe; })
+      .catch(error => { if (!cancelled) setImportStatus({ loading: false, error: `原生文件导入初始化失败：${String(error)}` }); });
+    return () => { cancelled = true; stop?.(); };
+  }, [filePicker, importCandidates, setImportStatus]);
 
   // 渲染器生命周期上提至 App 组合根，确保 StrictMode 双调用下安全重建 (P0-1)
   useEffect(() => {
@@ -150,6 +170,8 @@ export function App() {
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
+    // 桌面拖入由 Rust 取得路径并授权，不能退回浏览器 File API 绕开原生读取契约。
+    if (filePicker) return;
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
     void importCandidates(files.map(fileToImportCandidate));
@@ -166,6 +188,9 @@ export function App() {
         onImportCandidates={importCandidates}
         onLoadSample={loadSample}
         onCancelImport={cancelImport}
+        onOpenFolder={filePicker ? () => openLocal('folder') : undefined}
+        onOpenFiles={filePicker ? () => openLocal('files') : undefined}
+        onOpenProject={openProject ? () => { void openProject().catch(() => setImportStatus({ loading: false, error: '无法打开 GitHub 仓库，请检查系统浏览器设置' })); } : undefined}
       />
 
       {hasWorkspace && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
@@ -268,8 +293,8 @@ export function App() {
                 renderer={renderer}
                 viewportId="default-viewport"
                 onLoadSample={loadSample}
-                onOpenFolder={() => document.getElementById('odv-folder-input')?.click()}
-                onOpenFiles={() => document.getElementById('odv-file-input')?.click()}
+                onOpenFolder={() => openLocal('folder')}
+                onOpenFiles={() => openLocal('files')}
               />
             ) : layoutMode === 'split-2x2' && renderer ? (
               <SplitWorkspace renderer={renderer} session={splitNavigation} />

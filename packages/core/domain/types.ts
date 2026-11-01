@@ -28,6 +28,12 @@ export interface ModalityLUT {
 }
 
 export interface ImagePlane {
+  /** SOP 类 (0008,0016)，区分原始断层与二次采集图像。 */
+  readonly sopClassUid?: string;
+  /** 图像类型 (0008,0008)，保留多值位置；第三值 LOCALIZER 表示定位像。 */
+  readonly imageType?: readonly string[];
+  /** 缺失像素间距时，内部显示网格的占位间距不得用于物理标尺或测量。 */
+  readonly hasMissingPixelSpacing?: boolean;
   /** 唯一标识符或文件 URI */
   readonly imageId: string;
   /** 切片 SOP Instance UID（脱敏或原始） */
@@ -86,6 +92,7 @@ export interface DataWarning {
     | 'ORIENTATION_MISMATCH'
     | 'NON_AXIAL_ORIENTATION'
     | 'MISSING_GEOMETRY'
+    | 'NON_VOLUMETRIC_SERIES'
     | 'BURNED_IN_INFO'
     | 'UNSUPPORTED_TRANSFER_SYNTAX'
     | 'DECODE_PARTIAL_FAILURE';
@@ -114,7 +121,7 @@ export interface SeriesMeta {
    * （此字段代表整条序列的呈现帧总数，与单个 DICOM 物理文件内的 (0028,0008) NumberOfFrames 区分）。
    */
   readonly numberOfFrames: number;
-  /** 经过 IPP 投影排好序的切片列表（严禁依赖 InstanceNumber 排序） */
+  /** 断层按 IPP 投影排序；含定位像/SC 的非重建序列保留导入顺序，不推断空间层序。 */
   readonly planes: readonly ImagePlane[];
   /** 因朝向冲突或其他严重几何不一致而被排除的切片列表（S5） */
   readonly excludedPlanes?: readonly ImagePlane[];

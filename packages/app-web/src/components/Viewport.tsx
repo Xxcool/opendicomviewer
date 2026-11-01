@@ -24,7 +24,8 @@ import {
   nextLayerIndex,
   parseLayerInput,
 } from './slice-navigation';
-import { describeSliceOrientation, sliceProjection } from './slice-geometry';
+import { sliceProjection } from './slice-geometry';
+import { describeSeriesImages } from './image-presentation';
 import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
 import { ScaleBar } from './ScaleBar';
 import { measureMmPerPx } from './scale-bar';
@@ -116,16 +117,16 @@ export function Viewport({
   const patientLabel = currentStudy?.patientName?.trim() || '未知患者';
   const patientIdLabel = currentStudy?.patientId?.trim() || '无编号';
 
-  const firstPlane = activeSeriesHandle?.meta.planes[0];
-  const orientation = describeSliceOrientation(firstPlane?.imageOrientationPatient, firstPlane?.hasMissingGeometry);
+  const imageInfo = describeSeriesImages(activeSeriesHandle?.meta);
+  const orientation = imageInfo.orientation;
   const totalFrames = activeSeriesHandle?.meta.planes.length ?? 0;
   const showNav = hasSliceNavigation(totalFrames);
   const sliderDraggable = isDraggableSlider(totalFrames);
   /** 比例尺：用画布中心两点反算 mm/px；序列未装载时返回 null → 显示「无物理标尺」 */
   const measureScale = useCallback(
     (width: number, height: number) =>
-      measureMmPerPx(renderer, viewportId, width, height),
-    [renderer, viewportId],
+      imageInfo.physicalScale ? measureMmPerPx(renderer, viewportId, width, height) : null,
+    [renderer, viewportId, imageInfo.physicalScale],
   );
   /**
    * 层厚取首帧：它是重建参数，同一序列各帧共用。
@@ -161,6 +162,10 @@ export function Viewport({
     if (!el) return;
     if (!plane) {
       el.textContent = '--';
+      return;
+    }
+    if (imageInfo.nonVolumetric) {
+      el.textContent = '二维影像 · 层间距不适用';
       return;
     }
     if (plane.hasMissingGeometry) {
@@ -365,6 +370,7 @@ export function Viewport({
       return;
     }
     currentSliceIndexRef.current = target;
+    const windowRequest = ++autoPresetRequest.current;
     if (sliceTextRef.current) {
       sliceTextRef.current.textContent = `层数 ${target + 1} / ${total}`;
     }
@@ -373,6 +379,18 @@ export function Viewport({
     navigationRef.current = navigationRef.current.catch(() => undefined).then(async () => {
       if (useViewerStore.getState().activeSeriesHandle !== series) return;
       await renderer.setStackIndex(viewportId, target);
+      // 定位像与 SC 可使用不同灰度单位/显示间距，每张图按自身文件窗与尺寸显示。
+      if (series && imageInfo.nonVolumetric) {
+        const frame = await series.pixel(target);
+        if (useViewerStore.getState().activeSeriesHandle !== series) return;
+        const { voi } = pickAdaptiveVOI(frame);
+        renderer.resetView(viewportId);
+        defaultVoiRef.current = voi;
+        if (windowRequest === autoPresetRequest.current) {
+          renderer.setVOI(viewportId, voi);
+          syncVoiUi(voi, '自动');
+        }
+      }
     }).catch((error: unknown) => setImportStatus({ loading: false,
       error: `切片切换失败：${error instanceof Error ? error.message : String(error)}` }));
   };
