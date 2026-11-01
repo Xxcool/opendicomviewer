@@ -77,7 +77,7 @@ Phase 0 没有完整验收就进入业务开发，与原计划“先验证”的
 | Tauri 空壳、打包、签名、更新与安装分发 | macOS 壳与本地 Range 已实现，Debug/Release 已启动；多视口绘制验收未过，签名/更新/文件关联未交付 | Phase 2 验证壳 / Phase 3 交付，E1、E16 |
 | 光盘快速索引、既往检查匹配及对比阅片工作流 | 未开始；独立并排显示只是基础能力 | Phase 3，E1、E6 |
 | PS3.15 白名单脱敏、UID 一致映射、隐私审计、脱敏导出 | 未开始；当前一律保守提示“含身份信息” | Phase 3，E7 |
-| PNG/测量数据导出及水印/用途声明 | 未找到用户可用导出链路；已补 [导出格式与交互计划](EXPORT_PLAN.md)，按 PNG/JPEG、JSON/CSV、PDF/ZIP 分增量 | E1 §2/§9、E7、E8 |
+| PNG/测量数据导出及水印/用途声明 | 未找到用户可用导出链路；已补 [导出格式与交互计划](EXPORT_PLAN.md)，主范围为 PNG、DICOM、DICOM SR、DICOM GSPS；JPEG 可选、JSON 用于内部保存恢复，CSV/PDF 后置 | E1 §2/§9、E7、E8 |
 | 基础体绘制、高质量体绘制 | 未开始；高质量方案需要单独评估，不按普通按钮增量估计 | Phase 4，E1 |
 | PET-CT 融合、配准范围、本地 ONNX 预标注 | 未开始；配准策略尚未决定 | Phase 4 / 附录 D Q5，E1 |
 | DICOMweb WADO-RS/QIDO-RS、插件网关 | 未开始 | Phase 5，E1 |
