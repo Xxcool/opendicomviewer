@@ -30,12 +30,13 @@ export interface MprPaneHandle {
 export interface MprPaneProps {
   readonly spec: PaneSpec;
   readonly active: boolean;
+  readonly selectable?: boolean;
   readonly totalSlices: number;
   readonly modality: string;
   readonly seriesDescription?: string;
   /** 显式状态：构建中/失败/未就绪，禁止用黑色画面代替说明（R7） */
   readonly notice?: string;
-  readonly noticeKind?: 'info' | 'error';
+  readonly noticeKind?: 'info' | 'error' | 'empty';
   readonly windowingEnabled: boolean;
   readonly onActivate: () => void;
   readonly onStep: (delta: number) => void;
@@ -59,6 +60,7 @@ const PAGE_STEP = 10;
 export function MprPane({
   spec,
   active,
+  selectable = false,
   totalSlices,
   modality,
   seriesDescription,
@@ -169,6 +171,11 @@ export function MprPane({
   return (
     <div
       ref={rootRef}
+      role={selectable ? 'group' : undefined}
+      aria-label={selectable ? spec.shortTitle : undefined}
+      tabIndex={selectable ? 0 : undefined}
+      onFocus={selectable ? onActivate : undefined}
+      onPointerDownCapture={selectable ? onActivate : undefined}
       data-tool={activeTool}
       data-odv-pane={spec.viewportId}
       style={{ gridArea: spec.gridArea }}
@@ -181,7 +188,7 @@ export function MprPane({
         <span className="text-[12px] font-semibold text-overlay truncate">
           {spec.title}
         </span>
-        <span className="text-[10px] text-overlay/70 truncate">
+        <span title={seriesDescription} className="text-[10px] text-overlay/70 truncate">
           {modality}
           {seriesDescription ? ` · ${seriesDescription}` : ''}
         </span>
@@ -227,7 +234,7 @@ export function MprPane({
 
       {/* 构建/失败状态：显式覆盖层，绝不用黑屏代替说明 */}
       {notice && (
-        <div className="absolute inset-0 flex items-center justify-center p-4 pointer-events-none">
+        <div className={`absolute inset-0 flex items-center justify-center p-4 pointer-events-none ${selectable ? 'bg-canvas' : ''}`}>
           <div
             className={`max-w-[85%] rounded-md border px-3 py-2 text-center text-[11px] leading-relaxed backdrop-blur-xs ${
               noticeKind === 'error'

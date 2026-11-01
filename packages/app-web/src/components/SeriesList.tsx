@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   DataSourcePort,
   DataWarning,
@@ -22,6 +22,7 @@ export function SeriesList({ dataSource }: SeriesListProps) {
     warnings: activeWarnings,
   } = useViewerStore();
 
+  const selectionRequest = useRef(0);
   const [seriesList, setSeriesList] = useState<readonly SeriesSummary[]>([]);
   const [switchingSeriesUid, setSwitchingSeriesUid] = useState<string | null>(
     null,
@@ -148,34 +149,36 @@ export function SeriesList({ dataSource }: SeriesListProps) {
   };
 
   const handleSelectSeries = async (summary: SeriesSummary) => {
+    const request = ++selectionRequest.current;
     if (summary.seriesInstanceUid === activeSeriesUid) {
       // 已经在该序列：不做重复装载，但必须给可见反馈（静默 return 会被当成"点不动"）
+      setSwitchingSeriesUid(null);
       setPulseUid(summary.seriesInstanceUid);
       window.setTimeout(() => setPulseUid(null), 320);
       return;
     }
 
+    const context = useViewerStore.getState();
+    const target = context.activeViewportId;
+    const reused = Object.values(context.splitSeries).find(h => h.meta.seriesInstanceUid === summary.seriesInstanceUid);
     setSwitchingSeriesUid(summary.seriesInstanceUid);
     try {
-      const handle = await dataSource.openSeries({
-        studyInstanceUid: summary.studyInstanceUid,
-        seriesInstanceUid: summary.seriesInstanceUid,
+      const handle = reused ?? await dataSource.openSeries({
+        studyInstanceUid: summary.studyInstanceUid, seriesInstanceUid: summary.seriesInstanceUid,
       });
-      setActiveSeries(handle);
-      setWarningsBySeries((prev) => ({
-        ...prev,
-        [summary.seriesInstanceUid]: handle.warnings,
-      }));
+      const now = useViewerStore.getState();
+      if (request !== selectionRequest.current || now.studies !== context.studies || now.layoutMode !== context.layoutMode) {
+        if (!reused) handle.dispose();
+        return;
+      }
+      if (context.layoutMode === 'split-2x2') now.assignSplitSeries(target, handle);
+      else setActiveSeries(handle);
+      setWarningsBySeries(prev => ({ ...prev, [summary.seriesInstanceUid]: handle.warnings }));
     } catch (err: unknown) {
-      setImportStatus({
-        loading: false,
-        error:
-          err instanceof Error
-            ? err.message
-            : `切换序列失败：${String(err)}`,
-      });
+      if (request === selectionRequest.current) setImportStatus({ loading: false,
+        error: err instanceof Error ? err.message : `切换序列失败：${String(err)}` });
     } finally {
-      setSwitchingSeriesUid(null);
+      if (request === selectionRequest.current) setSwitchingSeriesUid(null);
     }
   };
 

@@ -93,8 +93,8 @@ describe('实际头部矢状面教学 DICOM', () => {
       expect(moveToStackSlice(center, handle.meta.planes, 96, 98)).toEqual([-0.5, 17.5, 19.5]);
       for (const mode of ['2x2', '1+3'] as const) {
         const state = useViewerStore.getState();
-        state.setLayoutMode(mode);
         state.setActiveSeries(handle);
+        state.setLayoutMode(mode);
         expect(useViewerStore.getState().layoutMode).toBe(mode);
         expect(orthographicPanes(LAYOUTS[mode]).map((pane) => pane.axis)).toEqual([2, 1, 0]);
       }

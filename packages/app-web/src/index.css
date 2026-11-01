@@ -293,3 +293,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 /* 窄侧栏中保留工具可达性，允许横向滚动，避免右侧按钮被裁掉。 */
 .workspace-toolbar { overflow-x: auto; }
 .workspace-toolbar > *, .workspace-toolbar .workspace-control { flex-shrink: 0; }
+
+.split-status { display: flex; align-items: center; padding: 0 12px; flex-shrink: 0; background: var(--color-panel); border-bottom: 1px solid var(--color-line); font-size: var(--text-caption); color: var(--color-txt-dim); }
+.split-footer { display: flex; align-items: center; gap: 8px; padding: 0 12px; flex-shrink: 0; overflow-x: auto; border-top: 1px solid var(--color-line); background: var(--color-panel); font-size: var(--text-caption); white-space: nowrap; }
+.split-footer input { width: 56px; background: var(--color-app); color: var(--color-txt); border: 1px solid var(--color-line-strong); border-radius: 4px; text-align: center; font-family: var(--font-mono); }

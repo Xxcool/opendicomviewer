@@ -13,6 +13,7 @@ import { Header } from './components/Header';
 import { SeriesList } from './components/SeriesList';
 import { Viewport } from './components/Viewport';
 import { MprWorkspace, type MprNavigationSession } from './components/MprWorkspace';
+import { SplitWorkspace, type SplitNavigationSession } from './components/SplitWorkspace';
 import { MetadataPanel } from './components/MetadataPanel';
 import { ImportFailuresDialog } from './components/ImportFailuresDialog';
 import { useViewerStore } from './state/viewer-store';
@@ -26,6 +27,7 @@ export function App() {
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   /** MPR 准星会话跨布局保留，不参与高频 React 状态更新。 */
+  const splitNavigation = useRef<SplitNavigationSession>(new Map());
   const mprNavigation = useRef<MprNavigationSession>({ seriesUid: null, crosshair: null });
   /** setLayout 已成功应用的模式；null = 尚在切换中，MPR 组件不得提前装载数据 */
   const [appliedLayout, setAppliedLayout] = useState<LayoutMode | null>(null);
@@ -44,11 +46,15 @@ export function App() {
     setRendererCapabilities,
     layoutMode,
     activeSeriesHandle,
+    studies,
     seriesPanelOpen, inspectorOpen, focusMode,
   } = useViewerStore();
+  const hasWorkspace = !!activeSeriesHandle || layoutMode === 'split-2x2';
   useEffect(() => {
-    if (!activeSeriesHandle) mprNavigation.current = { seriesUid: null, crosshair: null };
-  }, [activeSeriesHandle]);
+    // 新导入是新的数据会话，不能按相同 UID 继承上一次的定位。
+    mprNavigation.current = { seriesUid: null, crosshair: null };
+    splitNavigation.current.clear();
+  }, [studies]);
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
     pendingFailures,
@@ -162,7 +168,7 @@ export function App() {
         onCancelImport={cancelImport}
       />
 
-      {activeSeriesHandle && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
+      {hasWorkspace && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
 
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (
@@ -218,7 +224,7 @@ export function App() {
       <div className="flex-1 flex overflow-hidden min-w-0">
         <div
           id="series-panel"
-          hidden={!activeSeriesHandle || !seriesPanelOpen || focusMode}
+          hidden={!hasWorkspace || !seriesPanelOpen || focusMode}
           className="workspace-series shrink-0 border-r border-line bg-panel overflow-hidden"
           style={{ width: 'var(--left-w)' }}
         >
@@ -233,8 +239,8 @@ export function App() {
           <div
             className="absolute inset-x-0 z-0"
             style={{
-              top: activeSeriesHandle ? 'var(--vp-bar-h)' : 0,
-              bottom: activeSeriesHandle ? 'var(--vp-foot-h)' : '0',
+              top: hasWorkspace ? 'var(--vp-bar-h)' : 0,
+              bottom: hasWorkspace ? 'var(--vp-foot-h)' : '0',
             }}
           >
             <div
@@ -265,6 +271,8 @@ export function App() {
                 onOpenFolder={() => document.getElementById('odv-folder-input')?.click()}
                 onOpenFiles={() => document.getElementById('odv-file-input')?.click()}
               />
+            ) : layoutMode === 'split-2x2' && renderer ? (
+              <SplitWorkspace renderer={renderer} session={splitNavigation} />
             ) : (
               <MprWorkspace
                 renderer={renderer}
@@ -278,8 +286,8 @@ export function App() {
             <div
               className="absolute inset-x-0 z-10 flex items-center justify-center text-xs text-txt-dim pointer-events-none"
               style={{
-                top: activeSeriesHandle ? 'var(--vp-bar-h)' : 0,
-                bottom: activeSeriesHandle ? 'var(--vp-foot-h)' : '0',
+                top: hasWorkspace ? 'var(--vp-bar-h)' : 0,
+                bottom: hasWorkspace ? 'var(--vp-foot-h)' : '0',
               }}
             >
               <SpinnerIcon className="w-4 h-4 text-accent mr-2" />
@@ -287,7 +295,7 @@ export function App() {
             </div>
           )}
         </div>
-        <div id="inspector-panel" hidden={!activeSeriesHandle || !inspectorOpen || focusMode} className="workspace-inspector shrink-0 h-full">
+        <div id="inspector-panel" hidden={!hasWorkspace || !inspectorOpen || focusMode} className="workspace-inspector shrink-0 h-full">
           <MetadataPanel />
         </div>
       </div>

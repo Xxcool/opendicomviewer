@@ -17,7 +17,7 @@ import type {
   VolumeHandle,
 } from '@opendicomviewer/core';
 import { applyTheme, currentTheme, type Theme } from '../theme';
-import type { LayoutMode } from '../layout/viewport-layouts';
+import { isMprLayout, SPLIT_PANES, type LayoutMode } from '../layout/viewport-layouts';
 
 export interface ImportStatus {
   readonly loading: boolean;
@@ -38,6 +38,8 @@ export type ViewTool = 'browse' | 'window' | 'pan' | 'zoom';
 export type InspectorTab = 'image' | 'warnings';
 
 export interface ViewerState {
+  readonly splitSeries: Readonly<Record<string, SeriesHandle>>;
+  assignSplitSeries: (viewportId: string, handle: SeriesHandle) => void;
   readonly activeTool: ViewTool;
   readonly activeViewportId: string;
   readonly seriesPanelOpen: boolean;
@@ -80,7 +82,27 @@ export interface ViewerState {
   reset: () => void;
 }
 
+/** 句柄可被多个格子共用；只释放最后一个引用，避免把其他视口的数据清掉。 */
+function releaseUnused(previous: readonly SeriesHandle[], keep: readonly SeriesHandle[]) {
+  const retained = new Set(keep);
+  for (const handle of new Set(previous)) if (!retained.has(handle)) handle.dispose();
+}
+function selected(handle: SeriesHandle | null) {
+  return { activeSeriesHandle: handle, activeSeriesUid: handle?.meta.seriesInstanceUid ?? null,
+    activeStudyUid: handle?.meta.studyInstanceUid ?? null, warnings: handle ? [...handle.warnings] : [] };
+}
+
 export const useViewerStore = create<ViewerState>((set, get) => ({
+  splitSeries: {},
+  assignSplitSeries: (viewportId, incoming) => {
+    const state = get();
+    if (!SPLIT_PANES.some(p => p.viewportId === viewportId)) throw new Error('未知独立视口');
+    const existing = Object.values(state.splitSeries).find(h => h.meta.seriesInstanceUid === incoming.meta.seriesInstanceUid);
+    const handle = existing ?? incoming;
+    const splitSeries = { ...state.splitSeries, [viewportId]: handle };
+    set({ splitSeries, ...(state.activeViewportId === viewportId ? { ...selected(handle), mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) });
+    releaseUnused([...Object.values(state.splitSeries), incoming], [...Object.values(splitSeries), ...(get().activeSeriesHandle ? [get().activeSeriesHandle!] : [])]);
+  },
   activeTool: 'browse',
   activeViewportId: 'default-viewport',
   seriesPanelOpen: true,
@@ -88,8 +110,13 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   inspectorTab: 'image',
   focusMode: false,
   setActiveTool: (activeTool) => set({ activeTool }),
-  setActiveViewportId: (activeViewportId) => set((state) => ({ activeViewportId,
-    activeTool: activeViewportId !== 'default-viewport' && state.activeTool === 'window' ? 'pan' : state.activeTool })),
+  setActiveViewportId: (activeViewportId) => set((state) => {
+    const handle = state.splitSeries[activeViewportId] ?? null;
+    const changed = state.activeSeriesUid !== handle?.meta.seriesInstanceUid;
+    return { activeViewportId,
+      ...(state.layoutMode === 'split-2x2' ? { ...selected(handle), ...(changed ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) } : {}),
+      activeTool: state.layoutMode !== 'split-2x2' && activeViewportId !== 'default-viewport' && state.activeTool === 'window' ? 'pan' : state.activeTool };
+  }),
   toggleSeriesPanel: () => set((state) => ({ seriesPanelOpen: !state.seriesPanelOpen, focusMode: false })),
   toggleInspector: () => set((state) => ({ inspectorOpen: !state.inspectorOpen, focusMode: false })),
   setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true, focusMode: false }),
@@ -107,7 +134,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   mprVolume: null,
   mprStatus: IDLE_MPR_STATUS,
   setStudies: (studies) => {
-    set({
+    const state = get();
+    releaseUnused(Object.values(state.splitSeries), state.activeSeriesHandle ? [state.activeSeriesHandle] : []);
+    set({ splitSeries: {}, layoutMode: '1x1', activeViewportId: 'default-viewport', mprVolume: null, mprStatus: IDLE_MPR_STATUS,
       studies,
       // 若之前没有激活的研究，自动选中第一个
       activeStudyUid: studies[0]?.studyInstanceUid ?? null,
@@ -115,35 +144,29 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   },
 
   setActiveSeries: (handle) => {
-    const currentHandle = get().activeSeriesHandle;
-    const seriesChanged =
-      currentHandle !== null &&
-      currentHandle.meta.seriesInstanceUid !== handle.meta.seriesInstanceUid;
-    if (seriesChanged) {
-      currentHandle.dispose();
-    }
-    // 几何不支持 MPR 时直接回到 Stack，避免隐藏布局入口后仍困在旧 MPR 布局。
-    const currentLayout = get().layoutMode;
-    const layoutMode = currentLayout !== '1x1' && !planVolumeDownsample(handle.meta).ok
-      ? '1x1' : currentLayout;
-    set({
-      layoutMode,
-      activeViewportId: 'default-viewport',
-      activeSeriesHandle: handle,
-      activeSeriesUid: handle.meta.seriesInstanceUid,
-      activeStudyUid: handle.meta.studyInstanceUid,
-      warnings: [...handle.warnings],
-      // 体积按序列构建，换序列后旧体积必须作废，否则 MPR 会显示上一序列
-      ...(seriesChanged
-        ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS }
-        : {}),
-    });
+    const state = get();
+    if (state.layoutMode === 'split-2x2') { state.assignSplitSeries(state.activeViewportId, handle); return; }
+    const seriesChanged = state.activeSeriesHandle?.meta.seriesInstanceUid !== handle.meta.seriesInstanceUid;
+    set({ ...selected(handle), activeViewportId: 'default-viewport',
+      layoutMode: isMprLayout(state.layoutMode) && !planVolumeDownsample(handle.meta).ok ? '1x1' : state.layoutMode,
+      ...(seriesChanged ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) });
+    releaseUnused(state.activeSeriesHandle ? [state.activeSeriesHandle] : [], [handle, ...Object.values(state.splitSeries)]);
   },
 
   setImportStatus: (status) => set({ importStatus: status }),
   setWarnings: (warnings) => set({ warnings }),
   setRendererCapabilities: (caps) => set({ rendererCapabilities: caps }),
-  setLayoutMode: (layoutMode) => set({ layoutMode, activeViewportId: 'default-viewport' }),
+  setLayoutMode: (layoutMode) => {
+    const state = get();
+    if (layoutMode === 'split-2x2' && state.layoutMode === layoutMode) return;
+    const handle = state.activeSeriesHandle ?? state.splitSeries['default-viewport'] ?? Object.values(state.splitSeries)[0] ?? null;
+    if (isMprLayout(layoutMode) && (!handle || !planVolumeDownsample(handle.meta).ok)) return;
+    let splitSeries = state.splitSeries;
+    if (layoutMode === 'split-2x2' && handle) splitSeries = { ...splitSeries, 'default-viewport': handle };
+    set({ layoutMode, splitSeries, activeViewportId: 'default-viewport', ...selected(handle),
+      ...(state.activeSeriesUid !== handle?.meta.seriesInstanceUid ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) });
+    releaseUnused(Object.values(state.splitSeries), [...Object.values(splitSeries), ...(handle ? [handle] : [])]);
+  },
   setMprVolume: (mprVolume) => set({ mprVolume }),
   setMprStatus: (mprStatus) => set({ mprStatus }),
 
@@ -154,11 +177,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   },
 
   reset: () => {
-    const currentHandle = get().activeSeriesHandle;
-    if (currentHandle) {
-      currentHandle.dispose();
-    }
-    set({
+    const state = get();
+    releaseUnused([...Object.values(state.splitSeries), ...(state.activeSeriesHandle ? [state.activeSeriesHandle] : [])], []);
+    set({ splitSeries: {},
       studies: [],
       activeTool: 'browse',
       activeViewportId: 'default-viewport',
@@ -171,7 +192,6 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       activeSeriesHandle: null,
       importStatus: { loading: false },
       warnings: [],
-      rendererCapabilities: null,
       layoutMode: '1x1',
       mprVolume: null,
       mprStatus: IDLE_MPR_STATUS,

@@ -20,7 +20,7 @@ import type {
 import { computeNormal } from '@opendicomviewer/core';
 import type { CSSProperties } from 'react';
 
-export type LayoutMode = '1x1' | '2x2' | '1+3';
+export type LayoutMode = '1x1' | 'split-2x2' | '2x2' | '1+3';
 
 export type PaneKind = 'stack' | 'orthographic';
 
@@ -98,7 +98,7 @@ const SINGLE_STACK = pane(STACK_BASE, '1 / 1 / 2 / 2');
 /** 2×2：左上全分辨率原始切片，其余三格为 MPR 三向切面（等分） */
 const GRID_2X2: LayoutSpec = {
   mode: '2x2',
-  label: '2×2',
+  label: 'MPR 2×2',
   hint: '全分辨率原始切片 + MPR 三视图',
   panes: [
     pane(STACK_BASE, '1 / 1 / 2 / 2'),
@@ -145,7 +145,7 @@ const GRID_2X2: LayoutSpec = {
 /** 1+3：左侧轴位占满三行，右侧三格 MPR 纵向排列 */
 const GRID_1_PLUS_3: LayoutSpec = {
   mode: '1+3',
-  label: '1+3',
+  label: 'MPR 1+3',
   hint: '左侧大图原始切片 + 右侧 MPR 三视图',
   panes: [
     pane(STACK_BASE, '1 / 1 / 4 / 2'),
@@ -182,16 +182,28 @@ const SINGLE: LayoutSpec = {
   gridStyle: {},
 };
 
+export const SPLIT_PANES: readonly PaneSpec[] = [STACK_VIEWPORT_ID, 'split-2', 'split-3', 'split-4'].map((viewportId, i) => ({
+  viewportId, kind: 'stack', title: `视口 ${i + 1}`, shortTitle: `视口 ${i + 1}`,
+  gridArea: `${Math.floor(i / 2) + 1} / ${i % 2 + 1} / ${Math.floor(i / 2) + 2} / ${i % 2 + 2}`,
+}));
+const INDEPENDENT_SPLIT: LayoutSpec = {
+  mode: 'split-2x2', label: '独立分屏 2×2', hint: '四个原始视口独立浏览，单层影像也可使用',
+  panes: SPLIT_PANES,
+  viewportLayout: { rows: 2, cols: 2, viewportIds: SPLIT_PANES.map(p => p.viewportId), cells: SPLIT_PANES.map(p => ({ viewportId: p.viewportId, kind: 'stack' })) },
+  gridStyle: GRID_2X2.gridStyle,
+};
+
 export const LAYOUTS: Record<LayoutMode, LayoutSpec> = {
   '1x1': SINGLE,
+  'split-2x2': INDEPENDENT_SPLIT,
   '2x2': GRID_2X2,
   '1+3': GRID_1_PLUS_3,
 };
 
-export const LAYOUT_MODES: readonly LayoutMode[] = ['1x1', '2x2', '1+3'];
+export const LAYOUT_MODES: readonly LayoutMode[] = ['1x1', 'split-2x2', '2x2', '1+3'];
 
 export function isMprLayout(mode: LayoutMode): boolean {
-  return mode !== '1x1';
+  return mode === '2x2' || mode === '1+3';
 }
 
 /** 该布局里的 MPR 切面视口（不含全分辨率 Stack） */

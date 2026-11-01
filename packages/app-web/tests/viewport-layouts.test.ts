@@ -77,8 +77,13 @@ describe('多视口布局定义（P3 MPR 三视图）', () => {
     }
   });
 
-  it('只有 1×1 是单视口，其余都含三向 MPR', () => {
+  it('普通分屏使用 Stack，MPR 布局才包含三向重建', () => {
     expect(isMprLayout('1x1')).toBe(false);
+    expect(isMprLayout('split-2x2')).toBe(false);
+    expect(LAYOUTS['split-2x2'].viewportLayout.cells?.map(cell => cell.kind)).toEqual(['stack', 'stack', 'stack', 'stack']);
+    expect(LAYOUTS['split-2x2'].panes.map(pane => pane.gridArea)).toEqual([
+      '1 / 1 / 2 / 2', '1 / 2 / 2 / 3', '2 / 1 / 3 / 2', '2 / 2 / 3 / 3',
+    ]);
     expect(isMprLayout('2x2')).toBe(true);
     expect(isMprLayout('1+3')).toBe(true);
 

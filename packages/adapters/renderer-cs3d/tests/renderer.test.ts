@@ -1439,3 +1439,37 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
     expect(cache.live.size).toBe(0);
   });
 });
+
+// 普通分屏复用多个 Stack；共享源图像不应共享切片索引、VOI 或相机。
+describe('多个 Stack 独立浏览', () => {
+  it('同一序列的四格分别翻层、调窗，移除一格不影响其他格登记', async () => {
+    const { renderer } = makeRenderer({ resolveElements: () => [{id:'a'}, {id:'b'}, {id:'c'}, {id:'d'}] });
+    const ids = ['a','b','c','d'];
+    await renderer.mount({containerId:'root'}, {rows:2,cols:2,viewportIds:ids});
+    const handle = makeHandle(4);
+    for (let i=0;i<ids.length;i++) await renderer.setStack(ids[i]!,handle,i);
+    const originalVoi = renderer.getVOI('b');
+    renderer.setVOI('a',{windowWidth:1500,windowCenter:-600});
+    await renderer.setStackIndex('a',3);
+    expect(ids.map(id=>renderer.currentSliceIndex(id))).toEqual([3,1,2,3]);
+    expect(renderer.getVOI('b')).toEqual(originalVoi);
+    expect(renderer.getVOI('a')).toEqual({windowWidth:1500,windowCenter:-600});
+    await renderer.setStack('a',makeHandle(1,'ct-single'));
+    expect(renderer.currentSliceIndex('b')).toBe(1);
+    await renderer.setStackIndex('b',2);
+    expect(renderer.currentSliceIndex('b')).toBe(2);
+    renderer.destroy();
+  });
+  it('平移一格只更新它自己的相机', async () => {
+    const { renderer, engine } = makeRenderer({resolveElements:()=>[{id:'a'},{id:'b'}]});
+    await renderer.mount({containerId:'root'}, {rows:1,cols:2,viewportIds:['a','b']});
+    await renderer.setStack('a',makeHandle(2)); await renderer.setStack('b',makeHandle(2));
+    renderer.panBy('a',{x:20,y:10});
+    renderer.zoomBy('a',2);
+    expect(engine.viewportOf('b').pan).toEqual([0,0]);
+    expect(engine.viewportOf('b').zoom).toBe(1);
+    expect(engine.viewportOf('a').pan).toEqual([20,10]);
+    expect(engine.viewportOf('a').zoom).toBe(2);
+    renderer.destroy();
+  });
+});

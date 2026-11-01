@@ -45,7 +45,9 @@ describe('useViewerStore', () => {
         planes, spacing: [1, 1, 1], warnings: [] },
       warnings: [], pixel: vi.fn(), dispose: vi.fn(),
     };
+    useViewerStore.getState().setActiveSeries({ ...handle, meta: { ...handle.meta, planes: planes.map((p, i) => ({ ...p, imagePositionPatient: [0, 0, i] })) } });
     useViewerStore.getState().setLayoutMode('2x2');
+    expect(useViewerStore.getState().layoutMode).toBe('2x2');
     useViewerStore.getState().setActiveSeries(handle);
     expect(useViewerStore.getState().layoutMode).toBe('1x1');
     expect(useViewerStore.getState().activeSeriesHandle).toBe(handle);

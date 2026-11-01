@@ -15,8 +15,8 @@ export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRen
   const state = useViewerStore();
   const plan = useMemo(() => state.activeSeriesHandle
     ? planVolumeDownsample(state.activeSeriesHandle.meta) : null, [state.activeSeriesHandle]);
-  const canWindow = state.activeViewportId === 'default-viewport';
-  const disabled = !renderer || !ready;
+  const canWindow = state.layoutMode === 'split-2x2' || state.activeViewportId === 'default-viewport';
+  const disabled = !renderer || !ready || !state.activeSeriesHandle;
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (disabled || blocksViewerShortcut(event)) return;
@@ -53,10 +53,11 @@ export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRen
     <button className="workspace-control icon-control" disabled={disabled} aria-label="放大" title="放大" onClick={() => camera(1.2)}>+</button>
     <button className="workspace-control" aria-label="适应窗口" title="适应窗口" disabled={disabled} onClick={() => camera('fit')}><WorkspaceIcon name="fit" /><span>适应窗口</span></button>
     <span className="toolbar-spacer" />
-    {plan?.ok && state.rendererCapabilities?.supportsVolume && <div className="tool-group layout-group" role="group" aria-label="视口布局">
-      {LAYOUT_MODES.map((mode) => <button key={mode} className="workspace-control" aria-pressed={state.layoutMode === mode}
-        title={LAYOUTS[mode].hint} onClick={() => state.setLayoutMode(mode)}>{LAYOUTS[mode].label}</button>)}
-    </div>}
+    <div className="tool-group layout-group" role="group" aria-label="视口布局">
+      {LAYOUT_MODES.filter(mode => mode === '1x1' || mode === 'split-2x2' || (plan?.ok && state.rendererCapabilities?.supportsVolume)).map(mode =>
+        <button key={mode} disabled={!renderer || !ready} className="workspace-control" aria-pressed={state.layoutMode === mode}
+          title={LAYOUTS[mode].hint} onClick={() => state.setLayoutMode(mode)}>{LAYOUTS[mode].label}</button>)}
+    </div>
     <button className="workspace-control" aria-label={`影像详情${state.warnings.length ? `，${state.warnings.length} 条提醒` : ''}`} aria-controls="inspector-panel" aria-expanded={!state.focusMode && state.inspectorOpen}
       onClick={state.toggleInspector}><WorkspaceIcon name="right" /><span>影像详情</span>
       {state.warnings.length > 0 && <span className="toolbar-count" data-severity={state.warnings.some((warning) => warning.severity === 'error') ? 'error' : state.warnings.some((warning) => warning.severity === 'warning') ? 'warning' : 'info'}>{state.warnings.length}</span>}</button>

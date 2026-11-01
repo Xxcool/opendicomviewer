@@ -12,7 +12,7 @@ export function MetadataPanel() {
   const state = useViewerStore();
   const { studies, activeStudyUid, activeSeriesHandle, warnings, rendererCapabilities, mprStatus, inspectorTab } = state;
   const plan = useMemo(() => activeSeriesHandle ? planVolumeDownsample(activeSeriesHandle.meta) : null, [activeSeriesHandle]);
-  const mprReason = !rendererCapabilities?.supportsVolume ? '当前渲染后端未接入 MPR 通路'
+  const mprReason = !activeSeriesHandle ? '当前视口尚未载入影像，请从左侧选择序列' : !rendererCapabilities?.supportsVolume ? '当前渲染后端未接入 MPR 通路'
     : plan && !plan.ok ? plan.message : mprStatus.phase === 'error' ? mprStatus.message : undefined;
   const study = studies.find((item) => item.studyInstanceUid === activeStudyUid);
   const meta = activeSeriesHandle?.meta;
