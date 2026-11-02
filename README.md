@@ -171,7 +171,7 @@ python3 packages/app-web/testing/generate-head-sample.py /path/to/mni_icbm152_nl
 node packages/app-web/testing/generate-sample-previews.mjs
 ```
 
-各样本、封面及第三方资源有各自许可边界，再分发材料仍需审查。当前仓库为私有开发仓库，尚未完成正式公开开源发布准备。
+各样本、封面及第三方资源有各自许可边界，再分发材料仍需审查。仓库现已公开，当前仍为开发预览版本；正式版本发布与完整再分发审查尚未完成。
 
 ## 👨‍💻 作者 (Author)
 
