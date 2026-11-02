@@ -173,16 +173,6 @@ node packages/app-web/testing/generate-sample-previews.mjs
 
 各样本、封面及第三方资源有各自许可边界，再分发材料仍需审查。当前仓库为私有开发仓库，尚未完成正式公开开源发布准备。
 
-## 贡献与致谢
-
-| 项目维护 | AI 辅助开发 |
-| --- | --- |
-| <a href="https://github.com/Xxcool"><img src="https://github.com/Xxcool.png?size=128" width="64" alt="Xxcool 的 GitHub 头像"></a><br>[Xxcool](https://github.com/Xxcool) | <a href="https://github.com/codex"><img src="https://github.com/codex.png?size=128" width="64" alt="Codex 的 GitHub 头像"></a><br>[Codex](https://github.com/codex) |
-
-AI 辅助的相关提交保留 `Co-authored-by` 署名。这里展示项目贡献角色，GitHub 侧栏的 Contributors 由平台独立统计。
-
-反馈时请附应用版本/提交、操作系统、Web 或桌面端、复现步骤及已去除隐私的错误信息。请先查看[已知问题和计划](docs/PROJECT_STATUS.md)，避免把尚未交付的功能误认为回归。
-
 ## 👨‍💻 作者 (Author)
 
 - **Xxcool** · [GitHub (@Xxcool)](https://github.com/Xxcool) · [掘金技术主页](https://juejin.cn/user/4265760845468296/posts)
