@@ -8,7 +8,7 @@
 
 基于 React、TypeScript、Cornerstone3D 与 Tauri 2 的本地优先医学影像查看器，提供 Web 界面与桌面客户端。影像读取与解析在本机进行，无需上传到影像服务器。
 
-**开发预览 / WIP**
+**开发预览 / WIP** · [在线体验](https://opendicomviewer.pages.dev/)
 
 [界面预览](#界面预览) · [功能清单](#当前能做什么) · [运行 Web](#运行-web) · [桌面客户端](#运行桌面客户端) · [部署与发布](#部署与发布) · [开发验证](#开发与验证) · [当前进度](docs/PROJECT_STATUS.md)
 
@@ -68,7 +68,7 @@ OpenDicomViewer 面向研究、教学与本地影像浏览场景：从打开文�
 | Web | 在浏览器打开本地文件或体验教学样本 | 本地启动或自行部署静态资源；需要 WebGL2 |
 | Tauri 桌面端 | 原生文件访问、无需 Vite 的打包运行 | 已在 macOS / Apple Silicon 验证基础启动与导入；Windows/Linux 待验收 |
 
-当前未提供公共在线 Demo 或正式安装包下载，请按下方步骤从源码运行。
+[Web 在线预览](https://opendicomviewer.pages.dev/)已部署到 Cloudflare Pages。线上欢迎页与样本清单已打开验证，完整影像导入与 MPR 验收仍在进行；正式客户端安装包暂未提供，也可按下方步骤从源码运行。
 
 ## 运行 Web
 
@@ -122,11 +122,11 @@ pnpm desktop:build
 
 ## 部署与发布
 
-当前已接入 [GitHub CI](.github/workflows/ci.yml)，在 `main` 推送及相关 PR 上执行类型检查、lint 和测试。Cloudflare Pages 首次部署、桌面安装包签名与自动发版仍待接入；目前推送版本标签不会自动创建 Release 或上传安装包。
+当前已接入 [GitHub CI](.github/workflows/ci.yml)，在 `main` 推送及相关 PR 上执行类型检查、lint 和测试。Cloudflare Pages 已完成首次部署并连接 `main` 自动构建；桌面安装包签名与自动发版仍待接入，目前推送版本标签不会自动创建 Release 或上传安装包。
 
 ### Web · Cloudflare Pages
 
-推荐使用 Pages 的 Git 集成连接本仓库，按以下配置创建项目。下表是待应用的部署配置，首次线上验收通过后再补充访问地址。
+项目已通过 Pages Git 集成连接本仓库，访问地址为 https://opendicomviewer.pages.dev/ 。下表为首次部署实际应用的配置；部署与验收记录见[线上部署记录](docs/reviews/DELIVERY-2026-11-02-cloudflare.md)。
 
 | 配置项 | 值 |
 | --- | --- |
@@ -143,7 +143,7 @@ pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test && pn
 
 Pages 的 Git 自动部署与 GitHub CI 独立运行，不会天然等待 CI 通过，因此在 Pages 构建命令中也执行检查，失败时停止部署。版本变量固定当前已验证的工具链，关闭平台自动安装后由上述命令按锁文件安装依赖。
 
-完成连接后，推送 `main` 会触发生产部署；需核对 Pages 部署结果及对应提交。站点只发布完整的 `dist/`，包含教学样本清单、Worker 与解码资源。应用无需影像后端地址或服务端启动步骤。
+推送 `main` 会触发生产部署；需核对 Pages 部署结果及对应提交。站点只发布完整的 `dist/`，包含教学样本清单、Worker 与解码资源。应用无需影像后端地址或服务端启动步骤。
 
 线上验收包括：欢迎页与静态资源、MR/CT 示例、本地文件/文件夹和 ZIP 导入、调窗翻层、多视口/MPR、主题切换与刷新；同时检查浏览器错误和网络请求。只有实际验证通过的功能才标为可用，样本及封面须满足公开再分发要求。
 
@@ -175,7 +175,7 @@ pnpm desktop:build
 4. 发布时为已验收提交创建 `vX.Y.Z` 标签，在 [GitHub Releases](https://github.com/Xxcool/opendicomviewer/releases) 创建对应版本，上传经过验收的产物和校验清单。发布前先准备为草稿，预览版本选择 Pre-release。
 5. 下载发布资产再次核验哈希与启动行为，再更新 README 中的在线体验、安装包及版本链接。
 
-尚待实现的自动化：检查通过后部署 Web、跨平台安装包构建、签名/公证、校验清单生成与 Release 上传、客户端更新。补齐前按上述流程逐项执行，不将本地构建成功等同于发布完成。
+尚待实现的自动化：跨平台安装包构建、签名/公证、校验清单生成与 Release 上传、客户端更新。补齐前按上述流程逐项执行，不将本地构建成功等同于发布完成。
 
 ## 开发与验证
 
