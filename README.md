@@ -10,7 +10,7 @@
 
 **开发预览 / WIP**
 
-[界面预览](#界面预览) · [功能清单](#当前能做什么) · [运行 Web](#运行-web) · [桌面客户端](#运行桌面客户端) · [开发验证](#开发与验证) · [当前进度](docs/PROJECT_STATUS.md)
+[界面预览](#界面预览) · [功能清单](#当前能做什么) · [运行 Web](#运行-web) · [桌面客户端](#运行桌面客户端) · [部署与发布](#部署与发布) · [开发验证](#开发与验证) · [当前进度](docs/PROJECT_STATUS.md)
 
 ## 项目定位
 
@@ -119,6 +119,63 @@ pnpm desktop:build
 本机 macOS 输出位置：`packages/app-tauri/src-tauri/target/release/bundle/macos/OpenDicomViewer.app`。打包应用包含前端、Worker、解码资源与教学样本，运行不依赖 Vite 服务。
 
 目前没有经签名、公证的正式安装包。桌面重绘问题、跨平台验证和文件授权生命周期仍在完善，详见[客户端说明](packages/app-tauri/README.md)。
+
+## 部署与发布
+
+当前已接入 [GitHub CI](.github/workflows/ci.yml)，在 `main` 推送及相关 PR 上执行类型检查、lint 和测试。Cloudflare Pages 首次部署、桌面安装包签名与自动发版仍待接入；目前推送版本标签不会自动创建 Release 或上传安装包。
+
+### Web · Cloudflare Pages
+
+推荐使用 Pages 的 Git 集成连接本仓库，按以下配置创建项目。下表是待应用的部署配置，首次线上验收通过后再补充访问地址。
+
+| 配置项 | 值 |
+| --- | --- |
+| 仓库 / 生产分支 | `Xxcool/opendicomviewer` / `main` |
+| 框架预设 | 不使用预设（自定义构建命令） |
+| 项目根目录 | 仓库根目录，保留默认值 |
+| 构建命令 | 见下方命令 |
+| 构建输出目录 | `packages/app-web/dist` |
+| 构建环境变量 | `NODE_VERSION=20.20.2`、`PNPM_VERSION=12.5.1`、`SKIP_DEPENDENCY_INSTALL=1` |
+
+```bash
+pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm test && pnpm --filter @opendicomviewer/app-web build
+```
+
+Pages 的 Git 自动部署与 GitHub CI 独立运行，不会天然等待 CI 通过，因此在 Pages 构建命令中也执行检查，失败时停止部署。版本变量固定当前已验证的工具链，关闭平台自动安装后由上述命令按锁文件安装依赖。
+
+完成连接后，推送 `main` 会触发生产部署；需核对 Pages 部署结果及对应提交。站点只发布完整的 `dist/`，包含教学样本清单、Worker 与解码资源。应用无需影像后端地址或服务端启动步骤。
+
+线上验收包括：欢迎页与静态资源、MR/CT 示例、本地文件/文件夹和 ZIP 导入、调窗翻层、多视口/MPR、主题切换与刷新；同时检查浏览器错误和网络请求。只有实际验证通过的功能才标为可用，样本及封面须满足公开再分发要求。
+
+若生产版本出现问题，可在 Pages 中回滚到先前成功的生产部署；回滚不会修复仓库代码，后续推送前仍需修正问题。配置依据：[构建配置](https://developers.cloudflare.com/pages/configuration/build-configuration/)、[工具链版本](https://developers.cloudflare.com/pages/configuration/build-image/)、[Git 集成](https://developers.cloudflare.com/pages/configuration/git-integration/)、[回滚](https://developers.cloudflare.com/pages/configuration/rollbacks/)。
+
+### 桌面 · 构建与分发
+
+目前可执行的是 macOS 本地 `.app` 构建：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm lint
+pnpm test
+cargo test --manifest-path packages/app-tauri/src-tauri/Cargo.toml
+cargo fmt --check --manifest-path packages/app-tauri/src-tauri/Cargo.toml
+pnpm desktop:build
+```
+
+产物为 `packages/app-tauri/src-tauri/target/release/bundle/macos/OpenDicomViewer.app`。当前脚本固定 `--bundles app`，不生成 DMG、Windows 或 Linux 安装包。正式桌面分发还需完成目标平台构建、签名/公证及真机验收，详见 [Tauri 分发说明](https://v2.tauri.app/distribute/)和[客户端说明](packages/app-tauri/README.md)。
+
+### 版本发布 · GitHub Releases
+
+正式发版采用以下流程；当前仍处于开发预览阶段：
+
+1. 确定版本和发布范围，核对 Web、桌面 `package.json`、`tauri.conf.json` 与 Rust `Cargo.toml` 的版本；Rust 版本变化时同步生成对应 `Cargo.lock`。预览版本明确标识为预发布。
+2. 选择干净的发布提交，完成 CI、Web 构建及目标平台打包；在实际部署站点或安装产物中验收，记录操作系统、架构、已知问题和支持范围。
+3. 更新发布说明，列出变更、限制、安装/升级方式及样本许可；为分发文件生成 SHA-256 校验清单。
+4. 发布时为已验收提交创建 `vX.Y.Z` 标签，在 [GitHub Releases](https://github.com/Xxcool/opendicomviewer/releases) 创建对应版本，上传经过验收的产物和校验清单。发布前先准备为草稿，预览版本选择 Pre-release。
+5. 下载发布资产再次核验哈希与启动行为，再更新 README 中的在线体验、安装包及版本链接。
+
+尚待实现的自动化：检查通过后部署 Web、跨平台安装包构建、签名/公证、校验清单生成与 Release 上传、客户端更新。补齐前按上述流程逐项执行，不将本地构建成功等同于发布完成。
 
 ## 开发与验证
 
