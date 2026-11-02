@@ -68,7 +68,7 @@ OpenDicomViewer 面向研究、教学与本地影像浏览场景：从打开文�
 | Web | 在浏览器打开本地文件或体验教学样本 | 本地启动或自行部署静态资源；需要 WebGL2 |
 | Tauri 桌面端 | 原生文件访问、无需 Vite 的打包运行 | 已在 macOS / Apple Silicon 验证基础启动与导入；Windows/Linux 待验收 |
 
-[Web 在线预览](https://opendicomviewer.pages.dev/)已部署到 Cloudflare Pages。线上欢迎页与样本清单已打开验证，完整影像导入与 MPR 验收仍在进行；正式客户端安装包暂未提供，也可按下方步骤从源码运行。
+[Web 在线预览](https://opendicomviewer.pages.dev/)已部署到 Cloudflare Pages。线上欢迎页与样本清单已打开验证，并已取得用户侧示例导入与二维显示证据；MPR 等完整交互验收仍在进行；正式客户端安装包暂未提供，也可按下方步骤从源码运行。
 
 ## 运行 Web
 
