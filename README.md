@@ -208,7 +208,8 @@ docs/                架构、计划、评审与验收证据
 
 - [架构设计](docs/ARCHITECTURE.md)与[编码约束](GEMINI.md)
 - [项目进度与开源准备](docs/PROJECT_STATUS.md)
-- [标注、测量与导出路线](docs/EXPORT_PLAN.md)
+- [标注与测量交互计划](docs/ANNOTATION_PLAN.md)
+- [导出格式与互操作计划](docs/EXPORT_PLAN.md)
 - [2D / MPR / 3D / Cine / 4D 路线](docs/VIEWING_MODES_PLAN.md)
 
 ## 隐私与已知限制
