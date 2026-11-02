@@ -160,18 +160,9 @@ docs/                架构、计划、评审与验收证据
 - 桌面多格、主题及布局切换组合下已发现画面变暗、文字缺笔及切面呈现异常；当前优先修复，暂不声明桌面稳定可用。
 - 隐藏患者信息覆盖层不等于脱敏，像素中可能已烧录身份信息。真实患者文件、截图和完整本地路径不应提交到仓库或公开反馈中。
 
-## 教学样本与许可
+## 教学样本
 
-MR 头部示例由 McGill ICBM152 2009c 平均 T1 模板派生，默认包含 193 层连续轴位序列和一张中线矢状参考图。它是平均教学模板，不是个人原始检查；单独的参考图不支持 MPR。来源、许可、派生方法与哈希见[样本说明](sample-dicom/brain-head-mr/README.md)。原有 36 帧 MR 网格不连续，不作为 MPR 示例。
-
-重现头部样本：
-
-```bash
-python3 packages/app-web/testing/generate-head-sample.py /path/to/mni_icbm152_nlin_asym_09c_nifti.zip
-node packages/app-web/testing/generate-sample-previews.mjs
-```
-
-各样本、封面及第三方资源有各自许可边界，再分发材料仍需审查。仓库现已公开，当前仍为开发预览版本；正式版本发布与完整再分发审查尚未完成。
+内置影像用于功能演示与教学，其中 MR 头部示例派生自 ICBM152 平均模板。样本与第三方资源的许可独立于代码许可，来源、使用限制及重现步骤见[头部样本说明](sample-dicom/brain-head-mr/README.md)及各资源目录中的来源记录。
 
 ## 👨‍💻 作者 (Author)
 
