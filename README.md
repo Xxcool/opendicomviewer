@@ -1,37 +1,48 @@
 # OpenDicomViewer
 
+[![CI](https://github.com/Xxcool/opendicomviewer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Xxcool/opendicomviewer/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
+
 **在本机打开 DICOM，浏览原始影像与多平面重建。**
 
 基于 React、TypeScript、Cornerstone3D 与 Tauri 2 的本地优先医学影像查看器，提供 Web 界面与桌面客户端。影像读取与解析在本机进行，无需上传到影像服务器。
 
-**开发预览 / WIP** · [当前进度](docs/PROJECT_STATUS.md) · [浏览模式路线](docs/VIEWING_MODES_PLAN.md) · [桌面说明](packages/app-tauri/README.md) · [GitHub](https://github.com/Xxcool/opendicomviewer)
+**开发预览 / WIP**
+
+[界面预览](#界面预览) · [功能清单](#当前能做什么) · [运行 Web](#运行-web) · [桌面客户端](#运行桌面客户端) · [开发验证](#开发与验证) · [当前进度](docs/PROJECT_STATUS.md)
+
+## 项目定位
+
+OpenDicomViewer 面向研究、教学与本地影像浏览场景：从打开文件或光盘目录、浏览序列和多视口对比，逐步形成 MPR、标注测量与标准化导出的工作流。Web 与桌面端共享界面及影像处理链路，桌面端通过 Tauri 提供原生文件访问。
+
+- **本地处理**：在用户设备上解析与解码影像，无需部署影像后端。
+- **双端共享**：浏览器用于本地体验，桌面端提供原生选择器与打包运行形式。
+- **数据可解释**：导入失败、空间几何问题和重建不可用原因显示在界面中。
+- **分层架构**：纯 TypeScript 核心、可替换适配器与 WebGL2 渲染基线；界面采用 React 19，渲染采用 Cornerstone3D 4.22.13。
+
+项目目标与当前交付范围分别见[浏览模式路线](docs/VIEWING_MODES_PLAN.md)和下方功能清单。
 
 > 仅供研究、教学与非诊断参考使用。尚未经过临床验证，不用于疾病诊断、治疗决策或患者监护。
 
 ## 界面预览
 
-### Web · 原始切片与 MPR
+### Web 与桌面入口
+
+| Web · 浅色欢迎页 | macOS · Tauri 客户端 |
+| --- | --- |
+| <img src="docs/reviews/assets/browser-2026-10-30/welcome-light.jpg" alt="Web 浅色欢迎页，包含本地打开与教学示例入口" width="480"> | <img src="docs/reviews/assets/tauri-2026-11-01/github-header.png" alt="macOS Tauri 客户端欢迎页与原生窗口" width="480"> |
+| 浏览器实测，2026-10-30 | macOS 实测，2026-11-01 |
+
+两端共享工作区。桌面端增加原生文件/文件夹选择与本地读取；当前为验证版本，仍有多视口重绘与布局切换问题，详见[阶段记录](docs/reviews/DELIVERY-2026-11-01-desktop-progress.md)。
+
+### 原始切片与 MPR 工作区
 
 ![Web 深色界面：原始切片、横断面、冠状面与矢状面](docs/reviews/assets/browser-2026-10-30/mpr-2x2.jpg)
 
 2026-10-30 浏览器实测截图，展示 ICBM152 平均头部教学模板。左上为原始切片，其余三格为降采样 MPR；四格布局不等同于 3D 体绘制。
 
-### 桌面客户端 · 本地影像入口
-
-![macOS Tauri 客户端：本地文件入口与教学示例](docs/reviews/assets/tauri-2026-11-01/github-header.png)
-
-2026-11-01 macOS 实测截图。桌面端复用 Web 工作区，提供原生文件/文件夹选择和本地文件读取。当前为验证版本，多视口/MPR 仍存在重绘与布局切换问题，见[阶段记录](docs/reviews/DELIVERY-2026-11-01-desktop-progress.md)。
-
-<details>
-<summary>查看 Web 浅色欢迎页</summary>
-
-![Web 浅色欢迎页：打开文件夹、教学示例与拖入区](docs/reviews/assets/browser-2026-10-30/welcome-light.jpg)
-
-2026-10-30 实测截图。界面仍在迭代，示例封面与实际数据的对应关系见页面内说明；封面不是兼容性或完整性证明。
-
-</details>
-
-以上为已有运行记录，使用仓库教学样本，不含本地真实性验证所用的患者数据；不代表本次重新完成全部界面验收。
+截图使用仓库教学样本，不含本地真实性验证所用的患者数据。示例封面与实际数据的对应关系见应用内说明；这些运行记录不代表本次重新完成全部界面验收。
 
 ## 当前能做什么
 
@@ -49,6 +60,15 @@
 具体支持以实际可解码的数据及几何检查为准，尚不承诺兼容所有厂商、传输语法或光盘结构。
 
 **尚未交付：** 可编辑标注与测量、标注保存恢复、PNG/JPEG 与 DICOM/SR/GSPS 导出、2D Cine、3D 体绘制、真正的 4D 动态体积。详细范围见[导出计划](docs/EXPORT_PLAN.md)与[浏览模式路线](docs/VIEWING_MODES_PLAN.md)。
+
+## 使用方式
+
+| 形式 | 适合场景 | 运行条件与交付状态 |
+| --- | --- | --- |
+| Web | 在浏览器打开本地文件或体验教学样本 | 本地启动或自行部署静态资源；需要 WebGL2 |
+| Tauri 桌面端 | 原生文件访问、无需 Vite 的打包运行 | 已在 macOS / Apple Silicon 验证基础启动与导入；Windows/Linux 待验收 |
+
+当前未提供公共在线 Demo 或正式安装包下载，请按下方步骤从源码运行。
 
 ## 运行 Web
 
@@ -155,7 +175,11 @@ node packages/app-web/testing/generate-sample-previews.mjs
 
 ## 贡献与致谢
 
-AI 辅助开发：[Codex](https://github.com/codex)，相关提交保留 `Co-authored-by` 署名。GitHub 侧栏的 Contributors 由平台按提交独立统计。
+| 项目维护 | AI 辅助开发 |
+| --- | --- |
+| <a href="https://github.com/Xxcool"><img src="https://github.com/Xxcool.png?size=128" width="64" alt="Xxcool 的 GitHub 头像"></a><br>[Xxcool](https://github.com/Xxcool) | <a href="https://github.com/codex"><img src="https://github.com/codex.png?size=128" width="64" alt="Codex 的 GitHub 头像"></a><br>[Codex](https://github.com/codex) |
+
+AI 辅助的相关提交保留 `Co-authored-by` 署名。这里展示项目贡献角色，GitHub 侧栏的 Contributors 由平台独立统计。
 
 反馈时请附应用版本/提交、操作系统、Web 或桌面端、复现步骤及已去除隐私的错误信息。请先查看[已知问题和计划](docs/PROJECT_STATUS.md)，避免把尚未交付的功能误认为回归。
 
