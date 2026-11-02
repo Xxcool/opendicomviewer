@@ -151,10 +151,18 @@ python3 packages/app-web/testing/generate-head-sample.py /path/to/mni_icbm152_nl
 node packages/app-web/testing/generate-sample-previews.mjs
 ```
 
-代码包目前声明使用 Apache-2.0，但根目录许可正文尚待补齐；各样本、封面及第三方资源有各自许可边界，再分发材料仍需审查。当前仓库为私有开发仓库，尚未完成正式公开开源发布准备。
+各样本、封面及第三方资源有各自许可边界，再分发材料仍需审查。当前仓库为私有开发仓库，尚未完成正式公开开源发布准备。
 
 ## 贡献与致谢
 
-项目维护：[Xxcool](https://github.com/Xxcool)。AI 辅助开发：[Codex](https://github.com/codex)，相关提交保留 `Co-authored-by` 署名。这里是项目署名说明，GitHub 侧栏的 Contributors 由平台按提交独立统计。
+AI 辅助开发：[Codex](https://github.com/codex)，相关提交保留 `Co-authored-by` 署名。GitHub 侧栏的 Contributors 由平台按提交独立统计。
 
 反馈时请附应用版本/提交、操作系统、Web 或桌面端、复现步骤及已去除隐私的错误信息。请先查看[已知问题和计划](docs/PROJECT_STATUS.md)，避免把尚未交付的功能误认为回归。
+
+## 👨‍💻 作者 (Author)
+
+- **Xxcool** · [GitHub (@Xxcool)](https://github.com/Xxcool) · [掘金技术主页](https://juejin.cn/user/4265760845468296/posts)
+
+## 📄 开源许可 (License)
+
+本项目代码采用 [Apache License 2.0](LICENSE) 开源协议。教学样本、示例封面及第三方资源遵循各自许可，详见相应目录中的来源与许可说明。
