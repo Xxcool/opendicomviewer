@@ -15,7 +15,7 @@ export function WelcomeScreen({ onOpenFolder, onOpenFiles, onLoadSample }: {
         <div className="welcome-section-label"><span>或者试试示例影像</span></div>
         <div className="sample-grid">
           <button className="sample-card" aria-label="载入完整头部 MR 教学示例（193 层，支持 MPR 联动）" title="载入 ICBM152 平均头部三维教学示例，可选择 2×2 或 1+3 联动" onClick={() => onLoadSample?.('brain-head-mr')}>
-            <span className="sample-card-image"><img src="./sample-previews/brain-head-mr.png" width="229" height="193" alt="实际可载入的 ICBM152 平均头部矢状面" draggable={false} /></span>
+            <span className="sample-card-image sample-cover-brain" role="img" aria-label="显示完整头部轮廓的 MR 矢状面封面示意" style={{ backgroundImage: 'url("./sample-covers/reference.png")' }} />
             <span className="sample-caption"><strong>MR 脑部影像</strong></span>
           </button>
           <button className="sample-card" aria-label="载入 CT 预置示例（单层）" title="载入预置单层 CT 示例；封面为影像类型示意" onClick={() => onLoadSample?.('ct-body')}>
@@ -24,9 +24,6 @@ export function WelcomeScreen({ onOpenFolder, onOpenFiles, onLoadSample }: {
           </button>
         </div>
         <p className="sample-cover-note">MR：193 层，支持 2×2 / MPR 联动；CT：单层浏览</p>
-        <details className="sample-cover-note"><summary>封面与预置样本说明</summary>
-          <p>脑部示例包含 ICBM152 平均头部模板的 193 层连续轴位序列及封面所示的单层矢状面参考图，默认载入连续序列。CT 封面为示意图，载入预置单层 CT。顶部「示例」仍包含原有 36 帧 MR 浏览序列。</p>
-        </details>
       </section>
       <button className="welcome-drop-zone" onClick={onOpenFiles} aria-label="选择 DICOM 文件或 ZIP，也可拖入窗口">
         <WorkspaceIcon name="upload" />
