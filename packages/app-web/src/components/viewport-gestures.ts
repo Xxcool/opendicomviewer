@@ -17,7 +17,7 @@ interface GestureOptions {
 export function blocksViewerShortcut(event: KeyboardEvent): boolean {
   return event.ctrlKey || event.metaKey || event.altKey
     || (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]') !== null)
-    || document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+    || document.querySelector('[role="dialog"][aria-modal="true"], [data-viewer-home="true"]') !== null;
 }
 
 export const CAMERA_CHANGED = 'odv-camera-changed';

@@ -23,7 +23,6 @@ export function WelcomeScreen({ onOpenFolder, onOpenFiles, onLoadSample }: {
             <span className="sample-caption"><strong>CT 胸腹影像</strong></span>
           </button>
         </div>
-        <p className="sample-cover-note">MR：193 层，支持 2×2 / MPR 联动；CT：单层浏览</p>
       </section>
       <button className="welcome-drop-zone" onClick={onOpenFiles} aria-label="选择 DICOM 文件或 ZIP，也可拖入窗口">
         <WorkspaceIcon name="upload" />

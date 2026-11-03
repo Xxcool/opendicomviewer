@@ -551,14 +551,6 @@ export function Viewport({
               </span>
             </div>
 
-            {/* 右上：隐私状态（保守默认含身份信息） */}
-            <div className="absolute top-3 right-3 max-w-[40%] text-right [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
-              <span className="inline-flex items-center gap-1 text-warn font-medium">
-                <WarningIcon className="w-3 h-3" />
-                <span>含身份信息</span>
-              </span>
-            </div>
-
             {/* 左下：当前窗（预设名 + WW/WL），由 syncVoiUi 命令式更新 */}
             <div
               ref={voiCornerRef}

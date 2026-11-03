@@ -29,7 +29,7 @@ export function MetadataPanel() {
       event.currentTarget.querySelector<HTMLButtonElement>(`#${tab}-tab`)?.focus();
     }}>
       <button role="tab" id="image-tab" aria-controls="image-panel" tabIndex={inspectorTab === 'image' ? 0 : -1} aria-selected={inspectorTab === 'image'} onClick={() => state.setInspectorTab('image')}>影像</button>
-      <button role="tab" id="warnings-tab" aria-controls="warnings-panel" tabIndex={inspectorTab === 'warnings' ? 0 : -1} aria-selected={inspectorTab === 'warnings'} onClick={() => state.setInspectorTab('warnings')}>提醒 <span>{warnings.length}</span></button>
+      <button role="tab" id="warnings-tab" aria-controls="warnings-panel" tabIndex={inspectorTab === 'warnings' ? 0 : -1} aria-selected={inspectorTab === 'warnings'} onClick={() => state.setInspectorTab('warnings')}>提醒 {warnings.length > 0 && <span>{warnings.length}</span>}</button>
       <button className="inspector-close" aria-label="收起影像详情" onClick={state.toggleInspector}>×</button>
     </div>
     <div className="inspector-scroll">

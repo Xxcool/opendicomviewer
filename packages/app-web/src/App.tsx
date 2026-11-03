@@ -9,6 +9,7 @@ import { createCs3dModule } from './bridge/cs3d-adapter';
 import { registerCs3dBridge } from './bridge/cs3d-bridge';
 import { fileToImportCandidate } from './bridge/candidate';
 import { useImportFlow } from './import-flow';
+import { WelcomeScreen } from './components/WelcomeScreen';
 import { Header } from './components/Header';
 import { SeriesList } from './components/SeriesList';
 import { Viewport } from './components/Viewport';
@@ -26,6 +27,7 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
   // 压缩像素解码器由组合根注入；重解码库本身在 PixelCodec 内部按需动态加载
   const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
+  const [homeOpen, setHomeOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   /** MPR 准星会话跨布局保留，不参与高频 React 状态更新。 */
   const splitNavigation = useRef<SplitNavigationSession>(new Map());
@@ -55,6 +57,7 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
     // 新导入是新的数据会话，不能按相同 UID 继承上一次的定位。
     mprNavigation.current = { seriesUid: null, crosshair: null };
     splitNavigation.current.clear();
+    setHomeOpen(false);
   }, [studies]);
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
@@ -185,6 +188,7 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
       className="w-screen h-screen flex flex-col bg-app text-txt overflow-hidden relative"
     >
       <Header
+        onGoHome={() => setHomeOpen(true)}
         onImportCandidates={importCandidates}
         onLoadSample={loadSample}
         onCancelImport={cancelImport}
@@ -193,7 +197,7 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
         onOpenProject={openProject ? () => { void openProject().catch(() => setImportStatus({ loading: false, error: '无法打开 GitHub 仓库，请检查系统浏览器设置' })); } : undefined}
       />
 
-      {hasWorkspace && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
+      {hasWorkspace && !homeOpen && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
 
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (
@@ -246,7 +250,12 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
       )}
 
       {/* 主工作区：三栏布局，宽度统一走 CSS token */}
-      <div className="flex-1 flex overflow-hidden min-w-0">
+      <div className="flex-1 flex overflow-hidden min-w-0 relative">
+        {homeOpen && <div data-viewer-home="true" className="absolute inset-0 z-20 bg-app overflow-auto">
+          {hasWorkspace && <div className="flex justify-center pt-4"><button className="workspace-control" onClick={() => setHomeOpen(false)}>继续阅片</button></div>}
+          <WelcomeScreen onOpenFolder={() => openLocal('folder')} onOpenFiles={() => openLocal('files')} onLoadSample={loadSample} />
+        </div>}
+        <div className="contents" inert={homeOpen}>
         <div
           id="series-panel"
           hidden={!hasWorkspace || !seriesPanelOpen || focusMode}
@@ -322,6 +331,7 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
         </div>
         <div id="inspector-panel" hidden={!hasWorkspace || !inspectorOpen || focusMode} className="workspace-inspector shrink-0 h-full">
           <MetadataPanel />
+        </div>
         </div>
       </div>
     </div>

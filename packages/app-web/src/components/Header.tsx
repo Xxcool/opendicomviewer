@@ -14,9 +14,10 @@ interface HeaderProps {
   readonly onOpenFolder?: () => void;
   readonly onOpenFiles?: () => void;
   readonly onOpenProject?: () => void;
+  readonly onGoHome?: () => void;
 }
 
-export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpenFolder, onOpenFiles, onOpenProject }: HeaderProps) {
+export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpenFolder, onOpenFiles, onOpenProject, onGoHome }: HeaderProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { importStatus, theme, setTheme } = useViewerStore();
@@ -47,10 +48,10 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpe
   };
   return <header className="workspace-header" aria-label="全局操作">
     <nav className="workspace-header-actions" aria-label="影像导入">
-      <div className="workspace-brand" role="img" aria-label="OpenDicomViewer">
+      <button type="button" className="workspace-brand" aria-label="OpenDicomViewer，返回首页" title="返回首页，保留当前阅片会话" onClick={onGoHome}>
         <span className="workspace-brand-mark" aria-hidden="true">ODV</span>
         <span className="workspace-brand-name" aria-hidden="true">OpenDicomViewer</span>
-      </div>
+      </button>
       <span className="header-divider" aria-hidden="true" />
       {!onOpenFolder && <input id="odv-folder-input" ref={folderInputRef} type="file" multiple hidden onChange={selected} />}
       {!onOpenFiles && <input id="odv-file-input" ref={fileInputRef} type="file" multiple hidden onChange={selected} />}

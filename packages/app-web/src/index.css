@@ -180,7 +180,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .workspace-header-preferences { gap: 12px; flex-shrink: 0; }
 .workspace-header .github-link { width: 36px; padding: 0; text-decoration: none; }
 .github-link:focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 3px; }
-.workspace-brand { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.workspace-brand { cursor: pointer; border: 0; padding: 0; background: transparent; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .workspace-brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--color-accent); color: var(--color-overlay); font-size: 11px; font-weight: 700; }
 .workspace-brand-name { font-size: 14px; font-weight: 600; color: var(--color-txt); }
 .workspace-header .workspace-control { height: 36px; padding: 0 10px; font-size: 16px; font-weight: 400; gap: 9px; color: var(--color-txt); }
@@ -238,7 +238,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .sample-cover-chest { background-position: 75.728155% 22.5%; }
 .sample-caption { display: grid; place-items: center; width: 100%; height: 38px; border-top: 1px solid var(--color-line); }
 .sample-caption strong { font-size: 14px; font-weight: 500; color: var(--color-txt); line-height: 20px; }
-.sample-cover-note { margin: 12px auto 0; max-width: 440px; color: var(--color-txt-muted); font-size: 10px; line-height: 1.7; }
 .welcome-drop-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 116px; gap: 8px; margin-top: 24px; padding: 17px; border: 1px dashed var(--color-line-strong); border-radius: 8px; color: var(--color-txt-dim); background: transparent; cursor: pointer; }
 .welcome-drop-zone:hover { background: var(--color-panel); border-color: var(--color-accent-hover); }
 .welcome-drop-zone svg { width: 26px; height: 26px; margin-bottom: 2px; }
