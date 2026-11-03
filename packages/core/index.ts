@@ -17,3 +17,7 @@ export * from './testing/phantom';
 export * from './pipeline/window-presets';
 
 export * from './measurement/geometry';
+
+export * from './measurement/image-coordinates';
+
+export * from './measurement/session';
