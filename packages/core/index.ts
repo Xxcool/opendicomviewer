@@ -15,3 +15,5 @@ export * from './volume/index';
 export * from './testing/phantom';
 
 export * from './pipeline/window-presets';
+
+export * from './measurement/geometry';
