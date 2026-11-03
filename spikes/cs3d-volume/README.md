@@ -128,3 +128,7 @@ const volume = volumeLoader.createLocalVolume(volumeId, {
 
 **这些数字全部不可信**：SwiftShader 软件渲染 + 无头虚拟时间，与真机 GPU 差一个数量级；
 且 `render()` 只做提交（Spike A 已证）。真实帧时间必须按 §11 在有头环境测。
+
+## 绘制诊断入口（2026-11-03）
+
+`pnpm --dir spikes/cs3d-volume exec vite build --config paint-diagnostic.vite.config.js` 构建至 `dist/paint-diagnostic/`。开发时运行该目录的 `pnpm dev`，访问 `/paint-diagnostic.html`。页面仅用合成体积，提供布局/主题切换、10次布局/5次主题循环、画布尺寸和事件/异常记录。用于将实际查看器问题缩减到可复现范围，构建通过不能证明桌面绘制故障已修复；完整 Tauri 与真实浏览器视觉验收另计。
