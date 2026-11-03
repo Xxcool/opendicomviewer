@@ -80,6 +80,14 @@ export interface ImagePlane {
   readonly photometricInterpretation?: string;
   /** 传输语法 UID (0002,0010)，用于解码格式识别与字节序处理 (P1-3, P1-4) */
   readonly transferSyntaxUid?: string;
+  /**
+   * 单文件多帧展开后，该切片在所属文件内的帧索引 (0028,0008 第几帧，0 起)。
+   * 单帧文件省略即为 0；展开由 source-local 在扫描阶段完成，
+   * 上层只需把每个 plane 当成一张独立切片使用（D5）。
+   */
+  readonly frameIndex?: number;
+  /** 多帧空间关系不足或变化，仅按文件帧序二维浏览，不用于体积重建。 */
+  readonly isMultiframe2D?: boolean;
   /** 是否缺失空间几何坐标 (0020,0032)/(0020,0037)，禁止静默降级为 [0,0,0] (P1-5) */
   readonly hasMissingGeometry?: boolean;
 }
@@ -95,7 +103,11 @@ export interface DataWarning {
     | 'NON_VOLUMETRIC_SERIES'
     | 'BURNED_IN_INFO'
     | 'UNSUPPORTED_TRANSFER_SYNTAX'
-    | 'DECODE_PARTIAL_FAILURE';
+    | 'DECODE_PARTIAL_FAILURE'
+    /** 单文件多帧空间关系不足，仅可二维浏览（D5） */
+    | 'MULTI_FRAME_GEOMETRY_UNAVAILABLE'
+    /** 单文件多帧的逐帧方向与共享方向不一致（D5） */
+    | 'MULTI_FRAME_ORIENTATION_VARIED';
   /** 面向用户的自然语言中文提示（R7） */
   readonly message: string;
   /**

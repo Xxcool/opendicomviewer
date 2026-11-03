@@ -121,7 +121,7 @@ export function sortByPosition(planes: readonly ImagePlane[]): SortResult {
     return {
       sortedPlanes: [...planes], excludedPlanes: [], sliceDistances: [], expectedSpacing: 1,
       warnings: [{ code: 'NON_VOLUMETRIC_SERIES', severity: 'info',
-        message: `序列含定位像或二次采集图像，全部 ${planes.length} 帧按导入顺序二维浏览；不作为断层体积进行 MPR`,
+        message: `序列含不适用体积重建的二维影像，全部 ${planes.length} 帧按导入顺序二维浏览；不作为断层体积进行 MPR`,
       }],
     };
   }

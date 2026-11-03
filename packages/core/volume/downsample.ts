@@ -75,7 +75,7 @@ export function planVolumeDownsample(
   options: VolumePlanOptions = {},
 ): VolumePlanResult {
   if (isNonVolumetricSeries(meta.planes)) {
-    return reject('NON_VOLUMETRIC_SERIES', '定位像或二次采集图像支持二维浏览，不用于断层体积重建（MPR）');
+    return reject('NON_VOLUMETRIC_SERIES', '该序列包含不适用体积重建的二维帧，仍可完整浏览原始影像');
   }
   const maxDim = Math.max(1, Math.floor(options.maxDim ?? VOLUME_MAX_DIM));
   const maxTiltDeg = options.maxTiltDeg ?? MAX_VOLUME_TILT_DEG;

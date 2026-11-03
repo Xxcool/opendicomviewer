@@ -20,6 +20,7 @@ import {
 import type { ImportCandidate } from '@opendicomviewer/core';
 import dicomParser, { type ParseOptions } from 'dicom-parser';
 import { decodeDicomText } from './charset';
+import { resolveMultiframePlanes } from './frame-geometry';
 
 /**
  * 单文件元数据解析结果（唯一事实来源）
@@ -37,6 +38,12 @@ export interface ParsedDicomMeta {
   seriesNumber?: number;
   seriesDescription: string;
   modality: Modality;
+  /** 本文件内的帧数 (0028,0008)，单帧文件为 1（D5） */
+  numberOfFramesInFile: number;
+  /** 标准功能组解析后的逐帧元数据；只用于单文件多帧。 */
+  frames?: readonly ImagePlane[];
+  frameGeometryUnavailable: boolean;
+  frameOrientationVaried: boolean;
 }
 
 export function parseFloats(
@@ -108,6 +115,15 @@ export function parseDicomMetadata(
     psFloats?.[1] ?? 1.0,
   ];
 
+  // D5: 单文件多帧的帧数与逐帧位置（(0028,0008) 缺省为 1）
+  const rawFrames = dataSet.string('x00280008')?.trim();
+  const numberOfFramesInFile = rawFrames === undefined ? 1 : Number(rawFrames);
+  if ((rawFrames !== undefined && !/^\+?\d+$/.test(rawFrames))
+    || !Number.isSafeInteger(numberOfFramesInFile) || numberOfFramesInFile < 1) {
+    throw new Error('NumberOfFrames (0028,0008) 必须为正整数');
+  }
+  const spacingBetweenSlices = dataSet.floatString('x00180088');
+  const sliceThickness = dataSet.floatString('x00180050');
   // N1: 解析 ModalityLUTSequence (0028,3002)
   let modalityLUT: ModalityLUT | undefined;
   const lutSeq = dataSet.elements.x00283002;
@@ -145,8 +161,8 @@ export function parseDicomMetadata(
     imagePositionPatient: ipp,
     imageOrientationPatient: iop,
     pixelSpacing,
-    sliceThickness: dataSet.floatString('x00180050'),
-    spacingBetweenSlices: dataSet.floatString('x00180088'),
+    sliceThickness: sliceThickness,
+    spacingBetweenSlices: spacingBetweenSlices,
     rows: dataSet.uint16('x00280010') ?? 512,
     columns: dataSet.uint16('x00280011') ?? 512,
     rescaleSlope: dataSet.floatString('x00281053') ?? 1.0,
@@ -165,6 +181,9 @@ export function parseDicomMetadata(
     hasMissingGeometry,
   };
 
+  const frameGeometry = numberOfFramesInFile > 1
+    ? resolveMultiframePlanes(dataSet, plane, numberOfFramesInFile) : undefined;
+
   return {
     plane,
     studyUid,
@@ -176,5 +195,9 @@ export function parseDicomMetadata(
     seriesNumber: dataSet.intString('x00200011'),
     seriesDescription: dataSet.string('x0008103e') ?? '',
     modality,
+    numberOfFramesInFile,
+    frames: frameGeometry?.planes,
+    frameGeometryUnavailable: frameGeometry?.unavailable ?? false,
+    frameOrientationVaried: frameGeometry?.orientationVaried ?? false,
   };
 }

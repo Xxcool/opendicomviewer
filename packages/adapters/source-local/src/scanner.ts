@@ -10,6 +10,7 @@
  */
 
 import {
+  type DataWarning,
   type ImagePlane,
   type Modality,
   type SeriesMeta,
@@ -18,7 +19,7 @@ import {
 } from '@opendicomviewer/core';
 import type { ImportCandidate } from '@opendicomviewer/core';
 import { hasDicomPrefix } from './magic';
-import { parseDicomMetadata } from './parse';
+import { type ParsedDicomMeta, parseDicomMetadata } from './parse';
 import {
   extractZipEntriesFromCandidate,
   isZipBuffer,
@@ -49,6 +50,8 @@ export interface InternalSeriesData {
   readonly modality: Modality;
   readonly planes: ImagePlane[];
   readonly candidateByImageId: Map<string, ImportCandidate>;
+  /** 扫描阶段产生、与几何排序无关的序列级告警（如多帧位置推算，D5） */
+  extraWarnings?: DataWarning[];
 }
 
 export interface ScanResult {
@@ -61,6 +64,34 @@ export interface ScanResult {
    * 不能用候选文件数去减，因为 ZIP 会展开、非 DICOM 文件会被静默跳过。
    */
   readonly parsedFileCount: number;
+}
+
+/** 单文件多帧保留文件内帧索引；空间关系不足时只能二维浏览，不推算坐标。 */
+export function expandParsedPlanes(parsed: ParsedDicomMeta): {
+  readonly planes: ImagePlane[];
+  readonly warnings: DataWarning[];
+} {
+  if (parsed.numberOfFramesInFile <= 1) return { planes: [parsed.plane], warnings: [] };
+  if (!parsed.frames || parsed.frames.length !== parsed.numberOfFramesInFile) {
+    throw new Error('单文件多帧元数据不完整，无法安全展开');
+  }
+  const warnings: DataWarning[] = [];
+  if (parsed.frameGeometryUnavailable) {
+    warnings.push({
+      code: 'MULTI_FRAME_GEOMETRY_UNAVAILABLE',
+      message: `单文件多帧（${parsed.numberOfFramesInFile} 帧）缺少可信逐帧空间关系，保留全部帧二维浏览，不进行 MPR`,
+      severity: 'warning',
+      details: { frameCount: parsed.numberOfFramesInFile },
+    });
+  }
+  if (parsed.frameOrientationVaried) {
+    warnings.push({
+      code: 'MULTI_FRAME_ORIENTATION_VARIED',
+      message: '单文件多帧的逐帧方向不一致，保留各帧真实方向二维浏览，不进行 MPR',
+      severity: 'info',
+    });
+  }
+  return { planes: [...parsed.frames], warnings };
 }
 
 /**
@@ -184,8 +215,17 @@ export async function scanCandidates(
         studyRecord.seriesMap.set(parsed.seriesUid, seriesRecord);
       }
 
-      seriesRecord.planes.push(parsed.plane);
-      seriesRecord.candidateByImageId.set(parsed.plane.imageId, candidate);
+      const expanded = expandParsedPlanes(parsed);
+      for (const plane of expanded.planes) {
+        seriesRecord.planes.push(plane);
+        seriesRecord.candidateByImageId.set(plane.imageId, candidate);
+      }
+      if (expanded.warnings.length > 0) {
+        seriesRecord.extraWarnings = [
+          ...(seriesRecord.extraWarnings ?? []),
+          ...expanded.warnings,
+        ];
+      }
       parsedFileCount++;
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
@@ -237,6 +277,9 @@ export function buildSortedSeriesMeta(
   const sliceSpacing = sortRes.expectedSpacing;
 
   const allWarnings = [...sortRes.warnings];
+  if (seriesData.extraWarnings && seriesData.extraWarnings.length > 0) {
+    allWarnings.push(...seriesData.extraWarnings);
+  }
   if (additionalFailures && additionalFailures.length > 0) {
     allWarnings.push({
       code: 'DECODE_PARTIAL_FAILURE',

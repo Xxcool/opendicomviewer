@@ -378,6 +378,9 @@ function makeMeta(overrides: Partial<ParsedDicomMeta> = {}): ParsedDicomMeta {
     seriesUid: '1.2.3',
     seriesDescription: '',
     modality: 'CT',
+    numberOfFramesInFile: 1,
+    frameGeometryUnavailable: false,
+    frameOrientationVaried: false,
     ...overrides,
   };
 }

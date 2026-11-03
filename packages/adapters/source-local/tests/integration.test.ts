@@ -4,11 +4,14 @@ import type {
   ImportCandidate,
   PixelFrame,
 } from '@opendicomviewer/core';
+import { planVolumeDownsample } from '@opendicomviewer/core';
 import { describe, expect, it, vi } from 'vitest';
 import { LRUCache, LocalDataSource } from '../src/source-local';
 import {
   buildDicomBuffer,
   buildDicomdirBuffer,
+  encodeElement,
+  stringToBytes,
 } from '../testing/dicom-fixture';
 import { GBK_CHEST_CT_FILENAME, buildZip } from '../testing/zip-fixture';
 
@@ -526,7 +529,7 @@ describe('LocalDataSource 封装压缩解码（CodecPort 注入）', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('单文件多帧（NumberOfFrames=2）：显式报错，不静默只画第一帧', async () => {
+  it('封装多帧但缺基本偏移表：显式报错，不猜帧边界', async () => {
     const file = buildEncapsulatedFile({
       fragments: [new Uint8Array([0x01, 0x02]), new Uint8Array([0x03, 0x04])],
       numberOfFrames: 2,
@@ -535,7 +538,241 @@ describe('LocalDataSource 封装压缩解码（CodecPort 注入）', () => {
     const source = new LocalDataSource(codec);
     const handle = await openSingleSeries(source, file);
 
-    await expect(handle.pixel(0)).rejects.toThrow(/单文件多帧尚未展开/);
+    await expect(handle.pixel(0)).rejects.toThrow(/缺少基本偏移表/);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('LocalDataSource 单文件多帧展开（D5）', () => {
+  const RLE_TS = '1.2.840.10008.1.2.5';
+
+  function u16Bytes(values: readonly number[]): Uint8Array {
+    const bytes = new Uint8Array(values.length * 2);
+    values.forEach((v, i) => {
+      bytes[i * 2] = v & 0xff;
+      bytes[i * 2 + 1] = (v >> 8) & 0xff;
+    });
+    return bytes;
+  }
+
+  function u32Bytes(values: readonly number[]): Uint8Array {
+    const bytes = new Uint8Array(values.length * 4);
+    values.forEach((v, i) => {
+      bytes[i * 4] = v & 0xff;
+      bytes[i * 4 + 1] = (v >> 8) & 0xff;
+      bytes[i * 4 + 2] = (v >> 16) & 0xff;
+      bytes[i * 4 + 3] = (v >> 24) & 0xff;
+    });
+    return bytes;
+  }
+
+  /** 手工编码 (5200,9230) PerFrameFunctionalGroupsSequence：每帧通过 PlanePositionSequence 包含 (0020,0032) */
+  function perFrameSequence(
+    positions: readonly [number, number, number][],
+    orientations?: readonly string[],
+  ): Uint8Array {
+    const out: number[] = [];
+    for (const [frameIndex, pos] of positions.entries()) {
+      const position = encodeElement(
+        0x0020,
+        0x0032,
+        'DS',
+        stringToBytes(`${pos[0]}\\${pos[1]}\\${pos[2]}`),
+      );
+      const nested = new Uint8Array([0xfe, 0xff, 0x00, 0xe0,
+        position.length & 0xff, (position.length >> 8) & 0xff, 0, 0, ...position]);
+      const location = encodeElement(0x0020, 0x9113, 'SQ', nested);
+      const orientation = orientations?.[frameIndex];
+      const iop = orientation ? encodeElement(0x0020, 0x0037, 'DS', stringToBytes(orientation)) : new Uint8Array();
+      const iopItem = new Uint8Array([0xfe, 0xff, 0x00, 0xe0, iop.length & 0xff, (iop.length >> 8) & 0xff, 0, 0, ...iop]);
+      const item = new Uint8Array([...location, ...(orientation ? encodeElement(0x0020, 0x9116, 'SQ', iopItem) : [])]);
+      out.push(
+        0xfe,
+        0xff,
+        0x00,
+        0xe0,
+        item.length & 0xff,
+        (item.length >> 8) & 0xff,
+        (item.length >> 16) & 0xff,
+        (item.length >> 24) & 0xff,
+        ...item,
+      );
+    }
+    return new Uint8Array(out);
+  }
+
+  async function openSeriesOf(
+    file: ImportCandidate,
+  ): Promise<Awaited<ReturnType<LocalDataSource['openSeries']>>> {
+    const source = new LocalDataSource();
+    await source.probe({ files: [file] });
+    return source.openSeries({
+      studyInstanceUid: '1.2.3.910',
+      seriesInstanceUid: '1.2.3.910.1',
+    });
+  }
+
+  const MULTIFRAME_IDS = {
+    studyInstanceUid: '1.2.3.910',
+    seriesInstanceUid: '1.2.3.910.1',
+  } as const;
+
+  it.each(['0', '-1', '2.5', 'invalid'])('非法 NumberOfFrames %s 不静默当单帧', async value => {
+    const source = new LocalDataSource();
+    await source.probe({ files: [createMockCandidate('invalid-frames.dcm', buildDicomBuffer({
+      ...MULTIFRAME_IDS, extraElements: [{ tag: [0x0028, 0x0008], vr: 'IS', value }],
+    }))] });
+    expect(source.importOutcome().succeeded).toBe(0);
+    expect(source.importOutcome().failures[0]?.reason).toMatch(/NumberOfFrames/);
+  });
+
+  it('非封装 3 帧：展开为 3 张切片，逐帧像素与逐帧位置正确', async () => {
+    const file = createMockCandidate(
+      'multiframe.dcm',
+      buildDicomBuffer({
+        ...MULTIFRAME_IDS,
+        sopInstanceUid: '1.2.3.910.1.1',
+        rows: 2,
+        columns: 2,
+        bitsAllocated: 16,
+        pixelData: u16Bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+        extraElements: [
+          { tag: [0x0028, 0x0008], vr: 'IS', value: '3' },
+          { tag: [0x0018, 0x0088], vr: 'DS', value: '5' },
+        ],
+      }),
+    );
+
+    const handle = await openSeriesOf(file);
+
+    expect(handle.meta.numberOfFrames).toBe(3);
+    expect(handle.meta.planes.map((p) => p.frameIndex)).toEqual([0, 1, 2]);
+    // 顶层层间距不能证明逐帧空间关系，保留二维帧，不推算 Z。
+    expect(handle.meta.planes.map((p) => p.imagePositionPatient[2])).toEqual([
+      0, 0, 0,
+    ]);
+    expect(handle.meta.planes.every(p => p.isMultiframe2D)).toBe(true);
+    expect(planVolumeDownsample(handle.meta).ok).toBe(false);
+    // 空间未知必须显式告警（R7）
+    expect(
+      handle.warnings.some((w) => w.code === 'MULTI_FRAME_GEOMETRY_UNAVAILABLE'),
+    ).toBe(true);
+
+    const frame0 = await handle.pixel(0);
+    const frame2 = await handle.pixel(2);
+    expect(Array.from(frame0.pixelData)).toEqual([1, 2, 3, 4]);
+    expect(Array.from(frame2.pixelData)).toEqual([9, 10, 11, 12]);
+
+    // 帧索引越界必须显式失败
+    await expect(handle.pixel(3)).rejects.toThrow(/切片索引越界/);
+  });
+
+  it('逐帧功能组提供位置时按精确坐标展开，且不产生推算告警', async () => {
+    const file = createMockCandidate(
+      'multiframe-perframe.dcm',
+      buildDicomBuffer({
+        ...MULTIFRAME_IDS,
+        sopInstanceUid: '1.2.3.910.1.2',
+        rows: 2,
+        columns: 2,
+        bitsAllocated: 16,
+        pixelData: u16Bytes([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+        extraElements: [
+          { tag: [0x0028, 0x0008], vr: 'IS', value: '3' },
+          {
+            tag: [0x5200, 0x9230],
+            vr: 'SQ',
+            value: perFrameSequence([
+              [0, 0, 0],
+              [0, 0, 7],
+              [0, 0, 14],
+            ]),
+          },
+        ],
+      }),
+    );
+
+    const handle = await openSeriesOf(file);
+
+    expect(handle.meta.planes.map((p) => p.imagePositionPatient[2])).toEqual([
+      0, 7, 14,
+    ]);
+    expect(
+      handle.warnings.some((w) => w.code === 'MULTI_FRAME_GEOMETRY_UNAVAILABLE'),
+    ).toBe(false);
+  });
+
+  it.each(['repeated', 'rotated'])('%s 多帧保留全部二维帧并拒绝 MPR', async kind => {
+    const positions: [number, number, number][] = kind === 'repeated' ? [[0, 0, 0], [0, 0, 0]] : [[0, 0, 0], [0, 0, 5]];
+    const file = createMockCandidate('non-volume.dcm', buildDicomBuffer({
+      ...MULTIFRAME_IDS, sopInstanceUid: '1.2.3.910.1.9', rows: 2, columns: 2,
+      bitsAllocated: 16, pixelData: u16Bytes([1, 2, 3, 4, 5, 6, 7, 8]),
+      extraElements: [
+        { tag: [0x0028, 0x0008], vr: 'IS', value: '2' },
+        { tag: [0x5200, 0x9230], vr: 'SQ', value: perFrameSequence(positions,
+          kind === 'rotated' ? ['1\\0\\0\\0\\1\\0', '0\\1\\0\\-1\\0\\0'] : undefined) },
+      ],
+    }));
+    const handle = await openSeriesOf(file);
+    expect(handle.meta.planes).toHaveLength(2);
+    expect(handle.meta.planes.every(p => p.isMultiframe2D)).toBe(true);
+    expect(planVolumeDownsample(handle.meta).ok).toBe(false);
+    expect(Array.from((await handle.pixel(1)).pixelData)).toEqual([5, 6, 7, 8]);
+    if (kind === 'rotated') expect(handle.meta.planes[1]?.imageOrientationPatient).toEqual([0, 1, 0, -1, 0, 0]);
+  });
+
+  it('封装 3 帧 + 基本偏移表：按帧索引取各自码流交给 CodecPort', async () => {
+    const fragments = [
+      new Uint8Array([0x10, 0x20]),
+      new Uint8Array([0x30, 0x40]),
+      new Uint8Array([0x50, 0x60]),
+    ];
+    // 每个 fragment item = 8 字节头部 + 载荷
+    const file = createMockCandidate(
+      'multiframe-rle.dcm',
+      buildDicomBuffer({
+        ...MULTIFRAME_IDS,
+        sopInstanceUid: '1.2.3.910.1.3',
+        transferSyntaxUid: RLE_TS,
+        rows: 2,
+        columns: 2,
+        bitsAllocated: 16,
+        encapsulatedPixelData: {
+          basicOffsetTable: u32Bytes([0, 10, 20]),
+          fragments,
+        },
+        extraElements: [
+          { tag: [0x0028, 0x0008], vr: 'IS', value: '3' },
+          { tag: [0x0018, 0x0088], vr: 'DS', value: '5' },
+        ],
+      }),
+    );
+
+    const calls: ArrayBuffer[] = [];
+    const codec: CodecPort = {
+      prefersSharedMemory: false,
+      canDecode: () => true,
+      decode: async (buffer) => {
+        calls.push(buffer);
+        return {
+          width: 2,
+          height: 2,
+          pixelData: new Uint16Array(4),
+          rescaleSlope: 1,
+          rescaleIntercept: 0,
+        };
+      },
+    };
+    const source = new LocalDataSource(codec);
+    await source.probe({ files: [file] });
+    const handle = await source.openSeries({
+      studyInstanceUid: MULTIFRAME_IDS.studyInstanceUid,
+      seriesInstanceUid: MULTIFRAME_IDS.seriesInstanceUid,
+    });
+
+    await handle.pixel(1);
+
+    expect(calls).toHaveLength(1);
+    expect(Array.from(new Uint8Array(calls[0]!))).toEqual([0x30, 0x40]);
   });
 });

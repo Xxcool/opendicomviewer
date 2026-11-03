@@ -42,7 +42,7 @@ export function MetadataPanel() {
         <section className="inspector-section"><h2>当前序列</h2><dl>
           <Fact label="序列">{meta?.seriesDescription}</Fact><Fact label="模态">{meta?.modality}</Fact>
           <Fact label="帧数">{meta?.planes.length}</Fact><Fact label="矩阵">{matrix ? `${matrix.columns} × ${matrix.rows}` : null}</Fact>
-          <Fact label="影像类型">{imageInfo.nonVolumetric ? '定位像 / 二次采集（二维）' : matrix?.imageType?.join(' / ')}</Fact>
+          <Fact label="影像类型">{imageInfo.nonVolumetric ? imageInfo.orientation.label : matrix?.imageType?.join(' / ')}</Fact>
           <Fact label="像素间距">{imageInfo.pixelSpacing}</Fact>
           <Fact label="层厚">{matrix?.sliceThickness !== undefined ? `${matrix.sliceThickness.toFixed(2)} mm` : undefined}</Fact>
           <Fact label="层间距">{imageInfo.layerSpacing}</Fact>

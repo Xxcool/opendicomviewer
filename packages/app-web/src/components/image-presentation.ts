@@ -12,7 +12,7 @@ export function describeSeriesImages(meta: SeriesMeta | undefined) {
   return {
     nonVolumetric,
     orientation: nonVolumetric
-      ? { label: '定位像 / 二次采集（二维）', top: '', bottom: '', left: '', right: '' }
+      ? { label: planes.some(plane => plane.isMultiframe2D) ? '多帧影像（二维）' : '定位像 / 二次采集（二维）', top: '', bottom: '', left: '', right: '' }
       : describeSliceOrientation(first?.imageOrientationPatient, first?.hasMissingGeometry),
     physicalScale: !!first && !nonVolumetric && !missingSpacing && !variedSpacing,
     pixelSpacing: !first ? undefined : missingSpacing ? '部分影像未提供或无效'

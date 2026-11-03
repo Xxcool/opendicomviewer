@@ -68,6 +68,8 @@ const BADGE_LABEL: Record<DataWarning['code'], string> = {
   BURNED_IN_INFO: '⚠ 含烧录信息',
   UNSUPPORTED_TRANSFER_SYNTAX: '⚠ 语法不支持',
   DECODE_PARTIAL_FAILURE: '⚠ 部分解码失败',
+  MULTI_FRAME_GEOMETRY_UNAVAILABLE: '⚠ 多帧仅二维',
+  MULTI_FRAME_ORIENTATION_VARIED: '⚠ 逐帧方向不一致',
 };
 
 export interface SeriesBadge {

@@ -41,6 +41,7 @@ import {
   type InternalSeriesData,
   type ScanResult,
   buildSortedSeriesMeta,
+  expandParsedPlanes,
   parseDicomMetadata,
   scanCandidates,
 } from './scanner';
@@ -286,6 +287,7 @@ export class LocalDataSource implements DataSourcePort {
     const planes: InternalSeriesData['planes'] = [];
     const candidateMap = new Map<string, ImportCandidate>();
     const failures: FileParseFailure[] = [];
+    const extraWarnings: DataWarning[] = [];
 
     for (const imgRef of series.images) {
       if (signal?.aborted) {
@@ -322,8 +324,12 @@ export class LocalDataSource implements DataSourcePort {
           meta = await getParserPool().parse(fullBuf, candidate);
         }
 
-        planes.push(meta.plane);
-        candidateMap.set(meta.plane.imageId, candidate);
+        const expanded = expandParsedPlanes(meta);
+        for (const plane of expanded.planes) {
+          planes.push(plane);
+          candidateMap.set(plane.imageId, candidate);
+        }
+        extraWarnings.push(...expanded.warnings);
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') throw err;
         failures.push({
@@ -342,6 +348,7 @@ export class LocalDataSource implements DataSourcePort {
       modality: series.modality,
       planes,
       candidateByImageId: candidateMap,
+      extraWarnings,
     };
 
     const seriesMeta = buildSortedSeriesMeta(internalData, failures);
@@ -388,12 +395,19 @@ export class LocalDataSource implements DataSourcePort {
       let pixelData: Int16Array | Uint16Array | Uint8Array;
       const bitsAllocated = plane.bitsAllocated ?? 16;
       const isSigned = plane.pixelRepresentation === 1;
+      // D5: 单文件多帧展开后，plane 只对应文件内的第 frameIndex 帧，必须按帧字节切片
+      const frameIndex = plane.frameIndex ?? 0;
+      const frameSize = plane.rows * plane.columns * (bitsAllocated > 8 ? 2 : 1);
 
       if (pixelElement && pixelElement.length > 0) {
-        const rawSlice = dataSet.byteArray.slice(
-          pixelElement.dataOffset,
-          pixelElement.dataOffset + pixelElement.length,
-        );
+        const frameStart = pixelElement.dataOffset + frameIndex * frameSize;
+        const frameEnd = frameStart + frameSize;
+        if (frameEnd > pixelElement.dataOffset + pixelElement.length) {
+          throw new Error(
+            `像素数据不足以覆盖第 ${frameIndex} 帧（每帧需 ${frameSize} 字节）: ${plane.imageId}`,
+          );
+        }
+        const rawSlice = dataSet.byteArray.slice(frameStart, frameEnd);
 
         // P1-4: 大端字节序处理 (Explicit VR Big Endian 1.2.840.10008.1.2.2)
         if (transferSyntax === '1.2.840.10008.1.2.2' && bitsAllocated === 16) {
@@ -508,30 +522,43 @@ export class LocalDataSource implements DataSourcePort {
       throw new Error(`缺少像素数据 (7FE0,0010)，无法解码: ${plane.imageId}`);
     }
 
-    // D5 尚未展开单文件多帧。压缩路径显式失败，避免"只画第一帧"看起来正常（R7）
-    const numberOfFrames = dataSet.intString('x00280008') ?? 1;
-    if (numberOfFrames > 1) {
+    // D5: 单文件多帧按 plane.frameIndex 定位；单帧文件即第 0 帧
+    const numberOfFramesInFile = Math.max(1, dataSet.intString('x00280008') ?? 1);
+    const frameIndex = plane.frameIndex ?? 0;
+    if (frameIndex >= numberOfFramesInFile) {
       throw new Error(
-        `单文件多帧尚未展开（NumberOfFrames=${numberOfFrames}），当前仅支持单帧压缩文件`,
+        `帧索引越界（第 ${frameIndex} 帧，文件共 ${numberOfFramesInFile} 帧）: ${plane.imageId}`,
       );
     }
 
     // 空 Basic Offset Table 是真实文件的常见形态（如仅有单帧或多片段单帧）：
-    // readEncapsulatedImageFrame 会直接抛 "basicOffsetTable has zero entries"，
-    // 此时按 dicom-parser 的既有语义把全部片段视为同一帧。
+    // readEncapsulatedImageFrame 会直接抛 "basicOffsetTable has zero entries"；
+    // 单帧时按 dicom-parser 的既有语义把全部片段视为同一帧，
+    // 多帧时没有偏移表就无法可靠切分帧边界，必须显式报错而不是猜（R7）。
     const fragments = pixelElement.fragments;
     if (!fragments || fragments.length === 0) {
       throw new Error(`封装像素数据缺少片段 (7FE0,0010)，无法解码: ${plane.imageId}`);
     }
     const hasOffsetTable = (pixelElement.basicOffsetTable?.length ?? 0) > 0;
-    const frameBytes = hasOffsetTable
-      ? dicomParser.readEncapsulatedImageFrame(dataSet, pixelElement, 0)
-      : dicomParser.readEncapsulatedPixelDataFromFragments(
-          dataSet,
-          pixelElement,
-          0,
-          fragments.length,
-        );
+    let frameBytes: Uint8Array;
+    if (hasOffsetTable) {
+      frameBytes = dicomParser.readEncapsulatedImageFrame(
+        dataSet,
+        pixelElement,
+        frameIndex,
+      );
+    } else if (numberOfFramesInFile === 1) {
+      frameBytes = dicomParser.readEncapsulatedPixelDataFromFragments(
+        dataSet,
+        pixelElement,
+        0,
+        fragments.length,
+      );
+    } else {
+      throw new Error(
+        `封装多帧缺少基本偏移表（Basic Offset Table），无法定位第 ${frameIndex + 1}/${numberOfFramesInFile} 帧: ${plane.imageId}`,
+      );
+    }
     const frameBuffer = frameBytes.buffer.slice(
       frameBytes.byteOffset,
       frameBytes.byteOffset + frameBytes.byteLength,
