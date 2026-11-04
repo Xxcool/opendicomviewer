@@ -18,6 +18,8 @@ export function AnnotationPanel({ navigate, seriesUid }: { navigate: (sop: strin
   const state = useAnnotations();
   const [message, setMessage] = useState('');
   const [failed, setFailed] = useState(false);
+  const restoreInput = useRef<HTMLInputElement>(null);
+  const [restoring, setRestoring] = useState(false);
   if (!state.panelOpen) return null;
   const records = state.records.filter(record => record.seriesInstanceUid === seriesUid && record.sessionId === state.sessionId);
   const selected = records.find(record => record.id === state.selected);
@@ -31,6 +33,14 @@ export function AnnotationPanel({ navigate, seriesUid }: { navigate: (sop: strin
       setMessage(result === 'saved' ? (state.session.isDirty ? '已保存导出时的版本，当前仍有未保存修改。' : '标注已保存。') : result === 'cancelled' ? '已取消保存。' : '下载已发起，请确认文件保存成功后点击「确认已保存」。');
     } catch (error) { setFailed(true); setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`); }
   };
+  const restore = async (file: File) => {
+    setRestoring(true);
+    try {
+      const restored = await state.restoreAnnotations(file);
+      setFailed(false); setMessage(restored ? '标注已恢复，可继续编辑；撤销可返回恢复前的内容。' : '已取消恢复，当前标注仍保留。');
+    } catch (error) { setFailed(true); setMessage(`恢复失败：${error instanceof Error ? error.message : String(error)}`); }
+    finally { setRestoring(false); }
+  };
   return <section data-annotation-panel="true" aria-label="标注与测量列表" className="annotation-panel" onPointerDown={event => event.stopPropagation()} onWheel={event => event.stopPropagation()}>
     <div className="annotation-panel-heading"><strong>标注与测量{state.session.isDirty ? ' · 未保存' : ''}</strong><button className="annotation-action annotation-icon-button" aria-label="关闭标注列表" onClick={() => state.setPanelOpen(false)}><AnnotationIcon name="close" /></button></div>
     <p className="text-txt-muted mb-2">测量值仅供参考，未经临床验证。按 Esc 取消绘制。</p>
@@ -38,6 +48,10 @@ export function AnnotationPanel({ navigate, seriesUid }: { navigate: (sop: strin
       <button className="annotation-action" disabled={!state.session.canUndo} onClick={() => run(() => { state.session.undo(); })}><AnnotationIcon name="undo" />撤销</button>
       <button className="annotation-action" disabled={!state.session.canRedo} onClick={() => run(() => { state.session.redo(); })}><AnnotationIcon name="redo" />重做</button>
       <button className="annotation-action annotation-action-primary" disabled={!state.records.length} onClick={() => void save()}><AnnotationIcon name="save" />保存标注</button>
+      <button className="annotation-action" disabled={restoring} onClick={() => restoreInput.current?.click()}><AnnotationIcon name="undo" />{restoring ? '恢复中…' : '恢复标注'}</button>
+      <input ref={restoreInput} type="file" accept=".json,application/json" aria-label="选择标注 JSON 备份" hidden onChange={event => {
+        const file = event.target.files?.[0]; event.target.value = ''; if (file) void restore(file);
+      }} />
     </div>
     {state.downloadPending && <button className="annotation-action" onClick={() => run(state.confirmDownloaded)}>确认文件已保存</button>}
     {!records.length && <p className="text-txt-muted">尚无标注，请选择测距、箭头或文字后在图像上绘制。</p>}

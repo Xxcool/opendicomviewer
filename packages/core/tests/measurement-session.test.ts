@@ -152,3 +152,30 @@ describe('会话内标注真源', () => {
     expect(session.list()).toHaveLength(2);
   });
 });
+
+describe('标注恢复事务', () => {
+  it('单次替换并设置保存点，撤销与重做保留恢复前内容', () => {
+    const { session } = setup();
+    session.add(record('before')); const notify = vi.fn(); session.subscribe(notify);
+    session.restoreSaved([record('restored'), record('other')]);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(session.isDirty).toBe(false);
+    expect(session.list().map(item => item.id)).toEqual(['restored', 'other']);
+    session.undo(); expect(session.list()[0]?.id).toBe('before'); expect(session.isDirty).toBe(true);
+    session.redo(); expect(session.isDirty).toBe(false);
+  });
+  it('后部非法或重复ID不发布、不破坏内容与历史', () => {
+    const { session } = setup(); session.add(record('before')); session.markSaved();
+    const before = session.list(); const notify = vi.fn(); session.subscribe(notify);
+    expect(() => session.restoreSaved([record('valid'), { ...record('bad'), frameIndex: -1 }])).toThrow();
+    expect(() => session.restoreSaved([record('same'), record('same')])).toThrow();
+    expect(session.list()).toBe(before); expect(session.isDirty).toBe(false); expect(notify).not.toHaveBeenCalled();
+    session.undo(); expect(session.list()).toHaveLength(0);
+  });
+  it('相同内容恢复只更新保存点，空恢复同样可撤销', () => {
+    const { session } = setup(); session.add(record()); session.restoreSaved([record()]);
+    expect(session.isDirty).toBe(false); session.undo(); expect(session.list()).toHaveLength(0);
+    session.redo(); session.restoreSaved([]); expect(session.isDirty).toBe(false);
+    session.undo(); expect(session.list()).toHaveLength(1); expect(session.isDirty).toBe(true);
+  });
+});

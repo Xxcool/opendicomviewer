@@ -19,7 +19,7 @@
 
 4D 是[模式路线](VIEWING_MODES_PLAN.md)中的独立后续增量，需要时间维模型和真实时相数据；不因已有 MPR 或能逐层翻页而算完成。
 
-2026-11-04 本轮已把领域基础接入可见工具：1×1 原始 Stack 的测距、箭头、文字、列表、编辑删除、撤销/重做与显式 JSON 保存；二维播放接入单视口及独立分屏活动格。桌面退出保护与最新 GUI 验收见[本轮记录](reviews/DELIVERY-2026-11-04-tools-ui.md)。这些新增能力不代表 ROI/HU、角度、恢复或标准导出已经交付。桌面 MPR 重绘问题保留，但不再阻塞可靠 Stack 功能的推进。
+2026-11-04 本轮已把领域基础接入可见工具：1×1 原始 Stack 的测距、箭头、文字、列表、编辑删除、撤销/重做与显式 JSON 保存；二维播放接入单视口及独立分屏活动格。桌面退出保护与最新 GUI 验收见[本轮记录](reviews/DELIVERY-2026-11-04-tools-ui.md)。这些新增能力不代表 ROI/HU、角度或标准导出已经交付。桌面 MPR 重绘问题保留，但不再阻塞可靠 Stack 功能的推进。
 
 ## 已实现与已验收范围
 
@@ -28,7 +28,7 @@
 | 本地文件、目录、DICOMDIR、ZIP 导入 | [导入编排](../packages/app-web/src/import-flow.ts)、[本地适配器](../packages/adapters/source-local/src/source-local.ts) | 取消、部分失败与几何提醒有实现；不承诺全部厂商、语法和目录结构 |
 | 2D 原始影像浏览 | [Viewport](../packages/app-web/src/components/Viewport.tsx)、[渲染适配器](../packages/adapters/renderer-cs3d/src/cornerstone-renderer.ts) | 全分辨率 Stack；显示用降采样体积不能作测量真源 |
 | 标注与测量 | [工具界面](../packages/app-web/src/annotations/AnnotationControls.tsx)、[绘制层](../packages/app-web/src/annotations/AnnotationLayer.tsx)、[会话](../packages/core/measurement/session.ts) | 当前限 1×1 原始 Stack 的测距、箭头、文字；分屏/MPR 测量及 ROI/HU/角度未实现，GUI 范围见本轮记录 |
-| 标注 JSON 保存 | [会话桥](../packages/app-web/src/annotations/AnnotationContext.tsx)、[桌面保存](../packages/app-tauri/src-tauri/src/main.rs) | 原生保存成功才清除相应保存点；Web 下载需用户确认；尚无恢复入口，不能称保存恢复闭环 |
+| 标注 JSON 保存 | [会话桥](../packages/app-web/src/annotations/AnnotationContext.tsx)、[桌面保存](../packages/app-tauri/src-tauri/src/main.rs) | 原生保存成功才清除相应保存点；Web 下载需用户确认；新增 v1 备份恢复；源序列/SOP/帧与坐标校验通过后原子替换，桌面恢复/定位/再编辑/撤销重做已实测 |
 | 二维播放 | [CineControls](../packages/app-web/src/components/CineControls.tsx)、[控制器](../packages/app-web/src/components/cine-controller.ts) | 单视口与独立分屏活动格可播放/暂停、选速度及循环；fps 是用户播放速度，不代表采集时间或 4D |
 | 调窗预设 | [预设实现记录](reviews/CR-2026-10-30-window-presets.md)、[core 预设](../packages/core/pipeline/window-presets.ts) | 自动预设、部位分组已落地；不等于所有模态预设已覆盖 |
 | 独立多视口与 MPR | [分屏记录](reviews/DELIVERY-2026-10-30-independent-split.md)、[浏览器记录](reviews/CR-2026-10-30-browser-acceptance.md) | 独立分屏与空间联动分开；MPR 要求有效体积几何。桌面多轮回归仍失败 |
@@ -50,7 +50,7 @@
 
 ## 未交付功能
 
-- **标注与测量扩展**：ROI/HU、角度/Cobb 角、自由轮廓、独立分屏工具、批量清空、隐藏/显示及 JSON 恢复尚未交付。当前基础工具不覆盖这些目标；纯三点角计算也不等于角度 UI，细则见[标注计划](ANNOTATION_PLAN.md)。
+- **标注与测量扩展**：ROI/HU、角度/Cobb 角、自由轮廓、独立分屏工具、批量清空、隐藏/显示尚未交付。当前基础工具不覆盖这些目标；纯三点角计算也不等于角度 UI，细则见[标注计划](ANNOTATION_PLAN.md)。
 - **导出**：PNG、原始 DICOM、DICOM SR、GSPS；JPEG 可选、JSON 用于版本化保存恢复。原始复制与含标注的结果对象分开；细则见[导出计划](EXPORT_PLAN.md)。
 - **浏览扩展**：二维播放完整双端验收、真实时间轴、自由准星及完整相机/VOI 同步、命令面板、基础 3D、真正的 4D；细则见[模式路线](VIEWING_MODES_PLAN.md)。
 - **兼容与规模**：更多压缩语法、彩色/更多多帧场景、千帧与低内存/长期会话验收。当前压缩解码器支持 RLE 与 JPEG Lossless，不能由架构目标清单推定其他语法已经支持，见 [PixelCodec](../packages/adapters/codec-wasm/src/codec.ts)。

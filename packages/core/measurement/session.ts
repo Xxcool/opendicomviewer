@@ -92,6 +92,20 @@ export class MeasurementSession implements MeasurementPort {
       : this.current.filter(record => record.seriesInstanceUid !== seriesInstanceUid));
   }
 
+  /** 校验整个导入快照后一次替换；撤销仍可回到恢复前的内容。 */
+  restoreSaved(records: readonly MeasurementRecord[]): void {
+    this.assertWritable();
+    const copied = records.map(copyRecord);
+    if (new Set(copied.map(record => record.id)).size !== copied.length) throw new Error('标注 ID 重复');
+    if (!sameValue(copied, this.current)) {
+      const next = Object.freeze(copied);
+      this.history = [...this.history.slice(0, this.cursor + 1), next];
+      this.cursor += 1;
+    } else if (!this.isDirty) return;
+    this.saved = this.current;
+    this.publish();
+  }
+
   undo(): boolean {
     this.assertWritable();
     if (!this.canUndo) return false;

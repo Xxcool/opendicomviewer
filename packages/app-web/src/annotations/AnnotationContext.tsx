@@ -1,8 +1,9 @@
 import { AnnotationIcon } from './AnnotationIcon';
 import type { HostCloseGuard } from '../bridge/host-close-guard';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { MeasurementSession, type MeasurementRecord } from '@opendicomviewer/core';
+import { MeasurementSession, type MeasurementRecord, type DataSourcePort } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
+import { MAX_ANNOTATION_BYTES, parseAnnotationBackup, loadBackupSources, restoreAnnotationRecords } from './annotation-restore';
 import type { HostFileSaver } from '../bridge/host-file-saver';
 
 export type AnnotationTool = 'none' | 'length' | 'arrow' | 'text' | 'select';
@@ -15,6 +16,7 @@ interface AnnotationState {
   panelOpen: boolean; setPanelOpen: (open: boolean) => void;
   confirmReplacement: () => Promise<boolean>;
   saveAnnotations: () => Promise<'saved' | 'cancelled' | 'download-started'>;
+  restoreAnnotations: (file: File) => Promise<boolean>;
   downloadPending: boolean; confirmDownloaded: () => void;
 }
 const Context = createContext<AnnotationState | null>(null);
@@ -24,7 +26,7 @@ async function browserSave(file: { name: string; mimeType: string; text: string 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return 'download-started';
 }
-export function AnnotationProvider({ children, saveFile, closeGuard }: { children: ReactNode; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }) {
+export function AnnotationProvider({ children, saveFile, closeGuard, dataSource }: { children: ReactNode; dataSource: DataSourcePort; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }) {
   const studies = useViewerStore(s => s.studies);
   const [generation, setGeneration] = useState(() => crypto.randomUUID());
   const [tool, setTool] = useState<AnnotationTool>('none');
@@ -36,6 +38,9 @@ export function AnnotationProvider({ children, saveFile, closeGuard }: { childre
   const [downloadPending, setDownloadPending] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const downloadedSnapshot = useRef<readonly MeasurementRecord[] | null>(null);
+  const restoreInFlight = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const resolver = useRef<((proceed: boolean) => void) | null>(null);
   const session = useMemo(() => new MeasurementSession(error => useViewerStore.getState().setImportStatus({
     loading: false, error: `标注更新失败：${error instanceof Error ? error.message : String(error)}`,
@@ -95,8 +100,26 @@ export function AnnotationProvider({ children, saveFile, closeGuard }: { childre
     if (downloadedSnapshot.current !== session.list()) throw new Error('导出后标注已变化，请重新保存当前版本');
     session.markSaved(); setDownloadPending(false); downloadedSnapshot.current = null;
   };
+  const restoreAnnotations = async (file: File) => {
+    if (restoreInFlight.current) throw new Error('正在恢复标注，请稍候');
+    if (file.size > MAX_ANNOTATION_BYTES) throw new Error('标注文件超过 10 MiB 限制');
+    const originalStudies = studies;
+    restoreInFlight.current = true;
+    try {
+      const records = parseAnnotationBackup(await file.text());
+      const sources = await loadBackupSources(records, dataSource);
+      const restored = restoreAnnotationRecords(records, sources, generation);
+      const stillCurrent = () => alive.current && useViewerStore.getState().studies === originalStudies;
+      if (!stillCurrent()) throw new Error('影像会话已变化，请重新恢复');
+      if (!await confirmReplacement()) return false;
+      if (!stillCurrent()) throw new Error('影像会话已变化，请重新恢复');
+      session.restoreSaved(restored);
+      select(null); setTool('none'); setDownloadPending(false); downloadedSnapshot.current = null;
+      return true;
+    } finally { restoreInFlight.current = false; }
+  };
   return <Context.Provider value={{ session, sessionId: generation, records: session.list(), tool, setTool,
-    selected, select, panelOpen, setPanelOpen, confirmReplacement, saveAnnotations, downloadPending, confirmDownloaded }}>
+    selected, select, panelOpen, setPanelOpen, confirmReplacement, saveAnnotations, restoreAnnotations, downloadPending, confirmDownloaded }}>
     {children}
     {confirming && <div className="absolute inset-0 z-50 bg-canvas/80 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="annotation-unsaved-title" onKeyDown={event => {
       if (event.key === 'Escape' && !busy) { event.preventDefault(); finish(false); }

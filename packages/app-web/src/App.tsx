@@ -29,12 +29,11 @@ import type { HostFilePicker } from './bridge/host-file-picker';
 
 interface AppProps { filePicker?: HostFilePicker; openProject?: () => Promise<void>; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }
 export function App(props: AppProps) {
-  return <AnnotationProvider saveFile={props.saveFile} closeGuard={props.closeGuard}><ViewerApp {...props} /></AnnotationProvider>;
-}
-function ViewerApp({ filePicker, openProject }: AppProps) {
-  const annotations = useAnnotations();
-  // 压缩像素解码器由组合根注入；重解码库本身在 PixelCodec 内部按需动态加载
   const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
+  return <AnnotationProvider dataSource={dataSource} saveFile={props.saveFile} closeGuard={props.closeGuard}><ViewerApp {...props} dataSource={dataSource} /></AnnotationProvider>;
+}
+function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSource: LocalDataSource }) {
+  const annotations = useAnnotations();
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [homeOpen, setHomeOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
