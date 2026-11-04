@@ -1,3 +1,4 @@
+import { isRoi, roiStats } from './annotation-roi';
 import { useEffect, useRef, type RefObject } from 'react';
 import { measureImageLength, type ImagePlane, type MeasurementRecord, type SeriesHandle } from '@opendicomviewer/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
@@ -26,6 +27,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     const svg = svgRef.current, host = hostRef.current;
     if (!svg || !host) return;
     let draft: Draft | null = null;
+    let completionToken = 0; let disposed = false;
     const current = () => {
       const index = readIndex();
       try { return renderer.currentSliceIndex(viewportId) === index ? series.meta.planes[index] : undefined; }
@@ -45,6 +47,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     };
     paintRef.current = paint;
     const cancel = () => {
+      completionToken++;
       if (draft && host.hasPointerCapture(draft.pointerId)) host.releasePointerCapture(draft.pointerId);
       draft = null; paint();
     };
@@ -57,6 +60,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
         || (event.target instanceof Element && event.target.closest('[data-annotation-panel]'))) return;
       const plane = current(); if (!plane) return;
       event.preventDefault(); event.stopImmediatePropagation();
+      completionToken++;
       try {
         const point = pointAt(event, plane); if (!point) return;
         if (state.tool === 'select') {
@@ -64,6 +68,17 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           const hit = [...visible(plane)].reverse().find(record => {
             const a = record.points[0] && canvasPoint(renderer, viewportId, plane, record.points[0]);
             const b = record.points[1] && canvasPoint(renderer, viewportId, plane, record.points[1]);
+            if (a && Math.hypot(x - a.x, y - a.y) < 8) return true;
+            if (b && Math.hypot(x - b.x, y - b.y) < 8) return true;
+            if (isRoi(record) && b) {
+              const p = sourcePoint(renderer, viewportId, plane, x, y);
+              const first = record.points[0]!, last = record.points[1]!;
+              if (!p) return false;
+              const cx = (first[0] + last[0]) / 2, cy = (first[1] + last[1]) / 2;
+              const rx = Math.abs(last[0] - first[0]) / 2, ry = Math.abs(last[1] - first[1]) / 2;
+              return record.type === 'ellipseRoi' ? ((p[0] - cx) / rx) ** 2 + ((p[1] - cy) / ry) ** 2 <= 1
+                : Math.abs(p[0] - cx) <= rx && Math.abs(p[1] - cy) <= ry;
+            }
             return a && (b ? segmentDistance(x, y, a, b) < 10 : Math.hypot(x - a.x, y - a.y) < 20);
           });
           state.select(hit?.id ?? null);
@@ -78,7 +93,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           const type = state.tool;
           const record: MeasurementRecord = { id: crypto.randomUUID(), sessionId: state.sessionId, coordinateSpace: 'image-pixel',
             seriesInstanceUid: series.meta.seriesInstanceUid, sopInstanceUid: plane.sopInstanceUid, frameIndex: plane.frameIndex ?? 0,
-            type, points: type === 'text' ? [point] : [point, point], stats: {}, createdAt: Date.now(), text: type === 'length' ? undefined : '备注' };
+            type, points: type === 'text' ? [point] : [point, point], stats: {}, createdAt: Date.now(), text: type === 'length' || type === 'rectangleRoi' || type === 'ellipseRoi' ? undefined : '备注' };
           draft = { record, original: null, plane, start: point, mode: 'draw', pointerId: event.pointerId };
         }
         host.setPointerCapture(event.pointerId); paint();
@@ -112,8 +127,20 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           || Math.hypot(completed.record.points[1][0] - completed.record.points[0]![0], completed.record.points[1][1] - completed.record.points[0]![1]) < 0.5)) { cancel(); return; }
         if (completed.record.type === 'length' && completed.record.stats.lengthMm === undefined) { cancel(); return; }
         draft = null;
-        if (completed.original) state.session.update(completed.record); else state.session.add(completed.record);
-        state.select(completed.record.id); state.setPanelOpen(true);
+        const token = ++completionToken;
+        const snapshot = state.session.list();
+        const commit = (record: MeasurementRecord) => {
+          if (disposed || token !== completionToken || current() !== completed.plane || state.session.list() !== snapshot) return;
+          if (completed.original) state.session.update(record); else state.session.add(record);
+          state.select(record.id); state.setPanelOpen(true);
+        };
+        if (isRoi(completed.record)) {
+          // 释放后才读原图与统计；异步期间切帧、撤销或新绘制使本次提交失效。
+          void series.pixel(readIndex()).then(frame => {
+            if (disposed || token !== completionToken || current() !== completed.plane) return;
+            commit({ ...completed.record, stats: roiStats(completed.record, frame, completed.plane) });
+          }).catch(error => { if (!disposed && token === completionToken) report(`区域统计失败：${error instanceof Error ? error.message : String(error)}`); });
+        } else commit(completed.record);
       } catch (error) { report(`标注保存失败：${error instanceof Error ? error.message : String(error)}`); }
       finally { if (host.hasPointerCapture(event.pointerId)) host.releasePointerCapture(event.pointerId); paint(); }
     };
@@ -144,7 +171,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     }); observer.observe(host);
     const unsubscribe = state.session.subscribe(paint); paint();
     return () => {
-      cancel(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(resizeFrame);
+      disposed = true; cancel(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(resizeFrame);
       host.removeEventListener('pointerdown', down, true); host.removeEventListener('pointermove', move, true);
       host.removeEventListener('pointerup', up, true); host.removeEventListener('pointercancel', cancel);
       window.removeEventListener('keydown', key); window.removeEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);

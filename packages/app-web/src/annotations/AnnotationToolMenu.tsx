@@ -7,8 +7,8 @@ type Choice = { icon: AnnotationIconName; label: string; hint: string; tool?: An
 const choices: Record<'measurement' | 'annotation', readonly Choice[]> = {
   measurement: [
     { icon: 'length', label: '线段测距', hint: '拖动绘制 · 毫米', tool: 'length' },
-    { icon: 'rectangle', label: '矩形 ROI', hint: '开发中' },
-    { icon: 'ellipse', label: '椭圆 ROI', hint: '开发中' },
+    { icon: 'rectangle', label: '矩形 ROI', hint: '拖动绘制 · 原始灰度统计', tool: 'rectangleRoi' },
+    { icon: 'ellipse', label: '椭圆 ROI', hint: '拖动绘制 · 原始灰度统计', tool: 'ellipseRoi' },
     { icon: 'angle', label: '角度', hint: '开发中' },
     { icon: 'curve', label: '曲线测量', hint: '开发中' },
   ],

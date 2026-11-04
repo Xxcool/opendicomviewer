@@ -229,6 +229,11 @@ export interface MeasurementRecord {
   readonly points: readonly [number, number, number][];
   /** 物理测量结果，如长度(mm)、面积(mm²)、角度(度)、HU 均值与标准差 */
   readonly stats: {
+    readonly count?: number;
+    readonly mean?: number;
+    readonly stdDev?: number;
+    readonly min?: number;
+    readonly max?: number;
     readonly lengthMm?: number;
     readonly areaMm2?: number;
     readonly angleDeg?: number;

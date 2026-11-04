@@ -248,9 +248,13 @@ function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSou
               {importStatus.message || '正在读取影像数据...'}
             </div>
             <div className="text-xs text-txt-dim">
-              正在执行魔数探测、DICOMDIR 校验与几何构建
+              {importStatus.progress?.stage || '正在准备影像，请稍候'}
             </div>
-            <button className="workspace-control" onClick={cancelImport}>取消导入</button>
+            {importStatus.progress?.total !== undefined && importStatus.progress.total > 0 && importStatus.progress.completed !== undefined && <div className="w-full text-xs text-txt-dim" role="status" aria-live="polite">
+              <div>{Math.floor(importStatus.progress.completed / importStatus.progress.total * 100)}% · {importStatus.progress.completed} / {importStatus.progress.total} 个文件</div>
+              <progress className="w-full mt-2 accent-accent" aria-label={importStatus.progress.stage} value={importStatus.progress.completed} max={importStatus.progress.total} />
+            </div>}
+            <button className="annotation-action" onClick={cancelImport}>取消导入</button>
           </div>
         </div>
       )}

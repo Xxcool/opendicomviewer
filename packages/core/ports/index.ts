@@ -27,7 +27,14 @@ export interface ImportCandidate {
   read(start?: number, end?: number, signal?: AbortSignal): Promise<ArrayBuffer>;
 }
 
+export interface ImportProgress {
+  readonly stage: string;
+  readonly completed?: number;
+  readonly total?: number;
+}
+
 export interface ImportInput {
+  readonly onProgress?: (progress: ImportProgress) => void;
   readonly files: readonly ImportCandidate[];
 }
 

@@ -20,6 +20,7 @@ import { applyTheme, currentTheme, type Theme } from '../theme';
 import { isMprLayout, SPLIT_PANES, type LayoutMode } from '../layout/viewport-layouts';
 
 export interface ImportStatus {
+  readonly progress?: { readonly stage: string; readonly completed?: number; readonly total?: number };
   readonly loading: boolean;
   readonly message?: string;
   readonly error?: string;

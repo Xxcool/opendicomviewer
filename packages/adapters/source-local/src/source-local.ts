@@ -140,13 +140,16 @@ export class LocalDataSource implements DataSourcePort {
       throw new DOMException('导入已由用户中断', 'AbortError');
     }
 
+    input.onProgress?.({ stage: '检查 DICOMDIR 索引' });
     // 1. 优先探测 DICOMDIR
     const dicomdirCandidate = input.files.find((f) => isDicomdirCandidate(f.name));
     if (dicomdirCandidate) {
       try {
         const header = await dicomdirCandidate.read(0, 132, signal);
+        signal?.throwIfAborted();
         if (hasDicomPrefix(header)) {
           const fullBuf = await dicomdirCandidate.read(undefined, undefined, signal);
+          signal?.throwIfAborted();
           const parsed = parseDicomdir(new Uint8Array(fullBuf));
           if (parsed.length > 0) {
             this.isDicomdirIndexed = true;
@@ -172,7 +175,8 @@ export class LocalDataSource implements DataSourcePort {
     // 2. 无有效 DICOMDIR 时全盘扫描
     this.isDicomdirIndexed = false;
     this.dicomdirStudies = [];
-    const result = await scanCandidates(input.files, signal);
+    const result = await scanCandidates(input.files, signal, input.onProgress);
+    if (signal?.aborted) throw new DOMException('导入已中断', 'AbortError');
     this.scanResult = result;
     return result.studies;
   }

@@ -129,7 +129,7 @@ export function ChevronIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function SpinnerIcon(props: SVGProps<SVGSVGElement>) {
+export function SpinnerIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -141,7 +141,7 @@ export function SpinnerIcon(props: SVGProps<SVGSVGElement>) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="animate-spin"
+      className={`animate-spin ${className ?? ''}`}
       {...props}
     >
       <line x1="12" y1="2" x2="12" y2="6" />

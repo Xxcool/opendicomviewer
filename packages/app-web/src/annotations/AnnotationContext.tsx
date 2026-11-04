@@ -3,10 +3,10 @@ import type { HostCloseGuard } from '../bridge/host-close-guard';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MeasurementSession, type MeasurementRecord, type DataSourcePort } from '@opendicomviewer/core';
 import { useViewerStore } from '../state/viewer-store';
-import { MAX_ANNOTATION_BYTES, parseAnnotationBackup, loadBackupSources, restoreAnnotationRecords } from './annotation-restore';
+import { MAX_ANNOTATION_BYTES, parseAnnotationBackup, loadBackupSources, restoreWithPixels } from './annotation-restore';
 import type { HostFileSaver } from '../bridge/host-file-saver';
 
-export type AnnotationTool = 'none' | 'length' | 'arrow' | 'text' | 'select';
+export type AnnotationTool = 'none' | 'rectangleRoi' | 'ellipseRoi' | 'length' | 'arrow' | 'text' | 'select';
 export const FLUSH_ANNOTATION_NOTE = 'odv-flush-annotation-note';
 function flushAnnotationNote() { window.dispatchEvent(new Event(FLUSH_ANNOTATION_NOTE)); }
 interface AnnotationState {
@@ -108,7 +108,7 @@ export function AnnotationProvider({ children, saveFile, closeGuard, dataSource 
     try {
       const records = parseAnnotationBackup(await file.text());
       const sources = await loadBackupSources(records, dataSource);
-      const restored = restoreAnnotationRecords(records, sources, generation);
+      const restored = await restoreWithPixels(records, sources, generation, dataSource);
       const stillCurrent = () => alive.current && useViewerStore.getState().studies === originalStudies;
       if (!stillCurrent()) throw new Error('影像会话已变化，请重新恢复');
       if (!await confirmReplacement()) return false;

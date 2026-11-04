@@ -26,8 +26,8 @@ export interface SampleManifest {
 
 const MANIFEST_URL = './samples/manifest.json';
 
-export async function fetchSampleManifest(): Promise<SampleManifest> {
-  const res = await fetch(MANIFEST_URL);
+export async function fetchSampleManifest(signal?: AbortSignal): Promise<SampleManifest> {
+  const res = await fetch(MANIFEST_URL, { signal });
   if (!res.ok) {
     throw new Error(
       `无法读取示例清单（HTTP ${res.status}）。请确认仓库根目录存在 sample-dicom/`,
@@ -36,9 +36,9 @@ export async function fetchSampleManifest(): Promise<SampleManifest> {
   return (await res.json()) as SampleManifest;
 }
 
-async function loadOne(datasetId: string, fileName: string): Promise<ImportCandidate> {
+async function loadOne(datasetId: string, fileName: string, signal?: AbortSignal): Promise<ImportCandidate> {
   const url = `./samples/${encodeURIComponent(datasetId)}/${encodeURIComponent(fileName)}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) {
     throw new Error(`加载示例切片失败：${datasetId}/${fileName}（HTTP ${res.status}）`);
   }
@@ -61,8 +61,8 @@ async function loadOne(datasetId: string, fileName: string): Promise<ImportCandi
  * 传 undefined 时会同时载入平均头部模板、原 MR 序列与 CT —— 这是演示"跨序列切换"的必要条件：
  * 单数据集只有一条序列，左栏只有一个可点项，等于没法验证切换。
  */
-export async function loadSampleCandidates(datasetId?: string): Promise<ImportCandidate[]> {
-  const manifest = await fetchSampleManifest();
+export async function loadSampleCandidates(datasetId?: string, signal?: AbortSignal, onProgress?: (completed: number, total: number) => void): Promise<ImportCandidate[]> {
+  const manifest = await fetchSampleManifest(signal);
   if (manifest.datasets.length === 0) {
     throw new Error('sample-dicom/ 为空：请放入至少一个含 .dcm 的子目录');
   }
@@ -77,9 +77,17 @@ export async function loadSampleCandidates(datasetId?: string): Promise<ImportCa
     );
   }
 
+  const total = picked.reduce((sum, dataset) => sum + dataset.files.length, 0);
+  let completed = 0;
+  onProgress?.(0, total);
   const groups = await Promise.all(
     picked.map((dataset) =>
-      Promise.all(dataset.files.map((file) => loadOne(dataset.id, file))),
+      Promise.all(dataset.files.map(async (file) => {
+        const candidate = await loadOne(dataset.id, file, signal);
+        signal?.throwIfAborted();
+        onProgress?.(++completed, total);
+        return candidate;
+      })),
     ),
   );
 

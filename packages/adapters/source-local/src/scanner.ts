@@ -100,6 +100,7 @@ export function expandParsedPlanes(parsed: ParsedDicomMeta): {
 export async function scanCandidates(
   candidates: readonly ImportCandidate[],
   signal?: AbortSignal,
+  onProgress?: (progress: import('@opendicomviewer/core').ImportProgress) => void,
 ): Promise<ScanResult> {
   const queue: Array<{ candidate: ImportCandidate; depth: number }> =
     candidates.map((c) => ({ candidate: c, depth: 0 }));
@@ -112,6 +113,7 @@ export async function scanCandidates(
 
   let processedCount = 0;
   let parsedFileCount = 0;
+  onProgress?.({ stage: '扫描并解析候选文件', completed: 0, total: candidates.length });
 
   while (queue.length > 0) {
     if (signal?.aborted) {
@@ -147,6 +149,7 @@ export async function scanCandidates(
         }
 
         // P1-9: 基于中央目录仅读取条目索引与按需分段读取，严禁整包 2GB 读入内存
+        onProgress?.({ stage: '读取 ZIP 目录并展开候选文件' });
         const zipEntries = await extractZipEntriesFromCandidate(candidate, signal);
         for (const entry of zipEntries) {
           if (!entry.isDirectory) {
@@ -238,9 +241,13 @@ export async function scanCandidates(
         name: candidate.name,
         reason: message,
       });
+    } finally {
+      if (!signal?.aborted) onProgress?.({ stage: '扫描并解析候选文件（含展开项）', completed: processedCount, total: processedCount + queue.length });
     }
   }
 
+  if (signal?.aborted) throw new DOMException('导入已中断', 'AbortError');
+  onProgress?.({ stage: '分组与校验空间几何' });
   // 组装最终结果
   const studies: StudyMeta[] = [];
   const seriesList: InternalSeriesData[] = [];

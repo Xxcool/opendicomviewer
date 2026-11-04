@@ -1,3 +1,4 @@
+import { annotationLabel, isRoi } from './annotation-roi';
 import { useEffect, useRef, useState } from 'react';
 import type { MeasurementRecord } from '@opendicomviewer/core';
 import { FLUSH_ANNOTATION_NOTE, useAnnotations } from './AnnotationContext';
@@ -54,14 +55,18 @@ export function AnnotationPanel({ navigate, seriesUid }: { navigate: (sop: strin
       }} />
     </div>
     {state.downloadPending && <button className="annotation-action" onClick={() => run(state.confirmDownloaded)}>确认文件已保存</button>}
-    {!records.length && <p className="text-txt-muted">尚无标注，请选择测距、箭头或文字后在图像上绘制。</p>}
+    {!records.length && <p className="text-txt-muted">尚无标注，请在测量或标注菜单选择工具后绘制。</p>}
     <p className="text-txt-muted mb-1">当前序列</p>
     <ul>{records.map((record, index) => <li key={record.id} className="mb-1">
       <button className={`w-full text-left rounded p-2 ${state.selected === record.id ? 'bg-selected' : 'hover:bg-hover'}`} onClick={() => { state.select(record.id); navigate(record.sopInstanceUid, record.frameIndex); }}>
-        {index + 1}. {record.type === 'length' ? `${record.stats.lengthMm?.toFixed(2) ?? '--'} mm` : record.type === 'arrow' ? '箭头' : '文字'}{record.text ? ` · ${record.text}` : ''}
+        {index + 1}. {annotationLabel(record)}{record.text ? ` · ${record.text}` : ''}
       </button>
     </li>)}</ul>
     {selected && <div className="annotation-editor">
+      {isRoi(selected) && <div aria-label="区域统计" className="text-txt-dim">
+        <p>模态变换后灰度统计（单位未确认）</p>
+        <p>像素数 {selected.stats.count} · 最小 {selected.stats.min?.toFixed(2)} · 最大 {selected.stats.max?.toFixed(2)}</p>
+      </div>}
       <AnnotationNoteEditor key={selected.id} record={selected} commit={text => run(() => state.session.update({ ...selected, text }))} />
       <button className="annotation-action annotation-action-danger" onClick={() => run(() => { state.session.remove(selected.id); state.select(null); })}><AnnotationIcon name="trash" />删除选中</button>
     </div>}
