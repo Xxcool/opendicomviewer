@@ -21,3 +21,5 @@ export * from './measurement/geometry';
 export * from './measurement/image-coordinates';
 
 export * from './measurement/session';
+
+export * from './measurement/roi';

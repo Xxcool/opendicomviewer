@@ -15,12 +15,13 @@
 import {
   type ImagePlane,
   type Modality,
-  type ModalityLUT,
 } from '@opendicomviewer/core';
 import type { ImportCandidate } from '@opendicomviewer/core';
 import dicomParser, { type ParseOptions } from 'dicom-parser';
 import { decodeDicomText } from './charset';
 import { resolveMultiframePlanes } from './frame-geometry';
+import { parseModalityLUT } from './modality-lut';
+import { pixelEncoding } from './pixel-values';
 
 /**
  * 单文件元数据解析结果（唯一事实来源）
@@ -124,32 +125,8 @@ export function parseDicomMetadata(
   }
   const spacingBetweenSlices = dataSet.floatString('x00180088');
   const sliceThickness = dataSet.floatString('x00180050');
-  // N1: 解析 ModalityLUTSequence (0028,3002)
-  let modalityLUT: ModalityLUT | undefined;
-  const lutSeq = dataSet.elements.x00283002;
-  if (lutSeq && lutSeq.items && lutSeq.items[0]) {
-    const itemDs = lutSeq.items[0].dataSet;
-    if (itemDs) {
-      const desc = parseFloats(itemDs.string('x00283002'), 3);
-      const lutDataElem = itemDs.elements.x00283006;
-      if (desc && desc.length >= 3 && lutDataElem) {
-        const rawLutBytes = itemDs.byteArray.slice(
-          lutDataElem.dataOffset,
-          lutDataElem.dataOffset + lutDataElem.length,
-        );
-        const lutData = new Uint16Array(
-          rawLutBytes.buffer,
-          rawLutBytes.byteOffset,
-          rawLutBytes.byteLength / 2,
-        );
-        modalityLUT = {
-          firstMappedPixelValue: desc[1] ?? 0,
-          bitsStored: desc[2] ?? 16,
-          lutData,
-        };
-      }
-    }
-  }
+  const modalityLUT = parseModalityLUT(dataSet);
+  const encoding = pixelEncoding(dataSet);
 
   const plane: ImagePlane = {
     sopClassUid: dataSet.string('x00080016'),
@@ -171,9 +148,9 @@ export function parseDicomMetadata(
     bodyPartExamined: dataSet.string('x00180015'),
     windowCenter: dataSet.floatString('x00281050'),
     windowWidth: dataSet.floatString('x00281051'),
-    bitsAllocated: dataSet.uint16('x00280100') ?? 16,
-    bitsStored: dataSet.uint16('x00280101') ?? 16,
-    pixelRepresentation: dataSet.uint16('x00280103') ?? 0,
+    bitsAllocated: encoding.bitsAllocated,
+    bitsStored: encoding.bitsStored,
+    pixelRepresentation: encoding.pixelRepresentation,
     photometricInterpretation: dataSet.string('x00280004') ?? 'MONOCHROME2',
     frameOfReferenceUID: dataSet.string('x00200052'),
     specificCharacterSet: charset,

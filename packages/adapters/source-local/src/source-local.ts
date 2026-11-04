@@ -1,3 +1,4 @@
+import { pixelEncoding, unpackNativePixels } from './pixel-values';
 /**
  * 本地数据源端口实现（LocalDataSource）
  *
@@ -394,7 +395,6 @@ export class LocalDataSource implements DataSourcePort {
 
       let pixelData: Int16Array | Uint16Array | Uint8Array;
       const bitsAllocated = plane.bitsAllocated ?? 16;
-      const isSigned = plane.pixelRepresentation === 1;
       // D5: 单文件多帧展开后，plane 只对应文件内的第 frameIndex 帧，必须按帧字节切片
       const frameIndex = plane.frameIndex ?? 0;
       const frameSize = plane.rows * plane.columns * (bitsAllocated > 8 ? 2 : 1);
@@ -414,21 +414,7 @@ export class LocalDataSource implements DataSourcePort {
           swap16InPlace(rawSlice);
         }
 
-        if (bitsAllocated === 16) {
-          pixelData = isSigned
-            ? new Int16Array(
-                rawSlice.buffer,
-                rawSlice.byteOffset,
-                rawSlice.byteLength / 2,
-              )
-            : new Uint16Array(
-                rawSlice.buffer,
-                rawSlice.byteOffset,
-                rawSlice.byteLength / 2,
-              );
-        } else {
-          pixelData = rawSlice;
-        }
+        pixelData = unpackNativePixels(rawSlice, pixelEncoding(dataSet));
       } else {
         pixelData = new Int16Array(plane.rows * plane.columns);
       }
