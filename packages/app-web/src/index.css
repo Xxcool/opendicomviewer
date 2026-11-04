@@ -298,3 +298,34 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .split-status { display: flex; align-items: center; padding: 0 12px; flex-shrink: 0; background: var(--color-panel); border-bottom: 1px solid var(--color-line); font-size: var(--text-caption); color: var(--color-txt-dim); }
 .split-footer { display: flex; align-items: center; gap: 8px; padding: 0 12px; flex-shrink: 0; overflow-x: auto; border-top: 1px solid var(--color-line); background: var(--color-panel); font-size: var(--text-caption); white-space: nowrap; }
 .split-footer input { width: 56px; background: var(--color-app); color: var(--color-txt); border: 1px solid var(--color-line-strong); border-radius: 4px; text-align: center; font-family: var(--font-mono); }
+
+/* 标注面板和确认框使用显式按钮边界；内描边不挤占提示或相邻操作。 */
+.annotation-panel { position: absolute; top: 12px; right: 12px; z-index: 30; width: min(296px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; padding: 16px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-panel); color: var(--color-txt); box-shadow: 0 12px 32px #0005; font-size: 12px; line-height: 1.6; }
+.annotation-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 13px; }
+.annotation-actions, .annotation-confirm-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.annotation-action { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--color-line-strong); border-radius: 6px; background: var(--color-hover); color: var(--color-txt); font-size: 12px; line-height: 1.4; cursor: pointer; }
+.annotation-action svg, .annotation-menu-trigger svg, .annotation-menu-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.annotation-action:hover:not(:disabled) { border-color: var(--color-accent-hover); background: var(--color-active); }
+.annotation-action:focus-visible, .annotation-note-input:focus-visible, .annotation-menu-item:focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: -2px; }
+.annotation-action:disabled { opacity: .4; cursor: default; }
+.annotation-action-primary { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.annotation-action-primary:hover:not(:disabled) { background: var(--color-accent-hover); color: #fff; }
+.annotation-action-danger { color: var(--color-danger); }
+.annotation-icon-button { width: 30px; min-height: 30px; padding: 5px; background: transparent; border-color: transparent; }
+.annotation-editor { display: grid; gap: 12px; padding-top: 14px; margin-top: 12px; border-top: 1px solid var(--color-line); }
+.annotation-editor > button { justify-self: start; }
+.annotation-note-input { display: block; width: 100%; box-sizing: border-box; padding: 8px 10px; margin-top: 6px; min-height: 36px; border: 1px solid var(--color-line-strong); border-radius: 6px; background: var(--color-hover); color: var(--color-txt); font-size: 13px; line-height: 1.5; }
+.annotation-status { margin-top: 14px; padding: 8px 10px; border-radius: 6px; background: var(--color-hover); color: var(--color-txt-dim); overflow-wrap: anywhere; }
+.annotation-status.is-error { color: var(--color-danger); }
+.annotation-confirm { width: min(480px, 100%); padding: 24px; border: 1px solid var(--color-line-strong); border-radius: 12px; background: var(--color-panel); color: var(--color-txt); box-shadow: 0 20px 60px #0008; font-size: 13px; line-height: 1.7; }
+.annotation-confirm h2 { font-size: 16px; }
+.annotation-confirm-actions { justify-content: flex-end; margin-bottom: 0; padding-top: 8px; }
+.annotation-tool-menu { width: 264px; max-height: calc(100vh - 24px); overflow: auto; padding: 6px; border: 1px solid var(--color-line-strong); border-radius: 9px; background: var(--color-panel); color: var(--color-txt); box-shadow: 0 12px 32px #0006; }
+.annotation-menu-heading { padding: 6px 10px 8px; font-size: 11px; color: var(--color-txt-muted); }
+.annotation-menu-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px; text-align: left; border: 0; border-radius: 6px; background: transparent; color: var(--color-txt); cursor: pointer; }
+.annotation-menu-item > span:first-of-type { flex: 1; display: grid; gap: 2px; }
+.annotation-menu-item strong { font-size: 13px; font-weight: 500; }
+.annotation-menu-item small { font-size: 11px; color: var(--color-txt-muted); }
+.annotation-menu-item:hover:not(:disabled), .annotation-menu-item[aria-checked="true"] { background: var(--color-active); }
+.annotation-menu-item:disabled { opacity: .45; cursor: default; }
+.annotation-menu-footnote { margin: 6px 0 0; padding: 10px; border-top: 1px solid var(--color-line); font-size: 11px; color: var(--color-txt-muted); }

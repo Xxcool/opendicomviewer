@@ -1,3 +1,7 @@
+import { CineControls } from './CineControls';
+import { AnnotationLayer, ANNOTATION_FRAME_CHANGED } from '../annotations/AnnotationLayer';
+import { AnnotationPanel } from '../annotations/AnnotationControls';
+import { useAnnotations } from '../annotations/AnnotationContext';
 import {
   useCallback,
   useEffect,
@@ -29,7 +33,7 @@ import { describeSeriesImages } from './image-presentation';
 import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
 import { ScaleBar } from './ScaleBar';
 import { measureMmPerPx } from './scale-bar';
-import { bindViewportGestures, blocksViewerShortcut } from './viewport-gestures';
+import { bindViewportGestures, blocksViewerShortcut, notifyCameraChanged } from './viewport-gestures';
 import { WelcomeScreen } from './WelcomeScreen';
 
 interface ViewportProps {
@@ -50,6 +54,7 @@ export function Viewport({
   onOpenFolder,
   onOpenFiles,
 }: ViewportProps) {
+  const annotations = useAnnotations();
   const containerRef = useRef<HTMLDivElement>(null);
   const sliceTextRef = useRef<HTMLSpanElement>(null);
   const voiTextRef = useRef<HTMLSpanElement>(null);
@@ -67,6 +72,7 @@ export function Viewport({
   const nextLayerRef = useRef<HTMLButtonElement>(null);
 
   const currentSliceIndexRef = useRef<number>(0);
+  const readAnnotationIndex = useCallback(() => currentSliceIndexRef.current, []);
   const navigationRef = useRef<Promise<void>>(Promise.resolve());
   /**
    * 当前序列装载完成时的默认窗（DICOM 标签窗或 CS3D 按像素统计推算）。
@@ -223,6 +229,7 @@ export function Viewport({
           sliceTextRef.current.textContent = `层数 1 / ${count}`;
         }
         syncSliceUi(0, count);
+        window.dispatchEvent(new Event(ANNOTATION_FRAME_CHANGED));
         // 相机此时才完成适配，比例尺必须在这次装载结束后再量一次
         setScaleEpoch((v) => v + 1);
 
@@ -352,6 +359,7 @@ export function Viewport({
   const resetViewToDefault = () => {
     if (!renderer) return;
     renderer.resetView(viewportId);
+    notifyCameraChanged();
     // 复位会改缩放，比例尺要跟着重算
     setScaleEpoch((v) => v + 1);
     const defaultVoi = defaultVoiRef.current;
@@ -361,7 +369,7 @@ export function Viewport({
     syncVoiUi(defaultVoi);
   };
 
-  const jumpToSlice = (index: number, total: number) => {
+  const jumpToSlice = (index: number, total: number, propagateError = false) => {
     if (!renderer) return;
     const target = clampLayer(index, total);
     if (target === currentSliceIndexRef.current) {
@@ -379,6 +387,7 @@ export function Viewport({
     navigationRef.current = navigationRef.current.catch(() => undefined).then(async () => {
       if (useViewerStore.getState().activeSeriesHandle !== series) return;
       await renderer.setStackIndex(viewportId, target);
+      window.dispatchEvent(new Event(ANNOTATION_FRAME_CHANGED));
       // 定位像与 SC 可使用不同灰度单位/显示间距，每张图按自身文件窗与尺寸显示。
       if (series && imageInfo.nonVolumetric) {
         const frame = await series.pixel(target);
@@ -391,7 +400,17 @@ export function Viewport({
           syncVoiUi(voi, '自动');
         }
       }
-    }).catch((error: unknown) => setImportStatus({ loading: false,
+    }).catch((error: unknown) => {
+      if (useViewerStore.getState().activeSeriesHandle === series && currentSliceIndexRef.current === target) {
+        const actual = renderer.currentSliceIndex(viewportId);
+        currentSliceIndexRef.current = actual;
+        if (sliceTextRef.current) sliceTextRef.current.textContent = `层数 ${actual + 1} / ${total}`;
+        syncSliceUi(actual, total);
+        window.dispatchEvent(new Event(ANNOTATION_FRAME_CHANGED));
+      }
+      throw error;
+    });
+    if (!propagateError) navigationRef.current = navigationRef.current.catch((error: unknown) => setImportStatus({ loading: false,
       error: `切片切换失败：${error instanceof Error ? error.message : String(error)}` }));
   };
 
@@ -597,6 +616,14 @@ export function Viewport({
           </div>
         )}
 
+        {activeSeriesHandle && renderer && <>
+          <AnnotationLayer renderer={renderer} viewportId={viewportId} series={activeSeriesHandle} hostRef={containerRef} readIndex={readAnnotationIndex} />
+          <AnnotationPanel seriesUid={activeSeriesHandle.meta.seriesInstanceUid} navigate={(sop, frame) => {
+            const index = activeSeriesHandle.meta.planes.findIndex(plane => plane.sopInstanceUid === sop && (plane.frameIndex ?? 0) === frame);
+            if (index >= 0) jumpToSlice(index, totalFrames);
+          }} />
+        </>}
+
         {/* 视口状态与空状态覆盖层：绝对定位居中，不干扰 CS3D 内部 DOM 布局 */}
         {!renderer ? (
           <div className="absolute inset-0 flex items-center justify-center text-overlay/70 text-xs pointer-events-none select-none z-20">
@@ -690,6 +717,10 @@ export function Viewport({
               )}
             </div>
           ) : null}
+
+          <CineControls sessionKey={activeSeriesHandle} enabled={!!renderer && annotations.tool === 'none'} total={totalFrames}
+            readIndex={readAnnotationIndex} navigate={async target => { jumpToSlice(target, totalFrames, true); await navigationRef.current; }}
+            onError={error => setImportStatus({ loading: false, error: `播放失败：${error instanceof Error ? error.message : String(error)}` })} />
 
           {/* 自动与当前 CT 部位预设共用核心数值；非 CT 不显示 CT 窗值。 */}
           <div className="viewport-presets flex items-center gap-1 min-w-0 overflow-x-auto">

@@ -14,10 +14,13 @@ interface GestureOptions {
   error: (error: unknown) => void;
 }
 
+/** 快捷键上下文隔离；标注撤销允许修饰键，但同样不能穿透输入框、首页和模态。 */
+export function blocksViewerShortcutContext(event: Pick<KeyboardEvent, 'target'>): boolean {
+  return (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]') !== null)
+    || document.querySelector('[role="dialog"][aria-modal="true"], [data-viewer-home="true"], .annotation-tool-menu') !== null;
+}
 export function blocksViewerShortcut(event: KeyboardEvent): boolean {
-  return event.ctrlKey || event.metaKey || event.altKey
-    || (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]') !== null)
-    || document.querySelector('[role="dialog"][aria-modal="true"], [data-viewer-home="true"]') !== null;
+  return event.ctrlKey || event.metaKey || event.altKey || blocksViewerShortcutContext(event);
 }
 
 export const CAMERA_CHANGED = 'odv-camera-changed';

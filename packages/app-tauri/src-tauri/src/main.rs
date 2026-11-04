@@ -3,11 +3,14 @@
 use serde::Serialize;
 use std::{
     fs,
+    io::Write,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+
+static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 static SELECTION: AtomicU64 = AtomicU64::new(1);
 
@@ -133,11 +136,68 @@ async fn pick_files(app: tauri::AppHandle, mode: String) -> Result<Vec<SelectedF
     grant_selected(&app, &paths)
 }
 
+fn write_annotations(path: &Path, content: &[u8]) -> Result<(), String> {
+    let parent = path.parent().ok_or("无法确定保存目录")?;
+    let nonce = SELECTION.fetch_add(1, Ordering::Relaxed);
+    let temp = parent.join(format!(".odv-annotations-{}-{nonce}.tmp", std::process::id()));
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temp)
+        .map_err(|error| format!("无法创建标注临时文件：{error}"))?;
+    // 完整写入并落盘后再替换目标，避免写入失败时截断已有标注。
+    let result = file.write_all(content).and_then(|_| file.sync_all());
+    drop(file);
+    let result = result.and_then(|_| fs::rename(&temp, path));
+    if result.is_err() { let _ = fs::remove_file(&temp); }
+    result.map_err(|error| format!("保存标注失败：{error}"))
+}
+
+#[tauri::command]
+async fn save_annotation_file(app: tauri::AppHandle, content: String) -> Result<String, String> {
+    // 仅导出小型标注文本；影像二进制不经过 IPC。
+    if content.len() > 10 * 1024 * 1024 {
+        return Err("标注文件超过当前 10 MiB 导出上限".into());
+    }
+    let target = app.dialog().file()
+        .set_title("保存标注与测量")
+        .set_file_name("annotations.json")
+        .add_filter("JSON 标注", &["json"])
+        .blocking_save_file();
+    let Some(target) = target else { return Ok("cancelled".into()); };
+    let path = target.into_path().map_err(|_| "无法写入所选本地路径".to_owned())?;
+    write_annotations(&path, content.as_bytes())?;
+    Ok("saved".into())
+}
+
+#[tauri::command]
+fn finish_confirmed_exit(app: tauri::AppHandle) {
+    ALLOW_EXIT.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
+        .menu(|app| {
+            let menu = tauri::menu::Menu::default(app)?;
+            #[cfg(target_os = "macos")]
+            {
+                // 系统 Quit 菜单直接调用 terminate:；改为普通菜单事件，等待前端保存确认。
+                if let Some(tauri::menu::MenuItemKind::Submenu(application)) = menu.items()?.first() {
+                    let count = application.items()?.len();
+                    application.remove_at(count - 1)?;
+                    application.append(&tauri::menu::MenuItem::with_id(
+                        app, "confirmed-quit", "Quit OpenDicomViewer", true, Some("CmdOrCtrl+Q"),
+                    )?)?;
+                }
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "confirmed-quit" {
+                let _ = app.emit_to("main", "desktop-exit-requested", ());
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![pick_files])
+        .invoke_handler(tauri::generate_handler![pick_files, save_annotation_file, finish_confirmed_exit])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 let app = window.app_handle().clone();
@@ -152,13 +212,45 @@ fn main() {
                 });
             }
         })
-        .run(tauri::generate_context!())
-        .expect("桌面运行时初始化失败");
+        .build(tauri::generate_context!())
+        .expect("桌面运行时初始化失败")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                // Cmd+Q 不一定触发窗口关闭事件，统一交给当前标注会话确认。
+                if !ALLOW_EXIT.load(Ordering::SeqCst) && app.get_webview_window("main").is_some() {
+                    api.prevent_exit();
+                    let _ = app.emit_to("main", "desktop-exit-requested", ());
+                }
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn annotation_write_replaces_complete_file() {
+        let root = folder();
+        let path = root.join("annotations.json");
+        fs::write(&path, b"old").unwrap();
+        write_annotations(&path, b"{\"records\":[]}").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"{\"records\":[]}");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn annotation_publish_failure_keeps_target_and_cleans_temp() {
+        let root = folder();
+        let path = root.join("occupied");
+        fs::create_dir(&path).unwrap();
+        fs::write(path.join("keep"), b"original").unwrap();
+        assert!(write_annotations(&path, b"new").is_err());
+        assert_eq!(fs::read(path.join("keep")).unwrap(), b"original");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn folder() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "odv-index-test-{}-{}",

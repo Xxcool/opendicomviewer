@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { SeriesHandle, VOIRange } from '@opendicomviewer/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
 import { useViewerStore } from '../state/viewer-store';
 import { LAYOUTS, SPLIT_PANES, type PaneSpec } from '../layout/viewport-layouts';
+import { CineControls } from './CineControls';
 import { MprPane, type MprPaneHandle } from './MprPane';
 import { describeSeriesImages } from './image-presentation';
 import { blocksViewerShortcut, CAMERA_CHANGED, notifyCameraChanged } from './viewport-gestures';
@@ -11,7 +12,7 @@ import { getWindowPresets, pickAdaptiveVOI } from './window-presets';
 import { measureMmPerPx } from './scale-bar';
 
 export type SplitNavigationSession = Map<string, { seriesUid: string; index: number }>;
-interface PaneActions { navigate(request: LayerRequest): void; automatic(): Promise<void>; preset(voi: VOIRange, name: string): void; paint(): void }
+interface PaneActions { navigate(request: LayerRequest): Promise<void>; automatic(): Promise<void>; preset(voi: VOIRange, name: string): void; paint(): void }
 interface SplitProps { renderer: CornerstoneRenderer; session: RefObject<SplitNavigationSession> }
 
 /** 每格只消费自己的句柄；翻层/调窗只写渲染器与 DOM，不写 React/Zustand。 */
@@ -42,11 +43,11 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
     onNavigation(pane.viewportId, index, count);
   };
   const navigate = (request: LayerRequest) => {
-    if (!readyRef.current) return;
+    if (!readyRef.current) return Promise.reject(new Error('视口尚未就绪'));
     const windowRequest = ++autoRequest.current;
     queueLayerNavigation({ request, total: count, isCurrent: current,
       readIndex: () => renderer.currentSliceIndex(pane.viewportId),
-      enqueue: task => { chain.current = chain.current.catch(() => undefined).then(task).catch(err => { if (current()) error(err); }); },
+      enqueue: task => { chain.current = chain.current.catch(() => undefined).then(task); },
       apply: async (_from, to) => {
         await renderer.setStackIndex(pane.viewportId, to);
         if (handle && current() && imageInfo.nonVolumetric) {
@@ -58,7 +59,9 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
         if (current()) paint();
       },
     });
+    return chain.current;
   };
+  const manualNavigate = (request: LayerRequest) => { void navigate(request).catch(error); };
   const preset = (voi: VOIRange, name: string) => {
     autoRequest.current++;
     if (!readyRef.current || !current()) return;
@@ -108,7 +111,7 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
     seriesDescription={handle ? [study?.patientName || study?.patientId || '患者未知', study?.studyDate, study?.studyDescription || handle.meta.studyInstanceUid, handle.meta.seriesDescription].filter(Boolean).join(' · ') : undefined}
     notice={!handle ? '点击此格，再从左侧选择序列' : ready ? undefined : status.handle === handle && status.phase === 'error' ? status.message : '正在载入原始影像…'}
     noticeKind={!handle ? 'empty' : status.phase === 'error' && status.handle === handle ? 'error' : 'info'} windowingEnabled={ready}
-    onActivate={activate} onStep={delta => { activate(); navigate({ delta }); }}
+    onActivate={activate} onStep={delta => { activate(); manualNavigate({ delta }); }}
     onPan={(x, y) => renderer.panBy(pane.viewportId, { x, y })} onZoom={factor => renderer.zoomBy(pane.viewportId, factor)} onError={error}
     onVoiPreview={voi => preset(voi, '自定义')} readVoi={() => renderer.getVOI(pane.viewportId)} measureScale={measure} register={registerHud} />;
 }
@@ -140,12 +143,16 @@ export function SplitWorkspace({ renderer, session }: SplitProps) {
       if (['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'PageDown', 'PageUp'].includes(event.key)) {
         event.preventDefault();
         const sign = ['ArrowUp', 'ArrowLeft', 'PageUp'].includes(event.key) ? -1 : 1;
-        target?.navigate({ delta: sign * (event.key.startsWith('Page') || event.shiftKey ? 10 : 1) });
+        void target?.navigate({ delta: sign * (event.key.startsWith('Page') || event.shiftKey ? 10 : 1) }).catch(reportError);
       }
     };
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
   }, [activeViewportId, activeSeriesHandle, presets]);
+  const cineSession = useMemo(() => ({ activeViewportId, activeSeriesHandle }), [activeViewportId, activeSeriesHandle]);
   const currentActions = () => actions.current.get(activeViewportId);
+  const reportError = (error: unknown) => useViewerStore.getState().setImportStatus({ loading: false,
+    error: `播放/翻层失败：${error instanceof Error ? error.message : String(error)}` });
+  const navigateManually = (request: LayerRequest) => { void currentActions()?.navigate(request).catch(reportError); };
   return <div className="flex-1 flex flex-col relative z-10 min-h-0 min-w-0 overflow-hidden select-none">
     <div className="split-status" style={{ height: 'var(--vp-bar-h)' }}>独立分屏 · 各格独立浏览，无空间联动</div>
     <div className="flex-1 min-h-0 min-w-0" style={LAYOUTS['split-2x2'].gridStyle}>
@@ -155,14 +162,21 @@ export function SplitWorkspace({ renderer, session }: SplitProps) {
     <div className="split-footer" style={{ minHeight: 'var(--vp-foot-h)' }}>
       <span>{SPLIT_PANES.find(p => p.viewportId === activeViewportId)?.shortTitle}</span>
       {activeSeriesHandle ? <>
-        <button ref={previous} className="workspace-control" aria-label="上一层" disabled={count <= 1 || displayedIndex <= 0} onClick={() => currentActions()?.navigate({ delta: -1 })}>‹</button>
+        <button ref={previous} className="workspace-control" aria-label="上一层" disabled={count <= 1 || displayedIndex <= 0} onClick={() => navigateManually({ delta: -1 })}>‹</button>
         <input ref={layer} aria-label="层号" defaultValue="1" inputMode="numeric" onKeyDown={event => {
           if (event.key !== 'Enter') return;
           const index = parseLayerInput(event.currentTarget.value, count);
-          if (index === null) currentActions()?.paint(); else currentActions()?.navigate(index);
+          if (index === null) currentActions()?.paint(); else navigateManually(index);
         }} />
         <span>/ {count}</span>
-        <button ref={next} className="workspace-control" aria-label="下一层" disabled={count <= 1 || displayedIndex >= count - 1} onClick={() => currentActions()?.navigate({ delta: 1 })}>›</button>
+        <button ref={next} className="workspace-control" aria-label="下一层" disabled={count <= 1 || displayedIndex >= count - 1} onClick={() => navigateManually({ delta: 1 })}>›</button>
+        <CineControls sessionKey={cineSession} enabled={!!activeSeriesHandle} total={count}
+          readIndex={() => renderer.currentSliceIndex(activeViewportId)}
+          navigate={async index => {
+            const target = currentActions();
+            if (!target) throw new Error('当前分屏尚未就绪');
+            await target.navigate(index);
+          }} onError={reportError} />
         <div className="toolbar-spacer" />
         <button className="workspace-control" onClick={() => void currentActions()?.automatic()}>自动</button>
         {presets.map((p, i) => <button key={p.name} className="workspace-control" title={`快捷键 ${i + 2} · WW ${p.voi.windowWidth} / WL ${p.voi.windowCenter}`} onClick={() => currentActions()?.preset(p.voi, p.name)}>{p.name}</button>)}

@@ -220,8 +220,12 @@ export interface MeasurementRecord {
   readonly id: string;
   readonly seriesInstanceUid: string;
   readonly sopInstanceUid: string;
-  readonly type: 'length' | 'probe' | 'rectangleRoi' | 'ellipseRoi' | 'angle' | 'cobbAngle';
-  /** 标注控制点坐标（像素或患者世界坐标） */
+  readonly sessionId: string;
+  /** 文件内零起始帧号，单帧为 0。 */
+  readonly frameIndex: number;
+  readonly coordinateSpace: 'image-pixel';
+  readonly type: 'length' | 'arrow' | 'text' | 'probe' | 'rectangleRoi' | 'ellipseRoi' | 'angle' | 'cobbAngle';
+  /** 原始帧像素中心坐标 [column, row, 0] */
   readonly points: readonly [number, number, number][];
   /** 物理测量结果，如长度(mm)、面积(mm²)、角度(度)、HU 均值与标准差 */
   readonly stats: {

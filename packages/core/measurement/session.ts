@@ -23,11 +23,14 @@ function sameValue(left: unknown, right: unknown): boolean {
 }
 
 function copyRecord(record: MeasurementRecord): MeasurementRecord {
-  if (![record.id, record.seriesInstanceUid, record.sopInstanceUid].every(value => value.trim().length > 0)) {
+  if (![record.id, record.seriesInstanceUid, record.sopInstanceUid, record.sessionId].every(value => value.trim().length > 0)) {
     throw new Error('标注缺少稳定 ID 或源影像引用');
   }
+  if (!Number.isInteger(record.frameIndex) || record.frameIndex < 0 || record.coordinateSpace !== 'image-pixel') {
+    throw new Error('标注源帧或坐标空间无效');
+  }
   if (!Number.isFinite(record.createdAt) || record.points.length === 0
-    || record.points.some(point => point.length !== 3 || !point.every(Number.isFinite))
+    || record.points.some(point => point.length !== 3 || point[2] !== 0 || !point.every(Number.isFinite))
     || Object.values(record.stats).some(value => value !== undefined && !Number.isFinite(value))) {
     throw new Error('标注坐标、时间或测量值无效');
   }

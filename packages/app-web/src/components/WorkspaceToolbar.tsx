@@ -1,3 +1,5 @@
+import { AnnotationControls } from '../annotations/AnnotationControls';
+import { useAnnotations } from '../annotations/AnnotationContext';
 import { useEffect, useMemo } from 'react';
 import { planVolumeDownsample } from '@opendicomviewer/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
@@ -13,6 +15,7 @@ const tools: { id: ViewTool; label: string; key: string }[] = [
 
 export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRenderer | null; ready: boolean }) {
   const state = useViewerStore();
+  const annotations = useAnnotations();
   const plan = useMemo(() => state.activeSeriesHandle
     ? planVolumeDownsample(state.activeSeriesHandle.meta) : null, [state.activeSeriesHandle]);
   const canWindow = state.layoutMode === 'split-2x2' || state.activeViewportId === 'default-viewport';
@@ -21,7 +24,7 @@ export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRen
     const keydown = (event: KeyboardEvent) => {
       if (disabled || blocksViewerShortcut(event)) return;
       const tool = tools.find((item) => item.key.toLowerCase() === event.key.toLowerCase());
-      if (tool && (tool.id !== 'window' || canWindow)) { event.preventDefault(); state.setActiveTool(tool.id); }
+      if (tool && (tool.id !== 'window' || canWindow)) { event.preventDefault(); annotations.setTool('none'); state.setActiveTool(tool.id); }
       if (event.key.toLowerCase() === 'f') { event.preventDefault(); state.toggleFocusMode(); }
     };
     window.addEventListener('keydown', keydown);
@@ -46,12 +49,13 @@ export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRen
     <div className="tool-group" role="group" aria-label="鼠标工具">
       {tools.map((tool) => <button key={tool.id} className="workspace-control" disabled={disabled || (tool.id === 'window' && !canWindow)}
         aria-label={tool.label} aria-pressed={state.activeTool === tool.id} title={`${tool.label}（${tool.key}）${tool.id === 'window' && !canWindow ? ' · MPR 为固定灰度' : ''}`}
-        onClick={() => state.setActiveTool(tool.id)}><WorkspaceIcon name={tool.id} /><span>{tool.label}</span></button>)}
+        onClick={() => { annotations.setTool('none'); state.setActiveTool(tool.id); }}><WorkspaceIcon name={tool.id} /><span>{tool.label}</span></button>)}
     </div>
     <span className="toolbar-divider" />
     <button className="workspace-control icon-control" disabled={disabled} aria-label="缩小" title="缩小" onClick={() => camera(1 / 1.2)}>−</button>
     <button className="workspace-control icon-control" disabled={disabled} aria-label="放大" title="放大" onClick={() => camera(1.2)}>+</button>
     <button className="workspace-control" aria-label="适应窗口" title="适应窗口" disabled={disabled} onClick={() => camera('fit')}><WorkspaceIcon name="fit" /><span>适应窗口</span></button>
+    <AnnotationControls enabled={!disabled && state.layoutMode === '1x1'} />
     <span className="toolbar-spacer" />
     <div className="tool-group layout-group" role="group" aria-label="视口布局">
       {LAYOUT_MODES.filter(mode => mode === '1x1' || mode === 'split-2x2' || (plan?.ok && state.rendererCapabilities?.supportsVolume)).map(mode =>

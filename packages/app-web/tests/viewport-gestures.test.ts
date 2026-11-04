@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { bindViewportGestures } from '../src/components/viewport-gestures';
+import { bindViewportGestures, blocksViewerShortcutContext } from '../src/components/viewport-gestures';
 import type { ViewTool } from '../src/state/viewer-store';
 
 class Host extends EventTarget {
@@ -45,5 +45,17 @@ describe('原始切片与 MPR 共用手势', () => {
     expect(options.step).toHaveBeenCalledWith(2);
     unbind(); host.pointer('pointermove', 0, 32);
     expect(options.step).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('标注与阅片快捷键上下文隔离', () => {
+  it('模态或首页遮罩阻止后台快捷键，普通画布允许', () => {
+    vi.stubGlobal('Element', class {});
+    const query = vi.fn((): object | null => ({}));
+    vi.stubGlobal('document', { querySelector: query });
+    expect(blocksViewerShortcutContext({ target: null })).toBe(true);
+    expect(query).toHaveBeenCalledWith('[role="dialog"][aria-modal="true"], [data-viewer-home="true"], .annotation-tool-menu');
+    query.mockReturnValue(null);
+    expect(blocksViewerShortcutContext({ target: null })).toBe(false);
   });
 });

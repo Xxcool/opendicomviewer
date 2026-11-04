@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import type { HostCloseGuard } from './bridge/host-close-guard';
+import type { HostFileSaver } from './bridge/host-file-saver';
+import { AnnotationProvider, useAnnotations } from './annotations/AnnotationContext';
+import type { ImportCandidate } from '@opendicomviewer/core';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { PixelCodec } from '@opendicomviewer/codec-wasm';
 import { LocalDataSource } from '@opendicomviewer/source-local';
 import {
@@ -23,7 +27,12 @@ import { WorkspaceToolbar } from './components/WorkspaceToolbar';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
 import type { HostFilePicker } from './bridge/host-file-picker';
 
-export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; openProject?: () => Promise<void> }) {
+interface AppProps { filePicker?: HostFilePicker; openProject?: () => Promise<void>; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }
+export function App(props: AppProps) {
+  return <AnnotationProvider saveFile={props.saveFile} closeGuard={props.closeGuard}><ViewerApp {...props} /></AnnotationProvider>;
+}
+function ViewerApp({ filePicker, openProject }: AppProps) {
+  const annotations = useAnnotations();
   // 压缩像素解码器由组合根注入；重解码库本身在 PixelCodec 内部按需动态加载
   const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
@@ -62,11 +71,17 @@ export function App({ filePicker, openProject }: { filePicker?: HostFilePicker; 
   // 导入流程（三条入口共用）：探针 → 失败汇总 → 打开首序列
   const {
     pendingFailures,
-    importCandidates,
-    loadSample,
+    importCandidates: importRaw,
+    loadSample: loadSampleRaw,
     cancel: cancelImport,
     confirmPendingFailures,
   } = useImportFlow(dataSource);
+  const importCandidates = useCallback(async (files: readonly ImportCandidate[]) => {
+    if (files.length && await annotations.confirmReplacement()) await importRaw(files);
+  }, [annotations.confirmReplacement, importRaw]);
+  const loadSample = useCallback(async (id?: string) => {
+    if (await annotations.confirmReplacement()) await loadSampleRaw(id);
+  }, [annotations.confirmReplacement, loadSampleRaw]);
 
   const openLocal = (mode: 'files' | 'folder') => {
     if (!filePicker) {

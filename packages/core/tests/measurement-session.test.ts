@@ -3,7 +3,7 @@ import type { MeasurementRecord } from '../domain/types';
 import { MeasurementSession } from '../measurement/session';
 
 function record(id = 'a', seriesInstanceUid = 'series'): MeasurementRecord {
-  return { id, seriesInstanceUid, sopInstanceUid: `sop-${id}`, type: 'length',
+  return { id, seriesInstanceUid, sopInstanceUid: `sop-${id}`, type: 'length', sessionId: 'session', frameIndex: 0, coordinateSpace: 'image-pixel',
     points: [[0, 0, 0], [3, 4, 0]], stats: { lengthMm: 5 }, createdAt: 1, text: '备注' };
 }
 

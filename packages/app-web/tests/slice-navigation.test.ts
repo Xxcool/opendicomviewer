@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CineController } from '../src/components/cine-controller';
 import {
   DRAGGABLE_SLIDER_MAX_FRAMES,
   clampLayer,
@@ -95,5 +96,81 @@ describe('切片导航纯逻辑（ui-spec §3.3）', () => {
       expect(nextLayerIndex(3, -10, 36)).toBe(0);
       expect(nextLayerIndex(0, -1, 36)).toBe(0);
     });
+  });
+});
+
+
+describe('2D Cine 串行播放', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  function setup(index = 0, total = 3) {
+    const frame = { index, total };
+    const show = vi.fn(async (next: number) => { frame.index = next; });
+    const onPlayingChange = vi.fn(); const onError = vi.fn();
+    const player = new CineController({ read: () => frame, show, onPlayingChange, onError });
+    return { frame, show, onPlayingChange, onError, player };
+  }
+  it('非循环到末帧停止，再播从首帧开始', async () => {
+    const { frame, show, player, onPlayingChange } = setup();
+    player.play(); await vi.advanceTimersByTimeAsync(100);
+    expect(frame.index).toBe(2); expect(player.playing).toBe(false);
+    expect(show.mock.calls.map(call => call[0])).toEqual([1, 2]);
+    expect(onPlayingChange.mock.calls.map(call => call[0])).toEqual([true, false]);
+    player.play(); await vi.advanceTimersByTimeAsync(0);
+    expect(frame.index).toBe(0); player.destroy();
+  });
+  it('循环模式回到首帧，暂停后不再推进', async () => {
+    const { frame, show, player } = setup(2);
+    player.setLoop(true); player.play(); await vi.advanceTimersByTimeAsync(300);
+    expect(show.mock.calls.map(call => call[0])).toEqual([0, 1, 2, 0]);
+    player.pause(); await vi.advanceTimersByTimeAsync(1000);
+    expect(frame.index).toBe(0); expect(player.playing).toBe(false);
+  });
+  it('慢解码只保留一个在途任务，暂停不会追加旧帧请求', async () => {
+    let finish: () => void = () => { throw new Error('尚未开始'); };
+    const show = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+    const player = new CineController({ read: () => ({ index: 0, total: 5 }), show,
+      onPlayingChange: vi.fn(), onError: vi.fn() });
+    player.play(); await vi.advanceTimersByTimeAsync(2000);
+    expect(show).toHaveBeenCalledTimes(1);
+    player.pause(); finish(); await vi.advanceTimersByTimeAsync(2000);
+    expect(show).toHaveBeenCalledTimes(1);
+  });
+  it('解码失败停止并上报，不静默跳帧', async () => {
+    const error = new Error('解码失败'); const onError = vi.fn();
+    const show = vi.fn(async () => { throw error; });
+    const player = new CineController({ read: () => ({ index: 0, total: 5 }), show,
+      onPlayingChange: vi.fn(), onError });
+    player.play(); await vi.advanceTimersByTimeAsync(2000);
+    expect(player.playing).toBe(false); expect(show).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith(error);
+  });
+  it('fps 限定播放速度，单帧不启动，销毁后不能重启', async () => {
+    const { player, show, frame } = setup(0, 1);
+    expect(() => player.setFps(0)).toThrow(); expect(() => player.setFps(61)).toThrow();
+    expect(() => player.setFps(2.5)).toThrow();
+    player.play(); await vi.advanceTimersByTimeAsync(1000); expect(show).not.toHaveBeenCalled();
+    frame.total = 5; player.setFps(5); player.play();
+    await vi.advanceTimersByTimeAsync(199); expect(show).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1); expect(show).toHaveBeenCalledTimes(2);
+    player.destroy(); player.play(); await vi.advanceTimersByTimeAsync(1000);
+    expect(show).toHaveBeenCalledTimes(2);
+  });
+  it('时钟触发前会话/首页许可变更不会读取或修改新视口', async () => {
+    let allowed = true;
+    const read = vi.fn(() => ({ index: 0, total: 5 })); const show = vi.fn(async () => {});
+    const onError = vi.fn();
+    const player = new CineController({ read, show, allowed: () => allowed, onPlayingChange: vi.fn(), onError });
+    player.play(); read.mockClear(); allowed = false;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(read).not.toHaveBeenCalled(); expect(show).not.toHaveBeenCalled();
+    expect(player.playing).toBe(false); expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('帧索引失效时明确失败，停止后不保留旧时钟', async () => {
+    const { frame, player, show, onError } = setup();
+    player.play(); frame.index = 99; await vi.advanceTimersByTimeAsync(0);
+    expect(player.playing).toBe(false); expect(onError).toHaveBeenCalledTimes(1);
+    expect(show).not.toHaveBeenCalled();
   });
 });
