@@ -74,6 +74,8 @@ OpenDicomViewer 面向研究、教学与本地影像浏览场景：从打开文�
 
 矩形、椭圆 ROI 已接入单视口原始影像，显示面积和变换后灰度统计（单位未确认）。导入按阶段显示真实文件进度；[本轮验收](docs/reviews/DELIVERY-2026-11-04-progress-roi.md)列出适用边界。
 
+当前新增：三点角/Cobb与JSON恢复重算已接入；PNG具备预览和Web下载实现，实际Web下载验收仍待完成。加载面板使用柔和人形扫描动画，仅显示百分比。详见[本轮记录](docs/reviews/DELIVERY-2026-11-04-angles-loading-png.md)。
+
 ## 使用方式
 
 | 形式 | 适合场景 | 运行条件与交付状态 |
@@ -242,5 +244,3 @@ docs/                架构、计划、评审与验收证据
 ## 📄 开源许可 (License)
 
 本项目代码采用 [Apache License 2.0](LICENSE) 开源协议。教学样本、示例封面及第三方资源遵循各自许可，详见相应目录中的来源与许可说明。
-
-当前新增：三点角/Cobb与JSON恢复重算已接入；PNG具备预览和Web下载实现，实际Web下载验收仍待完成。加载面板使用柔和人形扫描动画，仅显示百分比。详见[本轮记录](docs/reviews/DELIVERY-2026-11-04-angles-loading-png.md)。
