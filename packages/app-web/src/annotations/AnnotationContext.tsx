@@ -6,7 +6,7 @@ import { useViewerStore } from '../state/viewer-store';
 import { MAX_ANNOTATION_BYTES, parseAnnotationBackup, loadBackupSources, restoreWithPixels } from './annotation-restore';
 import type { HostFileSaver } from '../bridge/host-file-saver';
 
-export type AnnotationTool = 'none' | 'rectangleRoi' | 'ellipseRoi' | 'length' | 'arrow' | 'text' | 'select';
+export type AnnotationTool = 'none' | 'angle' | 'cobbAngle' | 'rectangleRoi' | 'ellipseRoi' | 'length' | 'arrow' | 'text' | 'select';
 export const FLUSH_ANNOTATION_NOTE = 'odv-flush-annotation-note';
 function flushAnnotationNote() { window.dispatchEvent(new Event(FLUSH_ANNOTATION_NOTE)); }
 interface AnnotationState {

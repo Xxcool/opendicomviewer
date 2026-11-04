@@ -10,6 +10,7 @@ export function roiStats(record: MeasurementRecord, frame: PixelFrame, plane: Im
   return { count, mean, stdDev, min, max, ...(areaMm2 === undefined ? {} : { areaMm2 }) };
 }
 export function annotationLabel(record: MeasurementRecord): string {
+  if (record.type === 'angle' || record.type === 'cobbAngle') return `${record.type === 'angle' ? '三点角' : 'Cobb 角'} · ${record.stats.angleDeg?.toFixed(2) ?? '--'}°`;
   if (record.type === 'length') return `${record.stats.lengthMm?.toFixed(2) ?? '--'} mm`;
   if (isRoi(record)) return `${record.type === 'ellipseRoi' ? '椭圆' : '矩形'} · ${record.stats.areaMm2 === undefined ? '面积未标定' : `${record.stats.areaMm2.toFixed(2)} mm²`} · 均值 ${record.stats.mean?.toFixed(2) ?? '--'} · SD ${record.stats.stdDev?.toFixed(2) ?? '--'}`;
   return record.type === 'arrow' ? '箭头' : '文字';

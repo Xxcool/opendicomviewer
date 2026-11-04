@@ -1,3 +1,4 @@
+import { PngExportControl } from '../export/PngExportControl';
 import { AnnotationControls } from '../annotations/AnnotationControls';
 import { useAnnotations } from '../annotations/AnnotationContext';
 import { useEffect, useMemo } from 'react';
@@ -13,7 +14,7 @@ const tools: { id: ViewTool; label: string; key: string }[] = [
   { id: 'pan', label: '平移', key: 'P' }, { id: 'zoom', label: '缩放', key: 'Z' },
 ];
 
-export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRenderer | null; ready: boolean }) {
+export function WorkspaceToolbar({ renderer, ready, desktop = false }: { renderer: CornerstoneRenderer | null; ready: boolean; desktop?: boolean }) {
   const state = useViewerStore();
   const annotations = useAnnotations();
   const plan = useMemo(() => state.activeSeriesHandle
@@ -56,6 +57,7 @@ export function WorkspaceToolbar({ renderer, ready }: { renderer: CornerstoneRen
     <button className="workspace-control icon-control" disabled={disabled} aria-label="放大" title="放大" onClick={() => camera(1.2)}>+</button>
     <button className="workspace-control" aria-label="适应窗口" title="适应窗口" disabled={disabled} onClick={() => camera('fit')}><WorkspaceIcon name="fit" /><span>适应窗口</span></button>
     <AnnotationControls enabled={!disabled && state.layoutMode === '1x1'} />
+    <PngExportControl renderer={renderer} enabled={!disabled && state.layoutMode === '1x1'} desktop={desktop} />
     <span className="toolbar-spacer" />
     <div className="tool-group layout-group" role="group" aria-label="视口布局">
       {LAYOUT_MODES.filter(mode => mode === '1x1' || mode === 'split-2x2' || (plan?.ok && state.rendererCapabilities?.supportsVolume)).map(mode =>

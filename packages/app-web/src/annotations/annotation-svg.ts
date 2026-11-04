@@ -1,3 +1,4 @@
+import { isAngle, angleSegments } from './annotation-angle';
 import { annotationLabel, isRoi } from './annotation-roi';
 import type { ImagePlane, MeasurementRecord } from '@opendicomviewer/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
@@ -28,13 +29,19 @@ export function paintAnnotation(svg: SVGSVGElement, record: MeasurementRecord, r
         if (point) coordinates.push(`${point.x},${point.y}`);
       }
       const shape = document.createElementNS(NS, 'polygon'); shape.setAttribute('points', coordinates.join(' ')); shape.setAttribute('fill', 'none'); group.append(shape);
+    } else if (isAngle(record)) {
+      for (const [first, last] of angleSegments(record)) {
+        const start = record.points[first] && canvasPoint(renderer, viewportId, plane, record.points[first]);
+        const end = record.points[last] && canvasPoint(renderer, viewportId, plane, record.points[last]);
+        if (start && end) line(group, start.x, start.y, end.x, end.y);
+      }
     } else line(group, a.x, a.y, b.x, b.y);
     if (record.type === 'arrow') {
       const angle = Math.atan2(b.y - a.y, b.x - a.x);
       for (const offset of [-0.5, 0.5]) line(group, a.x, a.y, a.x + 12 * Math.cos(angle + offset), a.y + 12 * Math.sin(angle + offset));
     }
   }
-  if (selected) for (const point of [a, b].filter(value => !!value)) {
+  if (selected) for (const point of record.points.map(point => canvasPoint(renderer, viewportId, plane, point)).filter(value => !!value)) {
     const circle = document.createElementNS(NS, 'circle'); circle.setAttribute('cx', String(point.x)); circle.setAttribute('cy', String(point.y));
     circle.setAttribute('r', '4'); circle.setAttribute('fill', '#151a22'); group.append(circle);
   }
@@ -42,6 +49,6 @@ export function paintAnnotation(svg: SVGSVGElement, record: MeasurementRecord, r
   label.setAttribute('x', String((b?.x ?? a.x) + 8)); label.setAttribute('y', String((b?.y ?? a.y) - 8));
   label.setAttribute('fill', selected ? '#ffce56' : '#5de4ed'); label.setAttribute('stroke', 'none');
   label.setAttribute('font-size', '12'); label.setAttribute('style', 'paint-order:stroke;stroke:#000;stroke-width:3px');
-  label.textContent = [record.type === 'length' || isRoi(record) ? annotationLabel(record) : '', record.text].filter(Boolean).join(' · ');
+  label.textContent = [record.type === 'length' || isRoi(record) || isAngle(record) ? annotationLabel(record) : '', record.text].filter(Boolean).join(' · ');
   group.append(label); svg.append(group);
 }

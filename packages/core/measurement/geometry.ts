@@ -67,3 +67,19 @@ export function measureImageAngle(
   const cosine = a[0] * b[0] + a[1] * b[1];
   return { ok: true, value: Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI, unit: 'deg' };
 }
+
+/** 两条无向直线的锐角（0–90°）；端点反向不改变结果。 */
+export function measureImageCobbAngle(a: ImagePixelPoint, b: ImagePixelPoint, c: ImagePixelPoint, d: ImagePixelPoint, calibration: MeasurementCalibration | undefined): GeometryMeasurement<'deg'> {
+  const first = physicalVector(a, b, calibration);
+  if (!first.ok) return first;
+  const second = physicalVector(c, d, calibration);
+  if (!second.ok) return second;
+  const normalize = ([x, y]: PhysicalVector): PhysicalVector => {
+    const scale = Math.max(Math.abs(x), Math.abs(y));
+    const length = Math.hypot(x / scale, y / scale);
+    return [x / scale / length, y / scale / length];
+  };
+  const u = normalize(first.vector), v = normalize(second.vector);
+  const cosine = Math.abs(u[0] * v[0] + u[1] * v[1]);
+  return { ok: true, value: Math.acos(Math.min(1, cosine)) * 180 / Math.PI, unit: 'deg' };
+}

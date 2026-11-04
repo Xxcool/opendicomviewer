@@ -1,3 +1,4 @@
+import { ImportProgressDialog } from './components/ImportProgressDialog';
 import type { HostCloseGuard } from './bridge/host-close-guard';
 import type { HostFileSaver } from './bridge/host-file-saver';
 import { AnnotationProvider, useAnnotations } from './annotations/AnnotationContext';
@@ -211,7 +212,7 @@ function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSou
         onOpenProject={openProject ? () => { void openProject().catch(() => setImportStatus({ loading: false, error: '无法打开 GitHub 仓库，请检查系统浏览器设置' })); } : undefined}
       />
 
-      {hasWorkspace && !homeOpen && <WorkspaceToolbar renderer={renderer} ready={appliedLayout === layoutMode && !importStatus.loading} />}
+      {hasWorkspace && !homeOpen && <WorkspaceToolbar renderer={renderer} desktop={Boolean(filePicker)} ready={appliedLayout === layoutMode && !importStatus.loading} />}
 
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (
@@ -240,24 +241,7 @@ function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSou
       )}
 
       {/* 导入进度提示模态框 */}
-      {importStatus.loading && (
-        <div role="dialog" aria-modal="true" aria-label="正在导入影像" className="absolute inset-0 bg-canvas/60 backdrop-blur-xs flex items-center justify-center z-50">
-          <div className="bg-elevated border border-line rounded-lg p-6 shadow-2xl flex flex-col items-center space-y-3 max-w-sm text-center">
-            <SpinnerIcon className="w-8 h-8 text-accent" />
-            <div className="text-sm font-semibold text-txt">
-              {importStatus.message || '正在读取影像数据...'}
-            </div>
-            <div className="text-xs text-txt-dim">
-              {importStatus.progress?.stage || '正在准备影像，请稍候'}
-            </div>
-            {importStatus.progress?.total !== undefined && importStatus.progress.total > 0 && importStatus.progress.completed !== undefined && <div className="w-full text-xs text-txt-dim" role="status" aria-live="polite">
-              <div>{Math.floor(importStatus.progress.completed / importStatus.progress.total * 100)}% · {importStatus.progress.completed} / {importStatus.progress.total} 个文件</div>
-              <progress className="w-full mt-2 accent-accent" aria-label={importStatus.progress.stage} value={importStatus.progress.completed} max={importStatus.progress.total} />
-            </div>}
-            <button className="annotation-action" onClick={cancelImport}>取消导入</button>
-          </div>
-        </div>
-      )}
+      {importStatus.loading && <ImportProgressDialog status={importStatus} onCancel={cancelImport} />}
 
       {/* 部分失败汇总模态（§5）：用户确认后才载入成功部分 */}
       {pendingFailures && (
@@ -297,6 +281,7 @@ function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSou
           >
             <div
               id="odv-viewport-el"
+              data-odv-viewport="default-viewport"
               style={layoutMode === '1x1' ? undefined : LAYOUTS[layoutMode].gridStyle}
               className={`absolute inset-0 w-full h-full touch-none ${
                 layoutMode === '1x1' ? '' : 'bg-line'

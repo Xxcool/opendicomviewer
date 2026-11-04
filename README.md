@@ -70,7 +70,7 @@ OpenDicomViewer 面向研究、教学与本地影像浏览场景：从打开文�
 
 具体支持以实际可解码的数据及几何检查为准，尚不承诺兼容所有厂商、传输语法或光盘结构。
 
-**尚未交付：** HU 与角度工具、分屏测量、PNG/JPEG 与 DICOM/SR/GSPS 导出、3D 体绘制、真正的 4D 动态体积。详细范围见[导出计划](docs/EXPORT_PLAN.md)与[浏览模式路线](docs/VIEWING_MODES_PLAN.md)。
+**尚未交付：** HU 单位确认、分屏测量、JPEG 与 DICOM/SR/GSPS 导出、桌面 PNG 保存、3D 体绘制、真正的 4D 动态体积。详细范围见[导出计划](docs/EXPORT_PLAN.md)与[浏览模式路线](docs/VIEWING_MODES_PLAN.md)。
 
 矩形、椭圆 ROI 已接入单视口原始影像，显示面积和变换后灰度统计（单位未确认）。导入按阶段显示真实文件进度；[本轮验收](docs/reviews/DELIVERY-2026-11-04-progress-roi.md)列出适用边界。
 
@@ -242,3 +242,5 @@ docs/                架构、计划、评审与验收证据
 ## 📄 开源许可 (License)
 
 本项目代码采用 [Apache License 2.0](LICENSE) 开源协议。教学样本、示例封面及第三方资源遵循各自许可，详见相应目录中的来源与许可说明。
+
+当前新增：三点角/Cobb与JSON恢复重算已接入；PNG具备预览和Web下载实现，实际Web下载验收仍待完成。加载面板使用柔和人形扫描动画，仅显示百分比。详见[本轮记录](docs/reviews/DELIVERY-2026-11-04-angles-loading-png.md)。

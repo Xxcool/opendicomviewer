@@ -9,7 +9,8 @@ const choices: Record<'measurement' | 'annotation', readonly Choice[]> = {
     { icon: 'length', label: '线段测距', hint: '拖动绘制 · 毫米', tool: 'length' },
     { icon: 'rectangle', label: '矩形 ROI', hint: '拖动绘制 · 原始灰度统计', tool: 'rectangleRoi' },
     { icon: 'ellipse', label: '椭圆 ROI', hint: '拖动绘制 · 原始灰度统计', tool: 'ellipseRoi' },
-    { icon: 'angle', label: '角度', hint: '开发中' },
+    { icon: 'angle', label: '三点角', hint: '依次点击起点、顶点、终点', tool: 'angle' },
+    { icon: 'angle', label: 'Cobb 角', hint: '依次点击两条直线的四个端点', tool: 'cobbAngle' },
     { icon: 'curve', label: '曲线测量', hint: '开发中' },
   ],
   annotation: [
