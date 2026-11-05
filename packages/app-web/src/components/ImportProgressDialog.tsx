@@ -23,9 +23,11 @@ export function ImportProgressDialog({ status, onCancel }: { status: ImportStatu
     }}>
     <section className="import-panel">
       <div className="import-scan" aria-hidden="true">
-        <img src={bodyImage} alt="" draggable={false} />
-        <div className="import-body-grid" />
-        <div className="import-body-beam" />
+        <div className="import-scan-window">
+          <img src={bodyImage} alt="" draggable={false} />
+          <div className="import-body-grid" />
+          <div className="import-body-beam" />
+        </div>
         <span className="import-scan-caption">本地影像处理</span>
       </div>
       <div className="import-content">
