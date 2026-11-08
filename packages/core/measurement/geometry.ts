@@ -83,3 +83,15 @@ export function measureImageCobbAngle(a: ImagePixelPoint, b: ImagePixelPoint, c:
   const cosine = Math.abs(u[0] * v[0] + u[1] * v[1]);
   return { ok: true, value: Math.acos(Math.min(1, cosine)) * 180 / Math.PI, unit: 'deg' };
 }
+
+/** 原图折线各段物理长度之和；不平滑、不用屏幕长度近似。 */
+export function measureImagePolyline(points: readonly ImagePixelPoint[], calibration: MeasurementCalibration | undefined): GeometryMeasurement<'mm'> {
+  if (points.length < 2 || points.length > 2048) return { ok: false, reason: 'invalid-point' };
+  let sum = 0;
+  for (let index = 1; index < points.length; index++) {
+    const result = physicalVector(points[index - 1]!, points[index]!, calibration);
+    if (!result.ok) return result;
+    sum += result.length;
+  }
+  return Number.isFinite(sum) ? { ok: true, value: sum, unit: 'mm' } : { ok: false, reason: 'invalid-point' };
+}

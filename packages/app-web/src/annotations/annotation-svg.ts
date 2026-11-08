@@ -1,3 +1,4 @@
+import { isPath, pathSegments } from './annotation-path';
 import { isAngle, angleSegments } from './annotation-angle';
 import { annotationLabel, isRoi } from './annotation-roi';
 import type { ImagePlane, MeasurementRecord } from '@opendicomviewer/core';
@@ -29,8 +30,8 @@ export function paintAnnotation(svg: SVGSVGElement, record: MeasurementRecord, r
         if (point) coordinates.push(`${point.x},${point.y}`);
       }
       const shape = document.createElementNS(NS, 'polygon'); shape.setAttribute('points', coordinates.join(' ')); shape.setAttribute('fill', 'none'); group.append(shape);
-    } else if (isAngle(record)) {
-      for (const [first, last] of angleSegments(record)) {
+    } else if (isAngle(record) || isPath(record)) {
+      for (const [first, last] of (isPath(record) ? pathSegments(record) : angleSegments(record))) {
         const start = record.points[first] && canvasPoint(renderer, viewportId, plane, record.points[first]);
         const end = record.points[last] && canvasPoint(renderer, viewportId, plane, record.points[last]);
         if (start && end) line(group, start.x, start.y, end.x, end.y);
@@ -49,6 +50,6 @@ export function paintAnnotation(svg: SVGSVGElement, record: MeasurementRecord, r
   label.setAttribute('x', String((b?.x ?? a.x) + 8)); label.setAttribute('y', String((b?.y ?? a.y) - 8));
   label.setAttribute('fill', selected ? '#ffce56' : '#5de4ed'); label.setAttribute('stroke', 'none');
   label.setAttribute('font-size', '12'); label.setAttribute('style', 'paint-order:stroke;stroke:#000;stroke-width:3px');
-  label.textContent = [record.type === 'length' || isRoi(record) || isAngle(record) ? annotationLabel(record) : '', record.text].filter(Boolean).join(' · ');
+  label.textContent = [record.type === 'length' || isRoi(record) || isAngle(record) || isPath(record) ? annotationLabel(record) : '', record.text].filter(Boolean).join(' · ');
   group.append(label); svg.append(group);
 }

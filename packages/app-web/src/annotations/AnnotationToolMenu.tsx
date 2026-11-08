@@ -11,13 +11,13 @@ const choices: Record<'measurement' | 'annotation', readonly Choice[]> = {
     { icon: 'ellipse', label: '椭圆 ROI', hint: '拖动绘制 · 原始灰度统计', tool: 'ellipseRoi' },
     { icon: 'angle', label: '三点角', hint: '依次点击起点、顶点、终点', tool: 'angle' },
     { icon: 'angle', label: 'Cobb 角', hint: '依次点击两条直线的四个端点', tool: 'cobbAngle' },
-    { icon: 'curve', label: '曲线测量', hint: '开发中' },
+    { icon: 'curve', label: '折线测距', hint: '逐点点击 · Enter 完成 · 原图折线长度', tool: 'polyline' },
   ],
   annotation: [
     { icon: 'select', label: '选择与编辑', hint: '移动图形或控制点', tool: 'select' },
     { icon: 'arrow', label: '箭头', hint: '拖动绘制 · 可加备注', tool: 'arrow' },
     { icon: 'text', label: '文字', hint: '点击影像后编辑文字', tool: 'text' },
-    { icon: 'freehand', label: '手绘轮廓', hint: '开发中' },
+    { icon: 'freehand', label: '手绘轮廓', hint: '按住拖动 · 松开自动闭合 · 无灰度统计', tool: 'freehand' },
   ],
 };
 export function AnnotationToolMenu({ group, enabled }: { group: 'measurement' | 'annotation'; enabled: boolean }) {
@@ -73,7 +73,7 @@ export function AnnotationToolMenu({ group, enabled }: { group: 'measurement' | 
         buttons[next]?.focus();
       }}>
       <div className="annotation-menu-heading">{label}工具</div>
-      {items.map(item => <button key={item.icon} type="button" role="menuitemradio" aria-checked={state.tool === item.tool} disabled={!item.tool}
+      {items.map(item => <button key={item.label} type="button" role="menuitemradio" aria-checked={state.tool === item.tool} disabled={!item.tool}
         className="annotation-menu-item" onClick={() => { if (item.tool) { state.setTool(item.tool); state.setPanelOpen(true); close(true); } }}>
         <AnnotationIcon name={item.icon} /><span><strong>{item.label}</strong><small>{item.hint}</small></span>
         {state.tool === item.tool && <span aria-hidden="true">✓</span>}

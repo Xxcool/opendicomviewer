@@ -224,7 +224,7 @@ export interface MeasurementRecord {
   /** 文件内零起始帧号，单帧为 0。 */
   readonly frameIndex: number;
   readonly coordinateSpace: 'image-pixel';
-  readonly type: 'length' | 'arrow' | 'text' | 'probe' | 'rectangleRoi' | 'ellipseRoi' | 'angle' | 'cobbAngle';
+  readonly type: 'length' | 'arrow' | 'text' | 'probe' | 'rectangleRoi' | 'ellipseRoi' | 'angle' | 'cobbAngle' | 'polyline' | 'freehand';
   /** 原始帧像素中心坐标 [column, row, 0] */
   readonly points: readonly [number, number, number][];
   /** 物理测量结果，如长度(mm)、面积(mm²)、角度(度)、HU 均值与标准差 */

@@ -1,3 +1,4 @@
+import { isPath, pathStats, pathSegments, appendFreehandPoint, freehandPointLimitExceeded, MAX_PATH_POINTS } from './annotation-path';
 import { isAngle, angleStats, anglePointCount, angleSegments } from './annotation-angle';
 import { isRoi, roiStats } from './annotation-roi';
 import { useEffect, useRef, type RefObject } from 'react';
@@ -16,7 +17,7 @@ interface Props {
 }
 interface Draft {
   record: MeasurementRecord; original: MeasurementRecord | null; plane: ImagePlane;
-  start: PixelPoint; mode: 'draw' | 'move' | number; pointerId: number;
+  start: PixelPoint; mode: 'draw' | 'move' | number; pointerId: number; oversized?: boolean;
 }
 export function AnnotationLayer({ renderer, viewportId, series, hostRef, readIndex }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -29,7 +30,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     if (!svg || !host) return;
     let draft: Draft | null = null;
     let pending: { record: MeasurementRecord; plane: ImagePlane; fixed: PixelPoint[] } | null = null;
-    let completionToken = 0; let disposed = false;
+    let completionToken = 0; let disposed = false; let pointerPaint = 0;
     const current = () => {
       const index = readIndex();
       try { return renderer.currentSliceIndex(viewportId) === index ? series.meta.planes[index] : undefined; }
@@ -45,6 +46,10 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           if (draft?.original?.id !== record.id) paintAnnotation(svg, record, renderer, viewportId, plane, selectedRef.current === record.id);
         }
         if (pending && pending.plane === plane) paintAnnotation(svg, pending.record, renderer, viewportId, plane, true);
+        if (state.tool === 'polyline' || state.tool === 'freehand') {
+          const hint = document.createElementNS(svg.namespaceURI, 'text'); hint.setAttribute('x', '16'); hint.setAttribute('y', '80'); hint.setAttribute('fill', '#ffce56'); hint.setAttribute('font-size', '13');
+          hint.textContent = state.tool === 'polyline' ? '逐点点击 · Enter 完成折线 · Esc 取消' : '按住拖动 · 松开自动闭合轮廓 · Esc 取消'; svg.append(hint);
+        }
         if (state.tool === 'angle' || state.tool === 'cobbAngle') {
           const hint = document.createElementNS(svg.namespaceURI, "text"); hint.setAttribute("x", "16"); hint.setAttribute("y", "80"); hint.setAttribute("fill", "#ffce56"); hint.setAttribute("font-size", "13"); const step = pending ? pending.fixed.length + 1 : 1;
           const count = state.tool === 'angle' ? 3 : 4;
@@ -54,6 +59,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
         if (draft && draft.plane === plane) paintAnnotation(svg, draft.record, renderer, viewportId, plane, true);
       } catch (error) { report(`标注绘制失败：${error instanceof Error ? error.message : String(error)}`); }
     };
+    const schedulePaint = () => { if (!pointerPaint) pointerPaint = requestAnimationFrame(() => { pointerPaint = 0; paint(); }); };
     paintRef.current = paint;
     const cancel = () => {
       completionToken++;
@@ -72,14 +78,17 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
       completionToken++;
       try {
         const point = pointAt(event, plane); if (!point) return;
-        if ((state.tool === 'angle' || state.tool === 'cobbAngle')) {
-          if (!calibrated(plane)) { report('当前帧缺少可信物理标定，不能测量角度'); return; }
+        if ((state.tool === 'angle' || state.tool === 'cobbAngle' || state.tool === 'polyline')) {
+          if (!calibrated(plane)) { report('当前帧缺少可信物理标定，不能进行物理测量'); return; }
           if (!pending) {
-            const type = state.tool === 'cobbAngle' ? 'cobbAngle' : 'angle';
+            const type = state.tool;
             pending = { plane, fixed: [], record: { id: crypto.randomUUID(), sessionId: state.sessionId, coordinateSpace: 'image-pixel', seriesInstanceUid: series.meta.seriesInstanceUid, sopInstanceUid: plane.sopInstanceUid, frameIndex: plane.frameIndex ?? 0, type, points: [], stats: {}, createdAt: Date.now() } };
           }
+          if (pending.fixed.length >= MAX_PATH_POINTS) { report('折线已达到 2048 个控制点上限，请按 Enter 完成'); return; }
+          const last = pending.fixed[pending.fixed.length - 1];
+          if (last && Math.hypot(point[0] - last[0], point[1] - last[1]) < 0.5) return;
           pending.fixed.push(point); pending.record = { ...pending.record, points: [...pending.fixed] };
-          if (pending.fixed.length === anglePointCount(pending.record.type)) {
+          if (pending.record.type !== 'polyline' && pending.fixed.length === anglePointCount(pending.record.type)) {
             const completed = pending; pending = null;
             state.session.add({ ...completed.record, stats: angleStats(completed.record, plane) });
             state.select(completed.record.id); state.setPanelOpen(true);
@@ -93,7 +102,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
             const b = record.points[1] && canvasPoint(renderer, viewportId, plane, record.points[1]);
             const controls = record.points.map(point => canvasPoint(renderer, viewportId, plane, point));
             if (controls.some(point => point && Math.hypot(x - point.x, y - point.y) < 8)) return true;
-            if (isAngle(record)) return angleSegments(record).some(([first, last]) => { const start = controls[first], end = controls[last]; return start && end && segmentDistance(x, y, start, end) < 10; });
+            if (isAngle(record) || isPath(record)) return (isPath(record) ? pathSegments(record) : angleSegments(record)).some(([first, last]) => { const start = controls[first], end = controls[last]; return start && end && segmentDistance(x, y, start, end) < 10; });
             if (a && Math.hypot(x - a.x, y - a.y) < 8) return true;
             if (b && Math.hypot(x - b.x, y - b.y) < 8) return true;
             if (isRoi(record) && b) {
@@ -117,7 +126,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           const type = state.tool;
           const record: MeasurementRecord = { id: crypto.randomUUID(), sessionId: state.sessionId, coordinateSpace: 'image-pixel',
             seriesInstanceUid: series.meta.seriesInstanceUid, sopInstanceUid: plane.sopInstanceUid, frameIndex: plane.frameIndex ?? 0,
-            type, points: type === 'text' ? [point] : [point, point], stats: {}, createdAt: Date.now(), text: type === 'length' || type === 'rectangleRoi' || type === 'ellipseRoi' ? undefined : '备注' };
+            type, points: type === 'text' || type === 'freehand' ? [point] : [point, point], stats: {}, createdAt: Date.now(), text: type === 'length' || type === 'rectangleRoi' || type === 'ellipseRoi' ? undefined : '备注' };
           draft = { record, original: null, plane, start: point, mode: 'draw', pointerId: event.pointerId };
         }
         host.setPointerCapture(event.pointerId); paint();
@@ -127,10 +136,10 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
       if (pending) {
         if (current() !== pending.plane) { cancel(); return; }
         const point = pointAt(event, pending.plane);
-        if (point) { pending.record = { ...pending.record, points: [...pending.fixed, point] }; paint(); }
+        if (point) { pending.record = { ...pending.record, points: [...pending.fixed, point] }; schedulePaint(); }
         return;
       }
-      if (!draft) return;
+      if (!draft || draft.pointerId !== event.pointerId) return;
       event.preventDefault(); event.stopImmediatePropagation();
       if (current() !== draft.plane) { cancel(); return; }
       try {
@@ -140,22 +149,37 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           const dx = point[0] - draft.start[0], dy = point[1] - draft.start[1];
           points = draft.original.points.map(p => [p[0] + dx, p[1] + dy, 0]);
           if (points.some(p => p[0] < 0 || p[1] < 0 || p[0] > draft!.plane.columns - 1 || p[1] > draft!.plane.rows - 1)) return;
-        } else if (draft.record.type === 'text') points = [point];
+        } else if (draft.record.type === 'freehand' && draft.mode === 'draw') {
+          draft.oversized ||= freehandPointLimitExceeded(draft.record.points, point);
+          points = appendFreehandPoint(draft.record.points, point);
+        }
+        else if (draft.record.type === 'text') points = [point];
         else points = draft.record.points.map((old, index) => index === (typeof draft!.mode === 'number' ? draft!.mode : 1) ? point : [...old]);
         const stats = draft.record.type === 'length' ? measureImageLength([points[0]![0], points[0]![1]], [points[1]![0], points[1]![1]], { trusted: calibrated(draft.plane), pixelSpacing: draft.plane.pixelSpacing }) : null;
-        draft.record = { ...draft.record, points, stats: isAngle(draft.record) ? angleStats({ ...draft.record, points }, draft.plane) : stats?.ok ? { lengthMm: stats.value } : {} };
-        paint();
+        draft.record = { ...draft.record, points, stats: isPath(draft.record) ? {} : isAngle(draft.record) ? angleStats({ ...draft.record, points }, draft.plane) : stats?.ok ? { lengthMm: stats.value } : {} };
+        schedulePaint();
       } catch (error) { cancel(); report(`标注修改失败：${error instanceof Error ? error.message : String(error)}`); }
     };
     const up = (event: PointerEvent) => {
+      if (!draft || draft.pointerId !== event.pointerId) return;
+      if (draft.record.type === 'freehand' && draft.mode === 'draw') move(event);
       if (!draft) return;
       event.preventDefault(); event.stopImmediatePropagation();
       const completed = draft;
       try {
         if (current() !== completed.plane) { cancel(); return; }
-        if (completed.record.type !== 'text' && !isAngle(completed.record) && (!completed.record.points[1]
+        if (completed.oversized) { cancel(); report('手绘超过 2048 个控制点，已取消本次轮廓；请缩短笔画后重试'); return; }
+        if (completed.record.type !== 'text' && !isAngle(completed.record) && !isPath(completed.record) && (!completed.record.points[1]
           || Math.hypot(completed.record.points[1][0] - completed.record.points[0]![0], completed.record.points[1][1] - completed.record.points[0]![1]) < 0.5)) { cancel(); return; }
         if (completed.record.type === 'length' && completed.record.stats.lengthMm === undefined) { cancel(); return; }
+        if (isPath(completed.record)) {
+          if (completed.record.type === 'freehand' && !completed.original) {
+            const points = [...completed.record.points]; const first = points[0], last = points[points.length - 1];
+            if (points.length > 3 && first && last && Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.5) points.pop();
+            completed.record = { ...completed.record, points };
+          }
+          completed.record = { ...completed.record, stats: pathStats(completed.record, completed.plane) };
+        }
         draft = null;
         const token = ++completionToken;
         const snapshot = state.session.list();
@@ -171,7 +195,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
             commit({ ...completed.record, stats: roiStats(completed.record, frame, completed.plane) });
           }).catch(error => { if (!disposed && token === completionToken && current() === completed.plane && !useViewerStore.getState().importStatus.loading) report(`区域统计失败：${error instanceof Error ? error.message : String(error)}`); });
         } else commit(completed.record);
-      } catch (error) { report(`标注保存失败：${error instanceof Error ? error.message : String(error)}`); }
+      } catch (error) { draft = null; report(`标注保存失败：${error instanceof Error ? error.message : String(error)}`); }
       finally { if (host.hasPointerCapture(event.pointerId)) host.releasePointerCapture(event.pointerId); paint(); }
     };
     const changedFrame = () => { cancel(); };
@@ -182,6 +206,16 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
         event.preventDefault(); cancel(); if (event.shiftKey) state.session.redo(); else state.session.undo(); return;
       }
       if (blocksViewerShortcut(event)) return;
+      if (event.key === 'Enter' && pending?.record.type === 'polyline') {
+        event.preventDefault();
+        try {
+          if (current() !== pending.plane || useViewerStore.getState().importStatus.loading) { cancel(); return; }
+          const record = { ...pending.record, points: [...pending.fixed] };
+          const completed = { ...record, stats: pathStats(record, pending.plane) };
+          pending = null; state.session.add(completed); state.select(completed.id); state.setPanelOpen(true); paint();
+        } catch (error) { report(error instanceof Error ? error.message : String(error)); }
+        return;
+      }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedRef.current) {
         const plane = current();
         const selected = state.session.list().find(record => record.id === selectedRef.current);
@@ -201,7 +235,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     }); observer.observe(host);
     const unsubscribe = state.session.subscribe(paint); paint();
     return () => {
-      disposed = true; cancel(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(resizeFrame);
+      disposed = true; cancelAnimationFrame(pointerPaint); cancel(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(resizeFrame);
       host.removeEventListener('pointerdown', down, true); host.removeEventListener('pointermove', move, true);
       host.removeEventListener('pointerup', up, true); host.removeEventListener('pointercancel', cancel);
       window.removeEventListener('keydown', key); window.removeEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);

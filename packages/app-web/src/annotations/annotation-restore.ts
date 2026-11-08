@@ -1,3 +1,4 @@
+import { isPath, MAX_PATH_POINTS, pathStats } from './annotation-path';
 import { isAngle, anglePointCount, angleStats } from './annotation-angle';
 import { isRoi, roiStats } from './annotation-roi';
 import { measureImageLength, type MeasurementRecord, type SeriesMeta, type DataSourcePort } from '@opendicomviewer/core';
@@ -49,8 +50,8 @@ function restoreRecord(value: unknown, sources: readonly SeriesMeta[], sessionId
   const frameIndex = integer(value.frameIndex, '源帧号');
   if (value.coordinateSpace !== 'image-pixel') throw new Error('不支持的标注坐标空间');
   const type = value.type;
-  if (type !== 'length' && type !== 'arrow' && type !== 'text' && type !== 'rectangleRoi' && type !== 'ellipseRoi' && type !== 'angle' && type !== 'cobbAngle') throw new Error('标注包含当前不支持的工具类型');
-  if (!Array.isArray(value.points) || value.points.length !== (isAngle({ type }) ? anglePointCount(type) : type === 'text' ? 1 : 2)) throw new Error('标注控制点数量无效');
+  if (type !== 'length' && type !== 'arrow' && type !== 'text' && type !== 'rectangleRoi' && type !== 'ellipseRoi' && type !== 'angle' && type !== 'cobbAngle' && type !== 'polyline' && type !== 'freehand') throw new Error('标注包含当前不支持的工具类型');
+  if (!Array.isArray(value.points) || (isPath({ type }) ? value.points.length > MAX_PATH_POINTS : value.points.length !== (isAngle({ type }) ? anglePointCount(type) : type === 'text' ? 1 : 2))) throw new Error('标注控制点数量无效');
   const points = value.points.map(pixelPoint);
   const matches = sources.filter(source => source.seriesInstanceUid === seriesInstanceUid)
     .flatMap(source => source.planes.filter(plane => plane.sopInstanceUid === sopInstanceUid && (plane.frameIndex ?? 0) === frameIndex));
@@ -60,7 +61,7 @@ function restoreRecord(value: unknown, sources: readonly SeriesMeta[], sessionId
   if (typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt) || value.createdAt < 0) throw new Error('标注创建时间无效');
   if (value.text !== undefined && (typeof value.text !== 'string' || value.text.length > 8192)) throw new Error('标注备注无效或超过 8192 字符');
   if (!object(value.stats)) throw new Error('标注统计无效');
-  keys(value.stats, isAngle({ type }) ? ['angleDeg'] : type === 'length' ? ['lengthMm'] : isRoi({ type }) ? ['areaMm2', 'count', 'mean', 'stdDev', 'min', 'max'] : []);
+  keys(value.stats, isAngle({ type }) ? ['angleDeg'] : (type === 'length' || type === 'polyline') ? ['lengthMm'] : isRoi({ type }) ? ['areaMm2', 'count', 'mean', 'stdDev', 'min', 'max'] : []);
   let stats: MeasurementRecord['stats'] = {};
   if (isRoi({ type })) {
     for (const number of Object.values(value.stats)) if (typeof number !== 'number' || !Number.isFinite(number)) throw new Error('区域统计无效');
@@ -69,6 +70,10 @@ function restoreRecord(value: unknown, sources: readonly SeriesMeta[], sessionId
   if (isAngle({ type })) {
     stats = angleStats({ type, points }, plane);
     if (typeof value.stats.angleDeg !== 'number' || !Number.isFinite(value.stats.angleDeg) || Math.abs(value.stats.angleDeg - stats.angleDeg!) > 1e-6) throw new Error('角度与源影像标定不一致，无法恢复');
+  }
+  if (isPath({ type })) {
+    stats = pathStats({ type, points }, plane);
+    if (type === 'polyline' && (typeof value.stats.lengthMm !== 'number' || !Number.isFinite(value.stats.lengthMm) || Math.abs(value.stats.lengthMm - stats.lengthMm!) > Math.max(1e-6, stats.lengthMm! * 1e-9))) throw new Error('折线测距与源影像标定不一致，无法恢复');
   }
   if (type === 'length') {
     const length = measureImageLength([points[0]![0], points[0]![1]], [points[1]![0], points[1]![1]], { trusted: calibrated(plane), pixelSpacing: plane.pixelSpacing });
