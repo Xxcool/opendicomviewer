@@ -21,6 +21,10 @@ export function validateInputs(commit, tag) {
   return match[1];
 }
 
+export function desktopLockVersion(text) {
+  return /\[\[package\]\]\r?\nname = "opendicomviewer-desktop"\r?\nversion = "([^"]+)"/.exec(text)?.[1];
+}
+
 export async function validateRelease(commit, tag) {
   const version = validateInputs(commit, tag);
   const actual = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
@@ -30,7 +34,7 @@ export async function validateRelease(commit, tag) {
   const cargo = await readFile(path.join(appRoot, 'src-tauri/Cargo.toml'), 'utf8');
   const cargoVersion = /\[package\][\s\S]*?\nversion\s*=\s*"([^"]+)"/.exec(cargo)?.[1];
   const lock = await readFile(path.join(appRoot, 'src-tauri/Cargo.lock'), 'utf8');
-  const lockVersion = /\[\[package\]\]\nname = "opendicomviewer-desktop"\nversion = "([^"]+)"/.exec(lock)?.[1];
+  const lockVersion = desktopLockVersion(lock);
   if ([config.version, pkg.version, cargoVersion, lockVersion].some(value => value !== version)) {
     throw new Error('Release tag base version must match package.json, Tauri, Cargo.toml, and Cargo.lock');
   }
