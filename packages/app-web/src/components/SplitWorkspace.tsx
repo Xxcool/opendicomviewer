@@ -1,3 +1,6 @@
+import { AnnotationLayer, ANNOTATION_FRAME_CHANGED } from '../annotations/AnnotationLayer';
+import { AnnotationPanel } from '../annotations/AnnotationControls';
+import { FLUSH_ANNOTATION_NOTE, useAnnotations } from '../annotations/AnnotationContext';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { SeriesHandle, VOIRange } from '@opendicomviewer/core';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
@@ -49,6 +52,7 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
       readIndex: () => renderer.currentSliceIndex(pane.viewportId),
       enqueue: task => { chain.current = chain.current.catch(() => undefined).then(task); },
       apply: async (_from, to) => {
+        window.dispatchEvent(new Event(ANNOTATION_FRAME_CHANGED));
         await renderer.setStackIndex(pane.viewportId, to);
         if (handle && current() && imageInfo.nonVolumetric) {
           const frame = await handle.pixel(to);
@@ -56,7 +60,7 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
           renderer.resetView(pane.viewportId);
           if (windowRequest === autoRequest.current) renderer.setVOI(pane.viewportId, pickAdaptiveVOI(frame).voi);
         }
-        if (current()) paint();
+        if (current()) { paint(); window.dispatchEvent(new Event(ANNOTATION_FRAME_CHANGED)); }
       },
     });
     return chain.current;
@@ -103,10 +107,11 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
   }, [handle, renderer]);
   const registerHud = useCallback((_id: string, value: MprPaneHandle | null) => { hud.current = value; }, []);
   const measure = useCallback((id: string, w: number, h: number) => imageInfo.physicalScale ? measureMmPerPx(renderer, id, w, h) : null, [renderer, imageInfo.physicalScale]);
+  const readAnnotationIndex = useCallback(() => renderer.currentSliceIndex(pane.viewportId), [renderer, pane.viewportId]);
   const orientation = imageInfo.orientation;
   const study = useViewerStore(state => state.studies.find(item => item.studyInstanceUid === handle?.meta.studyInstanceUid));
-  const activate = () => { const state = useViewerStore.getState(); if (state.activeViewportId !== pane.viewportId) state.setActiveViewportId(pane.viewportId); };
-  return <MprPane spec={{ ...pane, title: `${pane.shortTitle}${handle ? ` · ${orientation.label}` : ' · 空'}` }} active={active} selectable
+  const activate = () => { const state = useViewerStore.getState(); if (state.activeViewportId !== pane.viewportId) { window.dispatchEvent(new Event(FLUSH_ANNOTATION_NOTE)); state.setActiveViewportId(pane.viewportId); } };
+  return <MprPane renderOverlay={hostRef => ready && handle ? <AnnotationLayer renderer={renderer} viewportId={pane.viewportId} series={handle} hostRef={hostRef} readIndex={readAnnotationIndex} /> : null} spec={{ ...pane, title: `${pane.shortTitle}${handle ? ` · ${orientation.label}` : ' · 空'}` }} active={active} selectable
     totalSlices={ready ? count : 0} modality={handle?.meta.modality ?? ''}
     seriesDescription={handle ? [study?.patientName || study?.patientId || '患者未知', study?.studyDate, study?.studyDescription || handle.meta.studyInstanceUid, handle.meta.seriesDescription].filter(Boolean).join(' · ') : undefined}
     notice={!handle ? '点击此格，再从左侧选择序列' : ready ? undefined : status.handle === handle && status.phase === 'error' ? status.message : '正在载入原始影像…'}
@@ -118,6 +123,7 @@ function IndependentPane({ pane, handle, renderer, active, session, register, on
 
 export function SplitWorkspace({ renderer, session }: SplitProps) {
   const { splitSeries, activeViewportId, activeSeriesHandle } = useViewerStore();
+  const annotations = useAnnotations();
   const actions = useRef(new Map<string, PaneActions>());
   const layer = useRef<HTMLInputElement>(null);
   const previous = useRef<HTMLButtonElement>(null);
@@ -159,6 +165,10 @@ export function SplitWorkspace({ renderer, session }: SplitProps) {
       {SPLIT_PANES.map(pane => <IndependentPane key={pane.viewportId} pane={pane} handle={splitSeries[pane.viewportId]} renderer={renderer}
         active={activeViewportId === pane.viewportId} session={session} register={register} onNavigation={onNavigation} />)}
     </div>
+    {activeSeriesHandle && <AnnotationPanel seriesUid={activeSeriesHandle.meta.seriesInstanceUid} navigate={(sop, frame) => {
+      const index = activeSeriesHandle.meta.planes.findIndex(plane => plane.sopInstanceUid === sop && (plane.frameIndex ?? 0) === frame);
+      if (index >= 0) navigateManually(index);
+    }} />}
     <div className="split-footer" style={{ minHeight: 'var(--vp-foot-h)' }}>
       <span>{SPLIT_PANES.find(p => p.viewportId === activeViewportId)?.shortTitle}</span>
       {activeSeriesHandle ? <>
@@ -170,7 +180,7 @@ export function SplitWorkspace({ renderer, session }: SplitProps) {
         }} />
         <span>/ {count}</span>
         <button ref={next} className="workspace-control" aria-label="下一层" disabled={count <= 1 || displayedIndex >= count - 1} onClick={() => navigateManually({ delta: 1 })}>›</button>
-        <CineControls sessionKey={cineSession} enabled={!!activeSeriesHandle} total={count}
+        <CineControls sessionKey={cineSession} enabled={!!activeSeriesHandle && annotations.tool === 'none'} total={count}
           readIndex={() => renderer.currentSliceIndex(activeViewportId)}
           navigate={async index => {
             const target = currentActions();

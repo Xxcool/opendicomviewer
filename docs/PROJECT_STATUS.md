@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | 本地文件、目录、DICOMDIR、ZIP 导入 | [导入编排](../packages/app-web/src/import-flow.ts)、[本地适配器](../packages/adapters/source-local/src/source-local.ts) | 取消、部分失败与几何提醒有实现；不承诺全部厂商、语法和目录结构 |
 | 2D 原始影像浏览 | [Viewport](../packages/app-web/src/components/Viewport.tsx)、[渲染适配器](../packages/adapters/renderer-cs3d/src/cornerstone-renderer.ts) | 全分辨率 Stack；显示用降采样体积不能作测量真源 |
-| 标注与测量 | [工具界面](../packages/app-web/src/annotations/AnnotationControls.tsx)、[绘制层](../packages/app-web/src/annotations/AnnotationLayer.tsx)、[会话](../packages/core/measurement/session.ts) | 当前限 1×1 原始 Stack；测距、箭头、文字、矩形/椭圆 ROI、三点角/Cobb、折线/手绘已接入；折线绘制与手绘恢复后编辑已实测；分屏/MPR 测量和 HU 单位确认未交付 |
+| 标注与测量 | [工具界面](../packages/app-web/src/annotations/AnnotationControls.tsx)、[绘制层](../packages/app-web/src/annotations/AnnotationLayer.tsx)、[会话](../packages/core/measurement/session.ts) | 支持1×1及独立分屏活动原始格；测距、箭头、文字、矩形/椭圆 ROI、三点角/Cobb、折线/手绘已接入；折线绘制与手绘恢复后编辑已实测；分屏测距/备注/跨帧与撤销保存已实测；降采样MPR不作测量真源，HU单位确认未交付 |
 | 标注 JSON 保存 | [会话桥](../packages/app-web/src/annotations/AnnotationContext.tsx)、[桌面保存](../packages/app-tauri/src-tauri/src/main.rs) | 原生保存成功才清除相应保存点；Web 下载需用户确认；新增 v1 备份恢复；源序列/SOP/帧与坐标校验通过后原子替换，桌面恢复/定位/再编辑/撤销重做已实测 |
 | 二维播放 | [CineControls](../packages/app-web/src/components/CineControls.tsx)、[控制器](../packages/app-web/src/components/cine-controller.ts) | 单视口与独立分屏活动格可播放/暂停、选速度及循环；fps 是用户播放速度，不代表采集时间或 4D |
 | 调窗预设 | [预设实现记录](reviews/CR-2026-10-30-window-presets.md)、[core 预设](../packages/core/pipeline/window-presets.ts) | 自动预设、部位分组已落地；不等于所有模态预设已覆盖 |
@@ -50,7 +50,7 @@
 
 ## 未交付功能
 
-- **标注与测量扩展**：HU 单位确认、独立分屏工具、批量清空、隐藏/显示尚未交付。当前已接入区域与角度、折线及手绘，完整范围与未覆盖交互仍须分别验收，细则见[标注计划](ANNOTATION_PLAN.md)。
+- **标注与测量扩展**：HU 单位确认、批量清空、隐藏/显示尚未交付。当前已接入区域与角度、折线及手绘，完整范围与未覆盖交互仍须分别验收，细则见[标注计划](ANNOTATION_PLAN.md)。
 - **导出**：PNG 已实现单视口预览、Web 下载入口与桌面原生保存，原生保存/取消已实测；原始 DICOM 实例及193实例序列导出已实测并重新导入。实际 Web 下载验收、DICOM SR/GSPS 仍未完成。原生 ZIP/内置样本原始导出已补齐，并完成193实例ZIP再导入与原始字节比对，见[修复验收](reviews/DELIVERY-2026-11-09-original-blob-export.md)。JPEG 可选、JSON 用于版本化保存恢复。原始复制与含标注的结果对象分开；细则见[导出计划](EXPORT_PLAN.md)。
 - **浏览扩展**：二维播放完整双端验收、真实时间轴、自由准星及完整相机/VOI 同步、命令面板、基础 3D、真正的 4D；细则见[模式路线](VIEWING_MODES_PLAN.md)。
 - **兼容与规模**：更多压缩语法、彩色/更多多帧场景、千帧与低内存/长期会话验收。当前压缩解码器支持 RLE 与 JPEG Lossless，不能由架构目标清单推定其他语法已经支持，见 [PixelCodec](../packages/adapters/codec-wasm/src/codec.ts)。
@@ -73,7 +73,7 @@
 
 ## 验证记录的读法
 
-当前应用392项测试及2项发布脚本回归通过，类型/Lint、Web/Tauri构建通过；macOS Rust 14项通过。GUI已实测原生PNG保存/取消、193实例原图字节一致导出再导入、折线编辑与工具菜单键盘交互，见[收尾记录](reviews/DELIVERY-2026-11-08-release-preparation.md)。数值/状态测试不能替代完整GUI；Windows实际GUI、真实Enhanced多帧、Web最新工具下载及桌面MPR稳定性仍有未覆盖项。
+当前应用394项测试及2项发布脚本回归通过，类型/Lint、Web/Tauri构建通过；macOS Rust 14项通过。GUI已实测原生PNG保存/取消、193实例原图字节一致导出再导入、折线编辑与工具菜单键盘交互，见[收尾记录](reviews/DELIVERY-2026-11-08-release-preparation.md)。数值/状态测试不能替代完整GUI；Windows实际GUI、真实Enhanced多帧、Web最新工具下载及桌面MPR稳定性仍有未覆盖项。
 
 每项交付继续记录：提交、改动文件、数据范围、实际命令、界面证据、未覆盖项和独立评审状态。最新执行队列与完成门槛集中在 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
 

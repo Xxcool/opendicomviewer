@@ -8,7 +8,7 @@
  * - 准星：父组件算好画布坐标后通过 handle 命令式写入。
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type { VOIRange } from '@opendicomviewer/core';
 import { SpinnerIcon, WarningIcon } from './Icons';
 import { ScaleBar } from './ScaleBar';
@@ -28,6 +28,7 @@ export interface MprPaneHandle {
 }
 
 export interface MprPaneProps {
+  readonly renderOverlay?: (hostRef: RefObject<HTMLDivElement | null>) => ReactNode;
   readonly spec: PaneSpec;
   readonly active: boolean;
   readonly selectable?: boolean;
@@ -59,6 +60,7 @@ const PAGE_STEP = 10;
 
 export function MprPane({
   spec,
+  renderOverlay,
   active,
   selectable = false,
   totalSlices,
@@ -183,6 +185,7 @@ export function MprPane({
         active ? 'ring-1 ring-inset ring-accent/70 z-10' : ''
       } ${windowingEnabled ? 'cursor-crosshair' : 'cursor-default'}`}
     >
+      {renderOverlay?.(rootRef)}
       {/* 左上：切面名 + 序列描述 */}
       <div className="absolute top-2 left-2.5 max-w-[70%] flex flex-col gap-0.5 pointer-events-none [text-shadow:0_1px_2px_rgba(0,0,0,0.9)]">
         <span className="text-[12px] font-semibold text-overlay truncate">

@@ -1,3 +1,4 @@
+import { bindAnnotationKeys, isAnnotationViewportActive } from './annotation-viewport';
 import { isPath, pathStats, pathSegments, appendFreehandPoint, freehandPointLimitExceeded, MAX_PATH_POINTS } from './annotation-path';
 import { CANCEL_ANNOTATION_DRAFT } from './annotation-events';
 import { isAngle, angleStats, anglePointCount, angleSegments } from './annotation-angle';
@@ -47,11 +48,11 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
           if (draft?.original?.id !== record.id) paintAnnotation(svg, record, renderer, viewportId, plane, selectedRef.current === record.id);
         }
         if (pending && pending.plane === plane) paintAnnotation(svg, pending.record, renderer, viewportId, plane, true);
-        if (state.tool === 'polyline' || state.tool === 'freehand') {
+        if (isAnnotationViewportActive(viewportId) && (state.tool === 'polyline' || state.tool === 'freehand')) {
           const hint = document.createElementNS(svg.namespaceURI, 'text'); hint.setAttribute('x', '16'); hint.setAttribute('y', '80'); hint.setAttribute('fill', '#ffce56'); hint.setAttribute('font-size', '13');
           hint.textContent = state.tool === 'polyline' ? '逐点点击 · Enter 完成折线 · Esc 取消' : '按住拖动 · 松开自动闭合轮廓 · Esc 取消'; svg.append(hint);
         }
-        if (state.tool === 'angle' || state.tool === 'cobbAngle') {
+        if (isAnnotationViewportActive(viewportId) && (state.tool === 'angle' || state.tool === 'cobbAngle')) {
           const hint = document.createElementNS(svg.namespaceURI, "text"); hint.setAttribute("x", "16"); hint.setAttribute("y", "80"); hint.setAttribute("fill", "#ffce56"); hint.setAttribute("font-size", "13"); const step = pending ? pending.fixed.length + 1 : 1;
           const count = state.tool === 'angle' ? 3 : 4;
           const role = state.tool === 'angle' ? ['起点', '顶点', '终点'][step - 1] : ['第一条线起点', '第一条线终点', '第二条线起点', '第二条线终点'][step - 1];
@@ -72,7 +73,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
       return sourcePoint(renderer, viewportId, plane, event.clientX - rect.left, event.clientY - rect.top);
     };
     const down = (event: PointerEvent) => {
-      if (useViewerStore.getState().importStatus.loading || event.button !== 0 || event.shiftKey || state.tool === 'none'
+      if (!isAnnotationViewportActive(viewportId) || useViewerStore.getState().importStatus.loading || event.button !== 0 || event.shiftKey || state.tool === 'none'
         || (event.target instanceof Element && event.target.closest('[data-annotation-panel]'))) return;
       const plane = current(); if (!plane) return;
       event.preventDefault(); event.stopImmediatePropagation();
@@ -185,7 +186,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
         const token = ++completionToken;
         const snapshot = state.session.list();
         const commit = (record: MeasurementRecord) => {
-          if (disposed || token !== completionToken || current() !== completed.plane || useViewerStore.getState().importStatus.loading || state.session.list() !== snapshot) return;
+          if (!isAnnotationViewportActive(viewportId) || disposed || token !== completionToken || current() !== completed.plane || useViewerStore.getState().importStatus.loading || state.session.list() !== snapshot) return;
           if (completed.original) state.session.update(record); else state.session.add(record);
           state.select(record.id); state.setPanelOpen(true);
         };
@@ -226,7 +227,11 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     };
     host.addEventListener('pointerdown', down, true); host.addEventListener('pointermove', move, true);
     host.addEventListener('pointerup', up, true); host.addEventListener('pointercancel', cancel);
-    window.addEventListener('keydown', key); window.addEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);
+    const unbindKeys = bindAnnotationKeys(window, viewportId, key);
+    const unbindViewport = useViewerStore.subscribe((next, previous) => {
+      if (next.activeViewportId !== previous.activeViewportId || next.layoutMode !== previous.layoutMode) cancel();
+    });
+    window.addEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);
     window.addEventListener(CANCEL_ANNOTATION_DRAFT, changedFrame);
     window.addEventListener(CAMERA_CHANGED, paint);
     let resizeFrame = 0;
@@ -240,7 +245,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
       disposed = true; cancelAnimationFrame(pointerPaint); cancel(); unsubscribe(); observer.disconnect(); cancelAnimationFrame(resizeFrame);
       host.removeEventListener('pointerdown', down, true); host.removeEventListener('pointermove', move, true);
       host.removeEventListener('pointerup', up, true); host.removeEventListener('pointercancel', cancel);
-      window.removeEventListener('keydown', key); window.removeEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);
+      unbindKeys(); unbindViewport(); window.removeEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);
       window.removeEventListener(CANCEL_ANNOTATION_DRAFT, changedFrame);
       window.removeEventListener(CAMERA_CHANGED, paint);
     };

@@ -26,7 +26,7 @@ export function AnnotationToolMenu({ enabled }: { enabled: boolean }) {
       <button className="annotation-menu-item annotation-library" role="menuitem" onClick={() => { state.setPanelOpen(true); close(); }}>
         <AnnotationIcon name="list" /><span><strong>标注列表{state.records.length ? ` · ${state.records.length}` : ''}</strong><small>备注、保存恢复、撤销与删除</small></span>
       </button>
-      {!enabled && <p className="annotation-menu-footnote">绘制工具目前仅支持 1×1 原始影像；可继续查看已有标注。</p>}
+      {!enabled && <p className="annotation-menu-footnote">绘制工具支持单视口和独立分屏的原始影像；降采样 MPR 仅用于显示与定位。</p>}
       <div className="annotation-tool-columns">{(['measurement', 'annotation'] as const).map(group => <div key={group} role="group" aria-label={group === 'measurement' ? '测量' : '标注与编辑'}>
         <div className="annotation-menu-heading">{group === 'measurement' ? '测量' : '标注与编辑'}</div>
         {choices[group].map(item => <button key={item.label} type="button" role="menuitemradio" aria-checked={state.tool === item.tool} disabled={!enabled || !item.tool}

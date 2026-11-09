@@ -57,7 +57,7 @@ export function WorkspaceToolbar({ renderer, ready, desktop = false, saveOrigina
     </div>
     <span className="toolbar-divider" />
     <button className="workspace-control" aria-label="适应窗口" title="适应窗口" disabled={disabled} onClick={() => camera('fit')}><WorkspaceIcon name="fit" /><span>适应窗口</span></button>
-    <AnnotationControls enabled={!disabled && state.layoutMode === '1x1'} />
+    <AnnotationControls enabled={!disabled && (state.layoutMode === '1x1' || state.layoutMode === 'split-2x2')} />
     <PngExportControl renderer={renderer} enabled={!disabled && state.layoutMode === '1x1'} desktop={desktop} saveOriginals={saveOriginals} savePng={savePng} />
     <span className="toolbar-spacer" />
     <ToolbarMenu label={`布局 · ${LAYOUTS[state.layoutMode].label}`} icon={<WorkspaceIcon name="layout" />} disabled={!renderer || !ready}>
