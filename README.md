@@ -7,7 +7,7 @@
 
 在浏览器或桌面客户端打开本地影像，完成二维浏览、多视口对比、MPR、标注与测量。影像在当前设备上读取和处理，无需上传到影像服务器。
 
-[在线体验](https://opendicomviewer.pages.dev/) · [下载客户端](https://github.com/Xxcool/opendicomviewer/releases) · [功能与限制](#功能与限制) · [快速开始](#快速开始)
+[在线体验](https://opendicomviewer.pages.dev/) · [下载客户端](https://github.com/Xxcool/opendicomviewer/releases) · [功能与限制](#功能与限制) · [快速开始](#快速开始) · [更新日志](CHANGELOG.md)
 
 > 当前为预览版本。仅供研究、教学与非诊断参考使用，未经临床验证，不用于疾病诊断、治疗决策或患者监护。
 
