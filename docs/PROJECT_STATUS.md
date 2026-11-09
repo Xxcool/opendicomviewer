@@ -1,6 +1,6 @@
 # OpenDicomViewer 项目进度与开源状态
 
-更新：2026-11-08。本页维护当前能力与验收边界；历史过程见 reviews，后续执行顺序见 [实施计划](IMPLEMENTATION_PLAN.md)。
+更新：2026-11-09。本页维护当前能力与验收边界；历史过程见 reviews，后续执行顺序见 [实施计划](IMPLEMENTATION_PLAN.md)。
 
 ## 当前处于什么阶段
 
@@ -67,13 +67,13 @@
 | 样本与封面 | ICBM152 来源/许可有记录；参考封面有 provenance | 完整核对原有 MR/CT 与参考封面的再分发依据；代码许可不覆盖第三方资产 |
 | 自动检查 | CI 执行类型检查、Lint、Vitest；Pages 构建另执行检查与 Web 构建 | 浏览器零外域请求和像素链路、桌面/目标设备、SBOM 与依赖审计尚未形成完整门禁 |
 | 可用性 | 可演示本地浏览、Stack 标注/ROI/角度与部分 MPR；二维播放已接入 | 补 HU 单位确认、工具完整双端验收、真实输入与性能证据；桌面 MPR 已知问题单列跟踪 |
-| 发布 | main 自动部署 Web，尚无已验收正式安装包 | 目标平台构建、签名、校验清单、下载复验；标签和正式 Release 另获授权 |
+| 发布 | 已发布 Windows x64 / macOS arm64 首个预览版，附源版本及SHA-256；main仍自动部署Web | Windows实机GUI、签名/公证及稳定版完整验收 |
 
 原 Demo Gate 要求三份不同来源真实脱敏光盘加一个公开数据集全流程通过，并有首屏 < 2 s、调窗 p95 < 16.7 ms 和零报错证据；目前没有整组通过记录。线上能打开示例不能替代这组门槛。原路线图的周数属于规划假设，不作为当前交付承诺。
 
 ## 验证记录的读法
 
-上一批功能验证：`pnpm typecheck`、`pnpm lint`、`pnpm test`（367 项 / 37 文件）、Web 构建和 Tauri Debug 构建通过；Rust `cargo test` 5 项通过。数值/状态测试不能替代完整 GUI；原生角度、PNG 预览见[本轮记录](reviews/DELIVERY-2026-11-04-angles-loading-png.md)，加载图越框修正见[复验](reviews/DELIVERY-2026-11-05-import-frame.md)。真实 Enhanced 多帧、浏览器最新工具交互与桌面 MPR 稳定性仍有未覆盖项，远端检查以对应提交实际结果为准。
+当前应用386项测试及2项发布脚本回归通过，类型/Lint、Web/Tauri构建通过；macOS Rust 11项通过。GUI已实测原生PNG保存/取消、193实例原图字节一致导出再导入、折线编辑与工具菜单键盘交互，见[收尾记录](reviews/DELIVERY-2026-11-08-release-preparation.md)。数值/状态测试不能替代完整GUI；Windows实际GUI、真实Enhanced多帧、Web最新工具下载及桌面MPR稳定性仍有未覆盖项。
 
 每项交付继续记录：提交、改动文件、数据范围、实际命令、界面证据、未覆盖项和独立评审状态。最新执行队列与完成门槛集中在 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
 
@@ -83,10 +83,12 @@
 - `MeasurementSession` 提供内存记录、不可变快照、撤销/重做和未保存状态；像素/患者坐标双向转换覆盖不等距、斜切和舍入 IOP。当前已接入原始 Stack 工具；帧身份同时包含会话、序列、SOP 与 frameIndex。
 - CS3D 合成绘制诊断入口已补充；桌面 MPR 缺陷仍未关闭。
 
-最新：矩形/椭圆ROI界面与原图统计、控制点编辑及JSON重算恢复已实现；导入真实阶段百分比与Spinner类名修正已交付。完整边界及尚缺独立复审见[本轮记录](reviews/DELIVERY-2026-11-04-progress-roi.md)。
-
-最新增量：三点角/Cobb已接入单视口与JSON重算恢复，原生90°/30.96°实测；PNG可预览，Web下载实现尚待实际下载验收，桌面保存未接入。加载面板已使用柔和人形上下扫描，仅真实百分比。详见[交付记录](reviews/DELIVERY-2026-11-04-angles-loading-png.md)。
+矩形/椭圆ROI、三点角/Cobb、折线测距和手绘轮廓已接入，JSON恢复核对原始帧并重算适用数值。PNG支持预览、Web下载入口及原生保存；原生保存和取消已实测，Web实际下载仍待覆盖。加载面板采用柔和人形扫描及真实百分比。各增量证据见下方记录。
 
 ## 2026-11-08 收尾
 
 折线与手绘见[路径记录](reviews/DELIVERY-2026-11-08-curves.md)，原始实例/序列导出见[导出记录](reviews/DELIVERY-2026-11-08-original-export.md)。新增原生 PNG 保存与工具栏分类见[本批记录](reviews/DELIVERY-2026-11-08-release-preparation.md)。用户已明确授权 Windows/macOS 打包与 GitHub Releases；发布为预览版，安装包构建、下载校验与实际系统 GUI 证据分开，不以发布行为关闭原 Phase 1/2 的全部门槛。
+
+## 首个双端预发布
+
+[v0.1.0-alpha.1](https://github.com/Xxcool/opendicomviewer/releases/tag/v0.1.0-alpha.1) 已发布，固定源 `c562990` 的 Windows x64 NSIS 与 macOS arm64 DMG/APP ZIP 构建成功。下载后的macOS包已启动并加载193帧教学样本；Windows当前为runner构建测试通过，未完成实机GUI验收。详见[发行交付记录](reviews/DELIVERY-2026-11-09-preview-release.md)。
