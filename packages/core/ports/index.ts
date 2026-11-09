@@ -46,6 +46,8 @@ export interface SeriesRef {
 export interface SeriesHandle {
   readonly meta: SeriesMeta;
   readonly warnings: readonly DataWarning[];
+  /** 原始完整实例来源；省略层号返回当前序列全部已导入实例，多帧只返回一次，不包含标注。 */
+  originalCandidates?(layerIndex?: number): readonly ImportCandidate[];
   /** 按排序后的索引获取原始帧像素（全分辨率 Stack 通路） */
   pixel(layerIndex: number): Promise<PixelFrame>;
   /** 批量方向性预取指定切片索引（N8: 支撑 p95 帧时间 < 16.7ms 指标） */

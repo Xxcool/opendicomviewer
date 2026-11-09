@@ -1,4 +1,5 @@
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
+import { CANCEL_ANNOTATION_DRAFT } from '../annotations/annotation-events';
 
 export interface PngSnapshot {
   readonly image: HTMLCanvasElement;
@@ -11,6 +12,8 @@ export async function capturePngSnapshot(renderer: Pick<CornerstoneRenderer, 're
   const host = document.querySelector('[data-odv-viewport="default-viewport"]');
   const canvas = host?.querySelector('canvas');
   if (!(host instanceof HTMLElement) || !(canvas instanceof HTMLCanvasElement)) throw new Error('当前原始影像画布尚未准备好');
+  // 只导出领域会话已提交的图形；取消草稿也会恢复正在编辑前的正式记录。
+  window.dispatchEvent(new Event(CANCEL_ANNOTATION_DRAFT));
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => { clearTimeout(timeout); host.removeEventListener('CORNERSTONE_IMAGE_RENDERED', ready); };
     const ready = () => { cleanup(); resolve(); };
@@ -30,6 +33,7 @@ export async function capturePngSnapshot(renderer: Pick<CornerstoneRenderer, 're
     const clone = overlay.cloneNode(true);
     if (clone instanceof SVGSVGElement) {
       clone.querySelectorAll('circle').forEach(point => point.remove());
+      clone.querySelectorAll(':scope > text').forEach(hint => hint.remove());
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       clone.setAttribute('width', String(canvas.width)); clone.setAttribute('height', String(canvas.height));
       const rect = overlay.getBoundingClientRect();

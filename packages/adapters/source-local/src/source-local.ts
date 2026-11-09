@@ -456,6 +456,17 @@ export class LocalDataSource implements DataSourcePort {
         warnings: allWarnings,
       },
       warnings: allWarnings,
+      originalCandidates: (layerIndex?: number): readonly ImportCandidate[] => {
+        if (layerIndex !== undefined) {
+          const plane = seriesMeta.planes[layerIndex];
+          if (!plane) throw new RangeError('原始实例的切片索引越界');
+          const candidate = candidateMap.get(plane.imageId);
+          if (!candidate) throw new Error('原始实例来源不可用');
+          return [candidate];
+        }
+        // 保留扫描时真实来源，包括 ZIP 展开项；不从 imageId 或文件名推测路径。
+        return [...new Set(candidateMap.values())];
+      },
       pixel: async (layerIndex: number): Promise<PixelFrame> => {
         const plane = seriesMeta.planes[layerIndex];
         if (!plane) {

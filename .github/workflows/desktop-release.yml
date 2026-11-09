@@ -1,0 +1,111 @@
+name: Desktop release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full 40-character commit SHA to build
+        required: true
+        type: string
+      version_tag:
+        description: Release tag (base version must match the application)
+        required: true
+        default: v0.1.0-alpha.1
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-packages-${{ inputs.version_tag }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate fixed source and tag syntax
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_TAG: ${{ inputs.version_tag }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]] || exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+      - name: Verify source and application versions
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_TAG: ${{ inputs.version_tag }}
+        run: node packages/app-tauri/testing/release-artifacts.mjs validate
+
+  build:
+    needs: validate
+    name: Package ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - platform: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      RELEASE_TAG: ${{ inputs.version_tag }}
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.5.1
+      - name: Install locked JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install verified Rust toolchain
+        run: |
+          rustup toolchain install 1.99.1 --profile minimal --target "${{ matrix.target }}"
+          rustup default 1.99.1
+      - name: Verify source and application versions
+        run: node packages/app-tauri/testing/release-artifacts.mjs validate
+      - name: Verify application
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+          cargo test --locked --manifest-path packages/app-tauri/src-tauri/Cargo.toml --target "${{ matrix.target }}"
+      - name: Build platform installer
+        run: pnpm --filter @opendicomviewer/app-tauri exec tauri build --ci --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}" -- --locked
+      - name: Collect packages and checksums
+        env:
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+        run: node packages/app-tauri/testing/release-artifacts.mjs collect
+      - name: Upload reviewable packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-${{ inputs.version_tag }}
+          path: release-artifacts/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 14
+
+# Publication remains an explicit gh release operation after both jobs and asset checks pass.
+# This workflow has no repository write permission and never creates or moves tags/releases.

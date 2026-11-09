@@ -6,14 +6,7 @@ import { AnnotationToolMenu } from './AnnotationToolMenu';
 import { AnnotationIcon } from './AnnotationIcon';
 
 export function AnnotationControls({ enabled }: { enabled: boolean }) {
-  const state = useAnnotations();
-  return <div className="tool-group" role="group" aria-label="标注与测量">
-    <AnnotationToolMenu group="measurement" enabled={enabled} />
-    <AnnotationToolMenu group="annotation" enabled={enabled} />
-    <button type="button" className="workspace-control" aria-label="标注列表" onClick={() => state.setPanelOpen(!state.panelOpen)} aria-expanded={state.panelOpen}>
-      <AnnotationIcon name="list" /><span>标注列表{state.records.length > 0 ? ` (${state.records.length})` : ''}</span>
-    </button>
-  </div>;
+  return <AnnotationToolMenu enabled={enabled} />;
 }
 export function AnnotationPanel({ navigate, seriesUid }: { navigate: (sop: string, frame: number) => void; seriesUid: string }) {
   const state = useAnnotations();

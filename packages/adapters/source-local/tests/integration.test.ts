@@ -351,6 +351,9 @@ describe('LocalDataSource 综合集成与验收用例', () => {
     expect(handle.meta.planes).toHaveLength(1);
     expect(handle.meta.planes[0]?.imageId).toContain('胸部CT平扫.dcm');
     expect(handle.meta.planes[0]?.imageId).not.toContain('\uFFFD');
+    const originals = handle.originalCandidates!();
+    expect(originals).toHaveLength(1);
+    expect(new Uint8Array(await originals[0]!.read())).toEqual(inner);
   });
 
   it('P1-6 验证：DICOMDIR 损坏回退时产生明确 warning 告警', async () => {
@@ -646,6 +649,9 @@ describe('LocalDataSource 单文件多帧展开（D5）', () => {
     const handle = await openSeriesOf(file);
 
     expect(handle.meta.numberOfFrames).toBe(3);
+    expect(handle.originalCandidates!()).toEqual([file]);
+    expect(handle.originalCandidates!(2)).toEqual([file]);
+    expect(new Uint8Array(await handle.originalCandidates!(2)[0]!.read())).toEqual(new Uint8Array(await file.read()));
     expect(handle.meta.planes.map((p) => p.frameIndex)).toEqual([0, 1, 2]);
     // 顶层层间距不能证明逐帧空间关系，保留二维帧，不推算 Z。
     expect(handle.meta.planes.map((p) => p.imagePositionPatient[2])).toEqual([

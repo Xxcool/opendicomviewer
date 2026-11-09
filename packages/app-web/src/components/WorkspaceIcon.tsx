@@ -10,6 +10,8 @@ const paths = {
   left: 'M3 4h18v16H3ZM9 4v16',
   right: 'M3 4h18v16H3ZM15 4v16',
   focus: 'M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5',
+  layout: 'M3 3h18v18H3ZM3 12h18M12 3v18',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
   help: 'M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4M12 17h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
 };
 

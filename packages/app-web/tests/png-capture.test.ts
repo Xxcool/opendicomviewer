@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { capturePngSnapshot } from '../src/export/png-capture';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
+import { CANCEL_ANNOTATION_DRAFT } from '../src/annotations/annotation-events';
 
 // 仅验证捕获事件/尺寸与2D边界；真实PNG像素和浏览器下载另行界面验收。
 function harness() {
@@ -16,6 +17,7 @@ function harness() {
   }
   class Svg {}
   const host = new Host();
+  vi.stubGlobal('window', new EventTarget());
   vi.stubGlobal('HTMLCanvasElement', Canvas); vi.stubGlobal('HTMLElement', Host); vi.stubGlobal('SVGSVGElement', Svg);
   vi.stubGlobal('document', { querySelector: (selector: string) => selector.startsWith('[data-odv-viewport') ? host : null,
     createElement: () => new Canvas() });
@@ -24,6 +26,14 @@ function harness() {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 function renderer(render: () => void): Pick<CornerstoneRenderer, 'render'> { return { render }; }
 describe('PNG持久2D画布捕获', () => {
+  it('先同步取消未提交草稿，再触发实际画布渲染', async () => {
+    const { host } = harness(); const cancelled = vi.fn();
+    window.addEventListener(CANCEL_ANNOTATION_DRAFT, cancelled);
+    await capturePngSnapshot(renderer(() => {
+      expect(cancelled).toHaveBeenCalledOnce();
+      host.dispatchEvent(new Event('CORNERSTONE_IMAGE_RENDERED'));
+    }), []);
+  });
   it('必须等实际IMAGE_RENDERED事件，复制屏幕2D而非离屏WebGL', async () => {
     const { host, copied } = harness();
     const result = capturePngSnapshot(renderer(() => {}), ['教学样本']);

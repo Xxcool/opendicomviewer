@@ -329,6 +329,11 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .annotation-menu-item:hover:not(:disabled), .annotation-menu-item[aria-checked="true"] { background: var(--color-active); }
 .annotation-menu-item:disabled { opacity: .45; cursor: default; }
 .annotation-menu-footnote { margin: 6px 0 0; padding: 10px; border-top: 1px solid var(--color-line); font-size: 11px; color: var(--color-txt-muted); }
+.annotation-tool-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.annotation-library { border-bottom: 1px solid var(--color-line); border-radius: 0; margin-bottom: 6px; }
+.toolbar-popup button:focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: -2px; }
+.toolbar-layout-choice[aria-checked="true"] { color: var(--color-accent-hover); }
+@media (max-width: 540px) { .annotation-tool-columns { grid-template-columns: 1fr; } }
 
 /* 与影像工作区共用蓝色与面板Token，扫描只表达活动状态，不代替真实进度。 */
 .import-overlay { position: absolute; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--color-canvas) 66%, transparent); backdrop-filter: blur(5px); }

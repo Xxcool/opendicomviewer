@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "OpenDicomViewer · Desktop",
         "width": 1440,
         "height": 960,

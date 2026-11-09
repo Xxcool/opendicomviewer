@@ -1,3 +1,5 @@
+import type { HostOriginalSaver } from './bridge/host-original-saver';
+import type { HostPngSaver } from './bridge/host-png-saver';
 import { ImportProgressDialog } from './components/ImportProgressDialog';
 import type { HostCloseGuard } from './bridge/host-close-guard';
 import type { HostFileSaver } from './bridge/host-file-saver';
@@ -28,12 +30,12 @@ import { WorkspaceToolbar } from './components/WorkspaceToolbar';
 import { SpinnerIcon, WarningIcon } from './components/Icons';
 import type { HostFilePicker } from './bridge/host-file-picker';
 
-interface AppProps { filePicker?: HostFilePicker; openProject?: () => Promise<void>; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }
+interface AppProps { savePng?: HostPngSaver; saveOriginals?: HostOriginalSaver; filePicker?: HostFilePicker; openProject?: () => Promise<void>; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }
 export function App(props: AppProps) {
   const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
   return <AnnotationProvider dataSource={dataSource} saveFile={props.saveFile} closeGuard={props.closeGuard}><ViewerApp {...props} dataSource={dataSource} /></AnnotationProvider>;
 }
-function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSource: LocalDataSource }) {
+function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng }: AppProps & { dataSource: LocalDataSource }) {
   const annotations = useAnnotations();
   const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
   const [homeOpen, setHomeOpen] = useState(false);
@@ -212,7 +214,7 @@ function ViewerApp({ filePicker, openProject, dataSource }: AppProps & { dataSou
         onOpenProject={openProject ? () => { void openProject().catch(() => setImportStatus({ loading: false, error: '无法打开 GitHub 仓库，请检查系统浏览器设置' })); } : undefined}
       />
 
-      {hasWorkspace && !homeOpen && <WorkspaceToolbar renderer={renderer} desktop={Boolean(filePicker)} ready={appliedLayout === layoutMode && !importStatus.loading} />}
+      {hasWorkspace && !homeOpen && <WorkspaceToolbar savePng={savePng} saveOriginals={saveOriginals} renderer={renderer} desktop={Boolean(filePicker)} ready={appliedLayout === layoutMode && !importStatus.loading} />}
 
       {/* 拖拽上传全屏提示层 */}
       {isDragOver && (

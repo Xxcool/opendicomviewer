@@ -2,7 +2,7 @@
 
 复用 `app-web` UI、core、数据源与渲染器。Rust 只做原生选择/拖入、文件索引和会话级读取授权，不解析 DICOM、不通过 IPC 传像素。
 
-本机验证目标：macOS 15.1.1 / Apple Silicon / WKWebView。Windows 与 Linux 尚未验证；当前不是已签名、公证的正式发行版。
+本机验证目标：macOS 15.1.1 / Apple Silicon / WKWebView。Windows 安装包由原生 Windows runner 构建，构建成功不代表 Windows 界面验收通过；Linux 尚未验证。预发布未配置 Windows 发布者证书或 macOS Developer ID/公证。
 
 ## 运行
 
@@ -28,7 +28,27 @@ pnpm desktop:build
 
 macOS 输出：`src-tauri/target/release/bundle/macos/OpenDicomViewer.app`。应用内嵌 UI、解码代码、Worker、封面、清单与示例，不需要 Vite 服务。Debug 打包可用 `pnpm --filter @opendicomviewer/app-tauri exec tauri build --debug --bundles app`。
 
-当前包附带全套教学样本，体积不能按空壳估计。原有样本与参考封面的再分发材料仍需在公开分发前审查；本地验证不等于发布授权。
+当前包附带全套教学样本，体积不能按空壳估计。样本及封面的许可独立于应用代码，分发时保留来源材料。
+
+在相应平台构建安装包（均在仓库根目录）：
+
+```bash
+# Windows x64 / MSVC、WebView2 开发环境
+pnpm --filter @opendicomviewer/app-tauri exec tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+
+# macOS Apple Silicon / Xcode Command Line Tools
+pnpm --filter @opendicomviewer/app-tauri exec tauri build --ci --target aarch64-apple-darwin --bundles app,dmg -- --locked
+```
+
+目标产物分别位于 `src-tauri/target/<target>/release/bundle/nsis/` 和 `bundle/dmg/`、`bundle/macos/`。Windows x64 与 macOS arm64 分开提供，不将一种架构的包标为通用版。
+
+### 可复现预发布包
+
+[Desktop release packages](../../.github/workflows/desktop-release.yml) 仅由 `workflow_dispatch` 手动启动：填写完整 `source_commit` 与 `version_tag`（例如 `v0.1.0-alpha.1`）。两个目标都构建同一提交；tag 的基础版本必须与 Tauri、桌面 package、Cargo.toml/Cargo.lock 一致。预发布 tag 可带 `alpha`，本轮安装器内部版本仍为 `0.1.0`，不会冒充稳定版。
+
+流水线执行冻结依赖安装、类型/Lint/测试、Rust locked 测试和目标平台打包；生成 Windows `-setup.exe`、macOS `.dmg` 与保留应用资源的 `.app.zip`，附各平台 `SHA256SUMS-*.txt` 和含源提交的 `build-*.json`。完整成功后，从 Actions Artifacts 下载核验，再由维护者使用 `gh release` 发布；该流水线只有仓库读取权限，不会自行创建或移动 tag，也不会直接公开未核对产物。
+
+发布资产入口：[GitHub Releases](https://github.com/Xxcool/opendicomviewer/releases)。以每个预发布实际提供的资产和已知问题为准。构建/哈希核验、安装运行及 GUI 验收分开记录；Windows GUI、签名/公证及升级流程不能由 runner 构建成功推定完成。不提供绕过系统安全提示的步骤。
 
 ## 文件通路
 

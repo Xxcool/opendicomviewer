@@ -1,4 +1,5 @@
 import { isPath, pathStats, pathSegments, appendFreehandPoint, freehandPointLimitExceeded, MAX_PATH_POINTS } from './annotation-path';
+import { CANCEL_ANNOTATION_DRAFT } from './annotation-events';
 import { isAngle, angleStats, anglePointCount, angleSegments } from './annotation-angle';
 import { isRoi, roiStats } from './annotation-roi';
 import { useEffect, useRef, type RefObject } from 'react';
@@ -226,6 +227,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
     host.addEventListener('pointerdown', down, true); host.addEventListener('pointermove', move, true);
     host.addEventListener('pointerup', up, true); host.addEventListener('pointercancel', cancel);
     window.addEventListener('keydown', key); window.addEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);
+    window.addEventListener(CANCEL_ANNOTATION_DRAFT, changedFrame);
     window.addEventListener(CAMERA_CHANGED, paint);
     let resizeFrame = 0;
     const observer = new ResizeObserver(() => {
@@ -239,6 +241,7 @@ export function AnnotationLayer({ renderer, viewportId, series, hostRef, readInd
       host.removeEventListener('pointerdown', down, true); host.removeEventListener('pointermove', move, true);
       host.removeEventListener('pointerup', up, true); host.removeEventListener('pointercancel', cancel);
       window.removeEventListener('keydown', key); window.removeEventListener(ANNOTATION_FRAME_CHANGED, changedFrame);
+      window.removeEventListener(CANCEL_ANNOTATION_DRAFT, changedFrame);
       window.removeEventListener(CAMERA_CHANGED, paint);
     };
   }, [renderer, viewportId, series, hostRef, readIndex, state.session, state.sessionId, state.tool]);
