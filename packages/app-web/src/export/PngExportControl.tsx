@@ -62,7 +62,7 @@ export function PngExportControl({ renderer, enabled, desktop, saveOriginals, sa
       const files = handle.originalCandidates(series ? undefined : renderer.currentSliceIndex('default-viewport'));
       if (desktop) {
         if (!saveOriginals) throw new Error('桌面原始文件保存不可用');
-        const result = await saveOriginals(files.map(file => ({ id: file.id, size: file.size })));
+        const result = await saveOriginals(files, controller.signal);
         if (token === generation.current) setMessage(result === 'saved' ? '原始 DICOM 已保存。' : '已取消保存。');
       } else {
         const result = await originalDicomBlob(files, controller.signal);
@@ -122,7 +122,7 @@ export function PngExportControl({ renderer, enabled, desktop, saveOriginals, sa
         {desktop && !savePng && <p className="annotation-status">当前宿主未提供 PNG 保存，请使用 Web 版下载。</p>}
         </>}
         {format === 'dicom' && <>
-        <p className="text-txt-muted">原始 DICOM 保留全部标签和像素，可能包含身份信息；不含本次标注与测量，未经脱敏。序列仅包含本次成功导入的实例。Web 多实例以 ZIP 打包；桌面 ZIP 来源暂不支持原始导出。</p>
+        <p className="text-txt-muted">原始 DICOM 保留全部标签和像素，可能包含身份信息；不含本次标注与测量，未经脱敏。序列仅包含本次成功导入的实例。ZIP 来源与内置示例也可导出完整原图；这些来源的多实例以 ZIP 打包。</p>
         <div className="annotation-actions">
           <button className="annotation-action" disabled={exporting} onClick={() => void exportOriginal(false)}>当前原始实例 · DICOM</button>
           <button className="annotation-action" disabled={exporting} onClick={() => void exportOriginal(true)}>当前序列 · DICOM</button>

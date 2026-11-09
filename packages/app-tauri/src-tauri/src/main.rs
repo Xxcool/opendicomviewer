@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod png_download;
+mod export_download;
+mod download_format;
 mod original_export;
 
 use serde::Serialize;
@@ -180,7 +181,7 @@ async fn save_annotation_file(app: tauri::AppHandle, content: String) -> Result<
 
 #[tauri::command]
 fn finish_confirmed_exit(app: tauri::AppHandle) -> Result<(), String> {
-    if png_download::is_busy(&app) { return Err("PNG 下载仍在完成或清理，请稍后退出".into()); }
+    if export_download::is_busy(&app) { return Err("文件下载仍在完成或清理，请稍后退出".into()); }
     ALLOW_EXIT.store(true, Ordering::SeqCst);
     app.exit(0);
     Ok(())
@@ -189,12 +190,12 @@ fn finish_confirmed_exit(app: tauri::AppHandle) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .manage(AuthorizedOriginals::default())
-        .manage(png_download::PngDownloads::default())
+        .manage(export_download::ExportDownloads::default())
         .setup(|app| {
             let config = app.config().app.windows.iter().find(|window| window.label == "main")
                 .ok_or("缺少主窗口配置")?;
             tauri::WebviewWindowBuilder::from_config(app, config)?
-                .on_download(png_download::handle_download).build()?;
+                .on_download(export_download::handle_download).build()?;
             Ok(())
         })
         .menu(|app| {
@@ -219,10 +220,10 @@ fn main() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![pick_files, save_annotation_file, original_export::save_original_files, finish_confirmed_exit, png_download::prepare_png_download, png_download::cancel_png_download])
+        .invoke_handler(tauri::generate_handler![pick_files, save_annotation_file, original_export::save_original_files, finish_confirmed_exit, export_download::prepare_export_download, export_download::cancel_export_download])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if png_download::is_busy(window.app_handle()) { api.prevent_close(); }
+                if export_download::is_busy(window.app_handle()) { api.prevent_close(); }
             }
             if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
                 let app = window.app_handle().clone();

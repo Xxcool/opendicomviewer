@@ -5,10 +5,13 @@ export const READ_CHUNK_BYTES = 512 * 1024;
 
 export interface SelectedFile { readonly id: string; readonly name: string; readonly path: string; readonly size: number }
 
+const nativeSources = new WeakSet<ImportCandidate>();
+export const isNativeCandidate = (candidate: ImportCandidate): boolean => nativeSources.has(candidate);
+
 /** native 像素只走 asset 协议。分段读取必须返回 206，禁止悄悄把整文件拉进内存。 */
 export function nativeCandidate(file: SelectedFile, url: string): ImportCandidate {
   if (!Number.isSafeInteger(file.size) || file.size < 0) throw new Error('所选文件大小无效');
-  return { id: file.id, name: file.name, size: file.size,
+  const candidate: ImportCandidate = { id: file.id, name: file.name, size: file.size,
     async read(start = 0, end = file.size, signal?: AbortSignal): Promise<ArrayBuffer> {
       if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end > file.size) throw new Error('文件分段范围无效');
       if (signal?.aborted) throw new DOMException('读取已中断', 'AbortError');
@@ -27,4 +30,6 @@ export function nativeCandidate(file: SelectedFile, url: string): ImportCandidat
       return output.buffer;
     },
   };
+  nativeSources.add(candidate);
+  return candidate;
 }

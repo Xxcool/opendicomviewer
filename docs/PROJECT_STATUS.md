@@ -31,7 +31,7 @@
 | 标注 JSON 保存 | [会话桥](../packages/app-web/src/annotations/AnnotationContext.tsx)、[桌面保存](../packages/app-tauri/src-tauri/src/main.rs) | 原生保存成功才清除相应保存点；Web 下载需用户确认；新增 v1 备份恢复；源序列/SOP/帧与坐标校验通过后原子替换，桌面恢复/定位/再编辑/撤销重做已实测 |
 | 二维播放 | [CineControls](../packages/app-web/src/components/CineControls.tsx)、[控制器](../packages/app-web/src/components/cine-controller.ts) | 单视口与独立分屏活动格可播放/暂停、选速度及循环；fps 是用户播放速度，不代表采集时间或 4D |
 | 调窗预设 | [预设实现记录](reviews/CR-2026-10-30-window-presets.md)、[core 预设](../packages/core/pipeline/window-presets.ts) | 自动预设、部位分组已落地；不等于所有模态预设已覆盖 |
-| 独立多视口与 MPR | [分屏记录](reviews/DELIVERY-2026-10-30-independent-split.md)、[浏览器记录](reviews/CR-2026-10-30-browser-acceptance.md) | 独立分屏与空间联动分开；MPR 要求有效体积几何。桌面多轮回归仍失败 |
+| 独立多视口与 MPR | [分屏记录](reviews/DELIVERY-2026-10-30-independent-split.md)、[浏览器记录](reviews/CR-2026-10-30-browser-acceptance.md) | 独立分屏与空间联动分开；MPR 要求有效体积几何。桌面曾复现重绘异常；11月9日本机十轮布局/主题回归未复现，尚无根因修复证据 |
 | macOS 桌面壳 | [客户端说明](../packages/app-tauri/README.md)、[桌面阶段记录](reviews/DELIVERY-2026-11-01-desktop-progress.md) | Apple Silicon / WKWebView 构建与启动；非三平台正式发行版 |
 | 真实 ZIP 原生拖入 | [2026-11-02 验证记录](reviews/DELIVERY-2026-11-02-viewer-followup.md) | 已实测一个 25 帧包和一个 2 帧定位像/SC 包；不替代 Web 拖放、逐帧像素比对或第三份 ZIP 验收 |
 | 欢迎页、主题与顶栏 | [WelcomeScreen](../packages/app-web/src/components/WelcomeScreen.tsx)、[顶部记录](reviews/DELIVERY-2026-11-02-viewer-followup.md) | `eb60d2a` 统一页头/工具栏边距；`56d192e` 使用指定脑部封面并删除折叠说明，桌面已查看 |
@@ -51,7 +51,7 @@
 ## 未交付功能
 
 - **标注与测量扩展**：HU 单位确认、独立分屏工具、批量清空、隐藏/显示尚未交付。当前已接入区域与角度、折线及手绘，完整范围与未覆盖交互仍须分别验收，细则见[标注计划](ANNOTATION_PLAN.md)。
-- **导出**：PNG 已实现单视口预览、Web 下载入口与桌面原生保存，原生保存/取消已实测；原始 DICOM 实例及193实例序列导出已实测并重新导入。实际 Web 下载验收、DICOM SR/GSPS 仍未完成。原生 ZIP/内置样本原始导出暂不支持。JPEG 可选、JSON 用于版本化保存恢复。原始复制与含标注的结果对象分开；细则见[导出计划](EXPORT_PLAN.md)。
+- **导出**：PNG 已实现单视口预览、Web 下载入口与桌面原生保存，原生保存/取消已实测；原始 DICOM 实例及193实例序列导出已实测并重新导入。实际 Web 下载验收、DICOM SR/GSPS 仍未完成。原生 ZIP/内置样本原始导出已补齐，并完成193实例ZIP再导入与原始字节比对，见[修复验收](reviews/DELIVERY-2026-11-09-original-blob-export.md)。JPEG 可选、JSON 用于版本化保存恢复。原始复制与含标注的结果对象分开；细则见[导出计划](EXPORT_PLAN.md)。
 - **浏览扩展**：二维播放完整双端验收、真实时间轴、自由准星及完整相机/VOI 同步、命令面板、基础 3D、真正的 4D；细则见[模式路线](VIEWING_MODES_PLAN.md)。
 - **兼容与规模**：更多压缩语法、彩色/更多多帧场景、千帧与低内存/长期会话验收。当前压缩解码器支持 RLE 与 JPEG Lossless，不能由架构目标清单推定其他语法已经支持，见 [PixelCodec](../packages/adapters/codec-wasm/src/codec.ts)。
 - **桌面与隐私闭环**：跨平台分发、签名/更新/文件关联、授权撤销、用户可控缓存、PS3.15 白名单脱敏、UID 映射与烧录信息复核。
@@ -73,7 +73,7 @@
 
 ## 验证记录的读法
 
-当前应用386项测试及2项发布脚本回归通过，类型/Lint、Web/Tauri构建通过；macOS Rust 11项通过。GUI已实测原生PNG保存/取消、193实例原图字节一致导出再导入、折线编辑与工具菜单键盘交互，见[收尾记录](reviews/DELIVERY-2026-11-08-release-preparation.md)。数值/状态测试不能替代完整GUI；Windows实际GUI、真实Enhanced多帧、Web最新工具下载及桌面MPR稳定性仍有未覆盖项。
+当前应用392项测试及2项发布脚本回归通过，类型/Lint、Web/Tauri构建通过；macOS Rust 14项通过。GUI已实测原生PNG保存/取消、193实例原图字节一致导出再导入、折线编辑与工具菜单键盘交互，见[收尾记录](reviews/DELIVERY-2026-11-08-release-preparation.md)。数值/状态测试不能替代完整GUI；Windows实际GUI、真实Enhanced多帧、Web最新工具下载及桌面MPR稳定性仍有未覆盖项。
 
 每项交付继续记录：提交、改动文件、数据范围、实际命令、界面证据、未覆盖项和独立评审状态。最新执行队列与完成门槛集中在 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)。
 

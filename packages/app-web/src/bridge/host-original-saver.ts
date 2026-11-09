@@ -1,2 +1,4 @@
-/** 仅传已授权来源 ID 与大小；影像二进制不经过宿主 IPC。 */
-export type HostOriginalSaver = (files: readonly { id: string; size: number }[]) => Promise<'saved' | 'cancelled'>;
+import type { ImportCandidate } from '@opendicomviewer/core';
+
+/** 候选读取函数留在 WebView；宿主 IPC 仅传授权 ID 或一次性 Blob URL。 */
+export type HostOriginalSaver = (files: readonly ImportCandidate[], signal?: AbortSignal) => Promise<'saved' | 'cancelled'>;
