@@ -36,7 +36,11 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
-export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
+export function useImportFlow<T extends DataSourcePort>(
+  createSource: () => T,
+  activateSource: (source: T) => void,
+): ImportFlow {
+  const pending = useRef<{ source: T; studies: readonly StudyMeta[] } | null>(null);
   const [pendingFailures, setPendingFailures] = useState<ImportOutcome | null>(
     null,
   );
@@ -46,19 +50,20 @@ export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
   /** 载入首个 Study 的首个序列（导入成功后与「仅载入成功的 n 个」共用） */
   const openFirstSeries = useCallback(
     async (
+      source: T,
       studies: readonly StudyMeta[],
-      signal?: AbortSignal,
+      signal: AbortSignal,
     ): Promise<void> => {
       const firstStudy = studies[0];
-      if (!firstStudy) return;
+      if (!firstStudy) throw new Error('没有可打开的检查');
 
-      const seriesList = await dataSource.listSeries(
+      const seriesList = await source.listSeries(
         firstStudy.studyInstanceUid,
       );
       const firstSeries = seriesList[0];
-      if (!firstSeries) return;
+      if (!firstSeries) throw new Error('检查中没有可打开的序列');
 
-      const handle = await dataSource.openSeries(
+      const handle = await source.openSeries(
         {
           studyInstanceUid: firstStudy.studyInstanceUid,
           seriesInstanceUid: firstSeries.seriesInstanceUid,
@@ -66,9 +71,12 @@ export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
         signal,
       );
       if (signal?.aborted) { handle.dispose(); signal.throwIfAborted(); }
+      // 解析、取消和部分失败确认期间，旧会话仍使用原本的数据源。
+      activateSource(source);
+      setStudies(studies);
       setActiveSeries(handle);
     },
-    [dataSource, setActiveSeries],
+    [activateSource, setStudies, setActiveSeries],
   );
 
   useEffect(() => () => { abortRef.current?.abort(); abortRef.current = null; }, []);
@@ -83,6 +91,7 @@ export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
       });
 
       try {
+        const dataSource = createSource();
         const studies = await dataSource.probe(
           { files: candidates, onProgress: progress => {
             if (abortRef.current === controller && !controller.signal.aborted) setImportStatus({ loading: true, message: progress.stage, progress });
@@ -104,18 +113,17 @@ export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
           return;
         }
 
-        setStudies(studies);
-
         // R7：部分失败不能只丢一句"1 个文件失败"，必须让用户看见少了哪些、为什么
         const outcome = dataSource.importOutcome();
         if (outcome.failures.length > 0) {
+          pending.current = { source: dataSource, studies };
           setPendingFailures(outcome);
           setImportStatus({ loading: false });
           return;
         }
 
         setImportStatus({ loading: true, message: '正在打开首个序列', progress: { stage: '构建原始影像序列' } });
-        await openFirstSeries(studies, controller.signal);
+        await openFirstSeries(dataSource, studies, controller.signal);
         if (abortRef.current !== controller || controller.signal.aborted) return;
         setImportStatus({ loading: false });
       } catch (err: unknown) {
@@ -132,12 +140,13 @@ export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
         if (abortRef.current === controller) abortRef.current = null;
       }
     },
-    [dataSource, openFirstSeries, setImportStatus, setStudies],
+    [createSource, openFirstSeries, setImportStatus],
   );
 
   const begin = useCallback(() => {
     abortRef.current?.abort();
     const controller = new AbortController(); abortRef.current = controller;
+    pending.current = null;
     setPendingFailures(null);
     return controller;
   }, []);
@@ -164,16 +173,17 @@ export function useImportFlow(dataSource: DataSourcePort): ImportFlow {
     const controller = abortRef.current;
     abortRef.current = null;
     controller?.abort();
+    pending.current = null;
+    setPendingFailures(null);
     setImportStatus({ loading: false, message: undefined });
   }, [setImportStatus]);
 
   const confirmPendingFailures = useCallback(() => {
-    const studies = useViewerStore.getState().studies;
-    setPendingFailures(null);
-    if (studies.length === 0) return;
+    const result = pending.current;
+    if (!result) return;
     const controller = begin();
     setImportStatus({ loading: true, message: '正在打开成功导入的序列', progress: { stage: '构建原始影像序列' } });
-    void openFirstSeries(studies, controller.signal).then(() => {
+    void openFirstSeries(result.source, result.studies, controller.signal).then(() => {
       if (abortRef.current === controller && !controller.signal.aborted) setImportStatus({ loading: false });
     }).catch((err: unknown) => {
       if (abortRef.current !== controller) return;

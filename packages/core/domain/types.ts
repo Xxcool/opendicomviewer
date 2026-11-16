@@ -28,6 +28,13 @@ export interface ModalityLUT {
 }
 
 export interface ImagePlane {
+  /** Classic MR 的显式时间维；其他采集维度一致时才可重建。 */
+  readonly temporalAcquisition?: {
+    readonly position: number;
+    readonly count?: number;
+    readonly contrastKey: string;
+    readonly supported: boolean;
+  };
   /** SOP 类 (0008,0016)，区分原始断层与二次采集图像。 */
   readonly sopClassUid?: string;
   /** 图像类型 (0008,0008)，保留多值位置；第三值 LOCALIZER 表示定位像。 */
@@ -121,6 +128,9 @@ export interface DataWarning {
 }
 
 export interface SeriesMeta {
+  /** 仅分相句柄有位置号，原序列始终保留原始 DICOM UID。 */
+  readonly temporalPosition?: number;
+  readonly volumeUnavailableReason?: string;
   readonly seriesInstanceUid: string;
   readonly studyInstanceUid: string;
   readonly seriesNumber?: number;
@@ -154,6 +164,11 @@ export interface ImportFailure {
   readonly name: string;
   /** 面向用户的中文原因，直接可展示 */
   readonly reason: string;
+}
+
+/** 本地像素/体积缓存的序列视图标识，禁止写入 DICOM 引用。 */
+export function seriesViewKey(meta: SeriesMeta): string {
+  return meta.temporalPosition === undefined ? meta.seriesInstanceUid : `${meta.seriesInstanceUid}/time/${meta.temporalPosition}`;
 }
 
 export interface SeriesSummary {

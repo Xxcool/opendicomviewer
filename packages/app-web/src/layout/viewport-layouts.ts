@@ -20,9 +20,9 @@ import type {
 import { computeNormal } from '@opendicomviewer/core';
 import type { CSSProperties } from 'react';
 
-export type LayoutMode = '1x1' | 'split-2x2' | '2x2' | '1+3';
+export type LayoutMode = '1x1' | 'split-2x2' | '2x2' | '1+3' | 'volume-3d';
 
-export type PaneKind = 'stack' | 'orthographic';
+export type PaneKind = 'stack' | 'orthographic' | 'volume-3d';
 
 /** 体积三轴：0 = x(cols/sagittal)，1 = y(rows/coronal)，2 = z(slices/axial) */
 export type VolumeAxis = 0 | 1 | 2;
@@ -193,14 +193,22 @@ const INDEPENDENT_SPLIT: LayoutSpec = {
   gridStyle: GRID_2X2.gridStyle,
 };
 
+export const VOLUME_VIEWPORT_ID = 'volume-3d';
+
 export const LAYOUTS: Record<LayoutMode, LayoutSpec> = {
+  'volume-3d': {
+    mode: 'volume-3d', label: '3D 体绘制', hint: '旋转查看三维灰度体积',
+    panes: [pane({ viewportId: VOLUME_VIEWPORT_ID, kind: 'volume-3d', title: '3D 体绘制', shortTitle: '3D' }, '1 / 1 / 2 / 2')],
+    viewportLayout: { rows: 1, cols: 1, viewportIds: [VOLUME_VIEWPORT_ID], cells: [{ viewportId: VOLUME_VIEWPORT_ID, kind: 'volume-3d' }] },
+    gridStyle: { display: 'grid', gridTemplateRows: 'minmax(0,1fr)', gridTemplateColumns: 'minmax(0,1fr)' },
+  },
   '1x1': SINGLE,
   'split-2x2': INDEPENDENT_SPLIT,
   '2x2': GRID_2X2,
   '1+3': GRID_1_PLUS_3,
 };
 
-export const LAYOUT_MODES: readonly LayoutMode[] = ['1x1', 'split-2x2', '2x2', '1+3'];
+export const LAYOUT_MODES: readonly LayoutMode[] = ['1x1', 'split-2x2', '2x2', '1+3', 'volume-3d'];
 
 export function isMprLayout(mode: LayoutMode): boolean {
   return mode === '2x2' || mode === '1+3';

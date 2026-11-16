@@ -191,6 +191,23 @@ describe('buildVolumeFromSeries', () => {
     expect(info.mock.calls[0]?.[0]).toContain('8-bit');
   });
 
+  it('慢 Worker 未确认分块时停止读入，切走视图可直接取消等待', async () => {
+    const { handle, calls } = createHandle(8);
+    const controller = new AbortController();
+    const worker = createFakeWorker();
+    let started!: () => void;
+    const pending = new Promise<void>(resolve => { started = resolve; });
+    const build = buildVolumeFromSeries(handle, {
+      signal: controller.signal, slicesPerChunk: 2,
+      createWorker: () => ({ ...worker, postMessage: message => { if (message.type === 'chunk') started(); } }),
+    });
+    await pending;
+    expect(calls).toEqual([0, 1]);
+    controller.abort();
+    await expect(build).resolves.toEqual({ status: 'aborted' });
+    expect(worker.isTerminated()).toBe(true);
+  });
+
   it('Worker 路径按层分块投递，且结果与同步路径逐字节一致', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
 

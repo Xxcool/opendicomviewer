@@ -149,10 +149,15 @@ export function SeriesList({ dataSource }: SeriesListProps) {
   };
 
   const handleSelectSeries = async (summary: SeriesSummary) => {
+    const closeCompactPanel = () => {
+      const state = useViewerStore.getState();
+      if (window.matchMedia('(max-width: 760px)').matches && state.seriesPanelOpen) state.toggleSeriesPanel();
+    };
     const request = ++selectionRequest.current;
     if (summary.seriesInstanceUid === activeSeriesUid) {
       // 已经在该序列：不做重复装载，但必须给可见反馈（静默 return 会被当成"点不动"）
       setSwitchingSeriesUid(null);
+      closeCompactPanel();
       setPulseUid(summary.seriesInstanceUid);
       window.setTimeout(() => setPulseUid(null), 320);
       return;
@@ -173,6 +178,7 @@ export function SeriesList({ dataSource }: SeriesListProps) {
       }
       if (context.layoutMode === 'split-2x2') now.assignSplitSeries(target, handle);
       else setActiveSeries(handle);
+      closeCompactPanel();
       setWarningsBySeries(prev => ({ ...prev, [summary.seriesInstanceUid]: handle.warnings }));
     } catch (err: unknown) {
       if (request === selectionRequest.current) setImportStatus({ loading: false,

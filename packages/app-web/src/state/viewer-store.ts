@@ -88,9 +88,24 @@ function releaseUnused(previous: readonly SeriesHandle[], keep: readonly SeriesH
   const retained = new Set(keep);
   for (const handle of new Set(previous)) if (!retained.has(handle)) handle.dispose();
 }
+function volumeLayout(mode: LayoutMode) {
+  return isMprLayout(mode) || mode === 'volume-3d';
+}
+
+function handleForLayout(handle: SeriesHandle, layout: LayoutMode) {
+  if (!handle.temporal) return handle;
+  if (volumeLayout(layout) && handle.meta.temporalPosition === undefined) return handle.temporal.select(handle.temporal.positions[0]);
+  if (!volumeLayout(layout) && handle.meta.temporalPosition !== undefined) return handle.temporal.select();
+  return handle;
+}
+
 function selected(handle: SeriesHandle | null) {
   return { activeSeriesHandle: handle, activeSeriesUid: handle?.meta.seriesInstanceUid ?? null,
     activeStudyUid: handle?.meta.studyInstanceUid ?? null, warnings: handle ? [...handle.warnings] : [] };
+}
+
+function wideWorkspace() {
+  return typeof window === 'undefined' || !window.matchMedia('(max-width: 760px)').matches;
 }
 
 export const useViewerStore = create<ViewerState>((set, get) => ({
@@ -106,7 +121,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   },
   activeTool: 'browse',
   activeViewportId: 'default-viewport',
-  seriesPanelOpen: true,
+  seriesPanelOpen: wideWorkspace(),
   inspectorOpen: false,
   inspectorTab: 'image',
   focusMode: false,
@@ -118,9 +133,9 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       ...(state.layoutMode === 'split-2x2' ? { ...selected(handle), ...(changed ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) } : {}),
       activeTool: state.layoutMode !== 'split-2x2' && activeViewportId !== 'default-viewport' && state.activeTool === 'window' ? 'pan' : state.activeTool };
   }),
-  toggleSeriesPanel: () => set((state) => ({ seriesPanelOpen: !state.seriesPanelOpen, focusMode: false })),
-  toggleInspector: () => set((state) => ({ inspectorOpen: !state.inspectorOpen, focusMode: false })),
-  setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true, focusMode: false }),
+  toggleSeriesPanel: () => set((state) => ({ seriesPanelOpen: !state.seriesPanelOpen, ...(!wideWorkspace() && { inspectorOpen: false }), focusMode: false })),
+  toggleInspector: () => set((state) => ({ inspectorOpen: !state.inspectorOpen, ...(!wideWorkspace() && { seriesPanelOpen: false }), focusMode: false })),
+  setInspectorTab: (inspectorTab) => set({ inspectorTab, inspectorOpen: true, ...(!wideWorkspace() && { seriesPanelOpen: false }), focusMode: false }),
   // 专注模式只改变呈现，保留两个面板的原始开关，退出时完整恢复。
   toggleFocusMode: () => set((state) => ({ focusMode: !state.focusMode })),
   studies: [],
@@ -144,14 +159,15 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
     });
   },
 
-  setActiveSeries: (handle) => {
+  setActiveSeries: (incoming) => {
     const state = get();
+    const handle = handleForLayout(incoming, state.layoutMode);
     if (state.layoutMode === 'split-2x2') { state.assignSplitSeries(state.activeViewportId, handle); return; }
-    const seriesChanged = state.activeSeriesHandle?.meta.seriesInstanceUid !== handle.meta.seriesInstanceUid;
+    const seriesChanged = state.activeSeriesHandle !== handle;
     set({ ...selected(handle), activeViewportId: 'default-viewport',
-      layoutMode: isMprLayout(state.layoutMode) && !planVolumeDownsample(handle.meta).ok ? '1x1' : state.layoutMode,
+      layoutMode: (isMprLayout(state.layoutMode) || state.layoutMode === 'volume-3d') && !planVolumeDownsample(handle.meta).ok ? '1x1' : state.layoutMode,
       ...(seriesChanged ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) });
-    releaseUnused(state.activeSeriesHandle ? [state.activeSeriesHandle] : [], [handle, ...Object.values(state.splitSeries)]);
+    releaseUnused([incoming, ...(state.activeSeriesHandle ? [state.activeSeriesHandle] : [])], [handle, ...Object.values(state.splitSeries)]);
   },
 
   setImportStatus: (status) => set({ importStatus: status }),
@@ -160,13 +176,14 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
   setLayoutMode: (layoutMode) => {
     const state = get();
     if (layoutMode === 'split-2x2' && state.layoutMode === layoutMode) return;
-    const handle = state.activeSeriesHandle ?? state.splitSeries['default-viewport'] ?? Object.values(state.splitSeries)[0] ?? null;
-    if (isMprLayout(layoutMode) && (!handle || !planVolumeDownsample(handle.meta).ok)) return;
+    const previous = state.activeSeriesHandle ?? state.splitSeries['default-viewport'] ?? Object.values(state.splitSeries)[0] ?? null;
+    const handle = previous && handleForLayout(previous, layoutMode);
+    if ((isMprLayout(layoutMode) || layoutMode === 'volume-3d') && (!handle || !planVolumeDownsample(handle.meta).ok)) return;
     let splitSeries = state.splitSeries;
     if (layoutMode === 'split-2x2' && handle) splitSeries = { ...splitSeries, 'default-viewport': handle };
     set({ layoutMode, splitSeries, activeViewportId: 'default-viewport', ...selected(handle),
-      ...(state.activeSeriesUid !== handle?.meta.seriesInstanceUid ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) });
-    releaseUnused(Object.values(state.splitSeries), [...Object.values(splitSeries), ...(handle ? [handle] : [])]);
+      ...(state.activeSeriesHandle !== handle ? { mprVolume: null, mprStatus: IDLE_MPR_STATUS } : {}) });
+    releaseUnused([...Object.values(state.splitSeries), ...(previous ? [previous] : [])], [...Object.values(splitSeries), ...(handle ? [handle] : [])]);
   },
   setMprVolume: (mprVolume) => set({ mprVolume }),
   setMprStatus: (mprStatus) => set({ mprStatus }),
@@ -185,7 +202,7 @@ export const useViewerStore = create<ViewerState>((set, get) => ({
       activeTool: 'browse',
       activeViewportId: 'default-viewport',
       focusMode: false,
-      seriesPanelOpen: true,
+      seriesPanelOpen: wideWorkspace(),
       inspectorOpen: false,
       inspectorTab: 'image',
       activeStudyUid: null,

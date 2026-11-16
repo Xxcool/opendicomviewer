@@ -130,7 +130,9 @@ export function registerCs3dBridge(
 
   cs3d.metaData.addProvider(metaDataProvider, 1000);
 
+  const loadedImages = new Set<string>();
   const loaderFn = (imageId: string) => {
+    loadedImages.add(imageId);
     const promise = (async () => {
       const frame = await renderer.frameRegistry.resolveFrame(imageId);
       const ref = renderer.frameRegistry.lookup(imageId);
@@ -216,6 +218,10 @@ export function registerCs3dBridge(
   return {
     unregister: () => {
       cs3d.metaData.removeProvider(metaDataProvider);
+      for (const id of loadedImages) {
+        if (cs3d.cache.getImageLoadObject(id)) cs3d.cache.removeImageLoadObject(id);
+      }
+      loadedImages.clear();
       // CS3D 4.x 不提供单项反注册，覆盖为空加载器以阻断请求 (N7)
       cs3d.imageLoader.registerImageLoader('odv', () => ({
         promise: Promise.reject(new Error('odv 镜像加载器已注销')),

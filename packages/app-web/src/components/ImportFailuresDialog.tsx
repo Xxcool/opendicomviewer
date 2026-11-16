@@ -3,6 +3,7 @@ import { WarningIcon } from './Icons';
 
 interface ImportFailuresDialogProps {
   readonly outcome: ImportOutcome;
+  readonly onCancel: () => void;
   readonly onConfirm: () => void;
 }
 
@@ -17,6 +18,7 @@ const MAX_VISIBLE_ROWS = 8;
  */
 export function ImportFailuresDialog({
   outcome,
+  onCancel,
   onConfirm,
 }: ImportFailuresDialogProps) {
   const { succeeded, failures } = outcome;
@@ -25,6 +27,17 @@ export function ImportFailuresDialog({
   return (
     <div
       className="absolute inset-0 bg-canvas/70 backdrop-blur-xs flex items-center justify-center z-50 p-6"
+      onKeyDown={event => {
+        if (event.key === 'Escape') onCancel();
+        if (event.key === 'Tab') {
+          const buttons = event.currentTarget.querySelectorAll('button');
+          const boundary = event.shiftKey ? buttons[0] : buttons[buttons.length - 1];
+          if (document.activeElement === boundary) {
+            event.preventDefault();
+            (event.shiftKey ? buttons[buttons.length - 1] : buttons[0])?.focus();
+          }
+        }
+      }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="odv-import-failure-title"
@@ -75,6 +88,7 @@ export function ImportFailuresDialog({
           <p className="text-[11px] text-txt-muted pr-4">
             失败文件不会被载入，也不影响已成功部分的显示。
           </p>
+          <button type="button" className="workspace-control mr-2" onClick={onCancel}>取消</button>
           <button
             type="button"
             onClick={onConfirm}

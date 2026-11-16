@@ -74,6 +74,7 @@ export function planVolumeDownsample(
   meta: SeriesMeta,
   options: VolumePlanOptions = {},
 ): VolumePlanResult {
+  if (meta.volumeUnavailableReason) return reject('NON_VOLUMETRIC_SERIES', meta.volumeUnavailableReason);
   if (isNonVolumetricSeries(meta.planes)) {
     return reject('NON_VOLUMETRIC_SERIES', '该序列包含不适用体积重建的二维帧，仍可完整浏览原始影像');
   }

@@ -1,4 +1,4 @@
-export type ExportFormat = 'png' | 'dicom' | 'zip';
+export type ExportFormat = 'png' | 'dicom' | 'zip' | 'sr' | 'gsps' | 'results';
 
 export interface DownloadResult { id: string; status: 'saved' | 'failed' | 'cancelled'; error?: string }
 export interface DownloadHost {
@@ -11,8 +11,10 @@ let saving = false;
 export const isDownloadSaving = () => saving;
 
 export function createBlobSaver(host: DownloadHost) {
-  return async (blob: Blob, signal?: AbortSignal): Promise<'saved' | 'cancelled'> => {
-    const format = exportFormat(blob);
+  return async (blob: Blob, signal?: AbortSignal, documentType?: 'sr' | 'gsps' | 'results'): Promise<'saved' | 'cancelled'> => {
+    const baseFormat = exportFormat(blob);
+    if (documentType && baseFormat !== (documentType === 'results' ? 'zip' : 'dicom')) throw new Error('结果文件需要 DICOM 格式');
+    const format = documentType ?? baseFormat;
     if (saving) throw new Error('已有文件正在保存，请稍后重试');
     if (signal?.aborted) return 'cancelled';
     saving = true;
@@ -37,7 +39,11 @@ export function createBlobSaver(host: DownloadHost) {
       const prepared = await host.prepare(id, url, blob.size, format);
       if (prepared === 'cancelled' || signal?.aborted) return 'cancelled';
       timer = setTimeout(() => rejectResult(new Error('未收到文件保存完成结果，请检查保存目录后重试')), 60_000);
-      host.download(url, format === 'png' ? 'opendicomviewer.png' : format === 'dicom' ? 'original-instance.dcm' : 'original-series.zip');
+      const filenames: Record<ExportFormat, string> = {
+        png: 'opendicomviewer.png', dicom: 'original-instance.dcm', zip: 'original-series.zip',
+        sr: 'distance-report.dcm', gsps: 'presentation-state.dcm', results: 'frame-results.zip',
+      };
+      host.download(url, filenames[format]);
       return await result;
     } finally {
       if (timer) clearTimeout(timer);

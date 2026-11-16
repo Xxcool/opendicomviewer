@@ -1,5 +1,6 @@
 import type { HostOriginalSaver } from '../bridge/host-original-saver';
 import type { HostPngSaver } from '../bridge/host-png-saver';
+import { ExchangeControl } from './ExchangeControl';
 import { originalDicomBlob } from './original-dicom';
 import { useEffect, useRef, useState } from 'react';
 import type { CornerstoneRenderer } from '@opendicomviewer/renderer-cs3d';
@@ -7,7 +8,7 @@ import { useViewerStore } from '../state/viewer-store';
 import { capturePngSnapshot, composePng, type PngSnapshot } from './png-capture';
 
 export function PngExportControl({ renderer, enabled, desktop, saveOriginals, savePng }: { renderer: CornerstoneRenderer | null; enabled: boolean; desktop: boolean; saveOriginals?: HostOriginalSaver; savePng?: HostPngSaver }) {
-  const [format, setFormat] = useState<'png' | 'dicom'>('png');
+  const [format, setFormat] = useState<'png' | 'dicom' | 'exchange'>('png');
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<PngSnapshot | null>(null);
   const [annotations, setAnnotations] = useState(true);
@@ -99,7 +100,7 @@ export function PngExportControl({ renderer, enabled, desktop, saveOriginals, sa
     {open && <div className="absolute inset-0 z-50 bg-canvas/80 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="导出影像" ref={dialog} onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!exporting || !desktop) close(); }
       if (event.key !== 'Tab') return;
-      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)')];
+      const items = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled):not([hidden])')];
       const first = items[0], last = items.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -109,6 +110,7 @@ export function PngExportControl({ renderer, enabled, desktop, saveOriginals, sa
         <div className="annotation-actions" role="group" aria-label="导出格式">
           <button className="annotation-action" aria-pressed={format === 'png'} disabled={exporting} onClick={() => void capture()}>PNG 快照</button>
           <button className="annotation-action" aria-pressed={format === 'dicom'} disabled={exporting} onClick={() => { generation.current++; setFormat('dicom'); setMessage(''); }}>原始 DICOM</button>
+          <button className="annotation-action" aria-pressed={format === 'exchange'} disabled={exporting} onClick={() => { generation.current++; setFormat('exchange'); setMessage(''); }}>标注 DICOM</button>
         </div>
         {format === 'png' && <>
         <p>当前单视口快照，保留窗宽窗位、缩放与方向；仅供研究、教学参考。</p>
@@ -121,6 +123,7 @@ export function PngExportControl({ renderer, enabled, desktop, saveOriginals, sa
         {message && <p role="status" className="annotation-status">{message}</p>}
         {desktop && !savePng && <p className="annotation-status">当前宿主未提供 PNG 保存，请使用 Web 版下载。</p>}
         </>}
+        {format === 'exchange' && renderer && <ExchangeControl renderer={renderer} desktop={desktop} save={savePng} busy={exporting} setBusy={setExporting} />}
         {format === 'dicom' && <>
         <p className="text-txt-muted">原始 DICOM 保留全部标签和像素，可能包含身份信息；不含本次标注与测量，未经脱敏。序列仅包含本次成功导入的实例。ZIP 来源与内置示例也可导出完整原图；这些来源的多实例以 ZIP 打包。</p>
         <div className="annotation-actions">

@@ -8,6 +8,7 @@
  * 「imageId 生成与反查是否自洽」是渲染层最容易写错又最难在浏览器里定位的一环。
  */
 
+import { seriesViewKey } from '@opendicomviewer/core';
 import type { PixelFrame, SeriesHandle } from '@opendicomviewer/core';
 import { parseImageId, toImageId } from './image-id';
 
@@ -28,7 +29,7 @@ export class SeriesFrameRegistry {
    * 二者在存在 `excludedPlanes` 时并不相等，拿错的会得到越界索引。
    */
   register(handle: SeriesHandle): readonly string[] {
-    const seriesUid = handle.meta.seriesInstanceUid;
+    const seriesUid = seriesViewKey(handle.meta);
     if (!seriesUid) {
       throw new Error('无法登记序列：meta.seriesInstanceUid 为空');
     }

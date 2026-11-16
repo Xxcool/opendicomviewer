@@ -11,3 +11,6 @@ export * from './dicomdir';
 export * from './scanner';
 export * from './source-local';
 export * from './zip';
+export { writePresentationState, type PresentationStateInput } from './presentation-state';
+export { writeMeasurementReport } from './measurement-report';
+export { readExchangeDocument } from './exchange-reader';

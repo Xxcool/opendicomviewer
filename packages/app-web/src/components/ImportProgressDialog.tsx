@@ -1,4 +1,4 @@
-const bodyImage = new URL('../assets/import-body-soft.png', import.meta.url).href;
+const bodyImage = new URL('../assets/import-body-soft.webp', import.meta.url).href;
 import { useEffect, useRef } from 'react';
 import type { ImportStatus } from '../state/viewer-store';
 
@@ -34,7 +34,7 @@ export function ImportProgressDialog({ status, onCancel }: { status: ImportStatu
         <div className="import-eyebrow"><i /> OPENDICOMVIEWER</div>
         <h2 id="import-title">正在导入影像</h2>
         <div className="import-percent">{percent === null ? <span className="import-working">处理中<span>…</span></span> : <>{percent}<span>%</span></>}</div>
-        <p className="import-stage" role="status">{stage}</p>
+        <p className="import-stage" role="status">{stage}{percent !== null && ` · ${completed} / ${total} 个文件`}</p>
         <div className={`import-track ${percent === null ? 'is-indeterminate' : ''}`} role="progressbar" aria-label={stage}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
           <div style={percent === null ? undefined : { width: `${percent}%` }} />

@@ -12,7 +12,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 export function MetadataPanel() {
   const state = useViewerStore();
   const { studies, activeStudyUid, activeSeriesHandle, warnings, rendererCapabilities, mprStatus, inspectorTab } = state;
-  const plan = useMemo(() => activeSeriesHandle ? planVolumeDownsample(activeSeriesHandle.meta) : null, [activeSeriesHandle]);
+  const plan = useMemo(() => activeSeriesHandle ? planVolumeDownsample(activeSeriesHandle.temporal?.firstPhaseMeta ?? activeSeriesHandle.meta) : null, [activeSeriesHandle]);
   const mprReason = !activeSeriesHandle ? '当前视口尚未载入影像，请从左侧选择序列' : !rendererCapabilities?.supportsVolume ? '当前渲染后端未接入 MPR 通路'
     : plan && !plan.ok ? plan.message : mprStatus.phase === 'error' ? mprStatus.message : undefined;
   const study = studies.find((item) => item.studyInstanceUid === activeStudyUid);
@@ -42,6 +42,7 @@ export function MetadataPanel() {
         <section className="inspector-section"><h2>当前序列</h2><dl>
           <Fact label="序列">{meta?.seriesDescription}</Fact><Fact label="模态">{meta?.modality}</Fact>
           <Fact label="帧数">{meta?.planes.length}</Fact><Fact label="矩阵">{matrix ? `${matrix.columns} × ${matrix.rows}` : null}</Fact>
+          {activeSeriesHandle?.temporal && <Fact label="动态体积">{activeSeriesHandle.temporal.positions.length} 个时相 · 在 MPR 或 3D 中切换</Fact>}
           <Fact label="影像类型">{imageInfo.nonVolumetric ? imageInfo.orientation.label : matrix?.imageType?.join(' / ')}</Fact>
           <Fact label="像素间距">{imageInfo.pixelSpacing}</Fact>
           <Fact label="层厚">{matrix?.sliceThickness !== undefined ? `${matrix.sliceThickness.toFixed(2)} mm` : undefined}</Fact>
@@ -49,7 +50,7 @@ export function MetadataPanel() {
         </dl></section>
         <section className="inspector-section"><h2>空间重建</h2>
           {mprReason ? <details><summary>MPR 不可用 · 查看原因</summary><p className="inspector-note">{mprReason}</p></details>
-            : <p className="inspector-note">{mprStatus.phase === 'ready' ? 'MPR 已就绪，可用十字准星与翻层联动定位' : mprStatus.phase === 'building' ? 'MPR 构建中' : '在工具栏选择 2×2 或 1+3，进入 MPR 三视图与十字准星联动'}</p>}
+            : <p className="inspector-note">{mprStatus.phase === 'ready' ? '显示体积已就绪，支持 MPR 和 3D 浏览' : mprStatus.phase === 'building' ? '正在构建显示体积' : '在工具栏选择 2×2 或 1+3，进入 MPR 三视图与十字准星联动'}</p>}
         </section>
         <section className="inspector-section"><h2>操作提示</h2><dl className="shortcut-list">
           <Fact label="滚轮 / Shift+滚轮">逐层 / 跨 10 层</Fact><Fact label="右键 / Shift+左键">调窗</Fact>
@@ -57,7 +58,7 @@ export function MetadataPanel() {
         </dl></section>
         <details className="inspector-section inspector-technical"><summary>渲染与能力说明</summary><dl>
           <Fact label="渲染器">{rendererCapabilities ? rendererCapabilities.backend ? BACKEND_LABEL[rendererCapabilities.backend] : rendererCapabilities.isSoftwareFallback ? '软件回退' : '类型未检测' : '探测中'}</Fact>
-          <Fact label="体绘制">当前版本尚未实现</Fact>
+          <Fact label="体绘制">{mprReason ?? '可在浏览模式中选择 3D 体绘制'}</Fact>
         </dl><p className="inspector-note">科研、教学与非诊断参考；MPR 当前用于显示与定位。</p></details>
       </div>
       <div id="warnings-panel" role="tabpanel" aria-labelledby="warnings-tab" hidden={inspectorTab !== 'warnings'} className="inspector-section">

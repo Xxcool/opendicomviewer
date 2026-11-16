@@ -43,6 +43,7 @@ export interface Cs3dViewportLike {
   getProperties(): Cs3dViewportPropertiesLike;
   render(): void;
   resetCamera?(): void;
+  orbit?(yaw: number, pitch: number): void;
   getZoom?(): number;
   setZoom?(value: number): void;
   getPan?(): number[];
@@ -59,6 +60,7 @@ export interface Cs3dViewportLike {
   ): Promise<void> | void;
   setOrientation?(orientation: string, immediate?: boolean, suppressEvents?: boolean): void;
   getCamera?(): Cs3dCameraLike;
+  restoreCamera?(camera: Cs3dCameraLike): void;
   /** 返回是否定位成功（Stack 视口找不到对应层时返回 false） */
   jumpToWorld?(world: readonly number[]): boolean;
   getCurrentImageIdIndex?(): number;
@@ -92,6 +94,7 @@ export interface Cs3dEngineLike {
 
 export interface Cs3dEnumsLike {
   readonly ViewportType: {
+    readonly VOLUME_3D: string;
     readonly STACK: string;
     readonly ORTHOGRAPHIC: string;
   };

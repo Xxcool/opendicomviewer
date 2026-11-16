@@ -17,7 +17,7 @@ import {
   type Modality,
 } from '@opendicomviewer/core';
 import type { ImportCandidate } from '@opendicomviewer/core';
-import dicomParser, { type ParseOptions } from 'dicom-parser';
+import dicomParser, { type ParseOptions, type DataSet } from 'dicom-parser';
 import { decodeDicomText } from './charset';
 import { resolveMultiframePlanes } from './frame-geometry';
 import { parseModalityLUT } from './modality-lut';
@@ -57,6 +57,38 @@ export function parseFloats(
     return undefined;
   }
   return parts;
+}
+
+function readTemporalAcquisition(dataSet: DataSet, frames: number): ImagePlane['temporalAcquisition'] {
+  const position = dataSet.string('x00200100');
+  const count = dataSet.string('x00200105');
+  if (position === undefined && (count === undefined || Number(count) === 1)) return undefined;
+  // 仅支持单帧 Classic MR。扩散/门控/多回波采集需要单独维度模型。
+  const contrastTags = ['x00080008', 'x00180020', 'x00180021', 'x00180022', 'x00180024',
+    'x00180080', 'x00180081', 'x00180082', 'x00180086', 'x00181314'];
+  const contrast = contrastTags.map(tag => dataSet.string(tag) ?? '');
+  const trigger = dataSet.floatString('x00181060');
+  const repetition = dataSet.floatString('x00180080');
+  // 部分 Classic MR 将每相的起始毫秒写入 TriggerTime；仅接受与重复时间一致的无心电门控序列。
+  const repetitionClock = trigger !== undefined && repetition !== undefined && repetition > 0
+    && dataSet.intString('x00181088') === 0
+    && Math.abs(trigger - (Number(position) - 1) * repetition) <= 0.5;
+  const zeroDiffusionField = (tag: string, count: number) => !dataSet.elements[tag] ||
+    (dataSet.elements[tag]?.length === 8 * count && Array.from({ length: count }, (_, i) => dataSet.double(tag, i)).every(value => value === 0));
+  const gated = (dataSet.string('x00180022') ?? '').split('\\').some(option => option === 'CG' || option === 'PPG')
+    || (dataSet.intString('x00181088') ?? 0) > 0 || (dataSet.intString('x00181090') ?? 0) > 1
+    || !!dataSet.string('x00181061');
+  return {
+    position: position && /^\+?\d+$/.test(position.trim()) ? Number(position) : NaN,
+    count: count === undefined ? undefined : /^\+?\d+$/.test(count.trim()) ? Number(count) : NaN,
+    contrastKey: JSON.stringify(contrast),
+    supported: frames === 1 && dataSet.string('x00080016') === '1.2.840.10008.5.1.4.1.1.4'
+      && dataSet.string('x00080060') === 'MR' && !contrast.some(value => /DIFFUSION|ADC/i.test(value))
+      && !gated && (trigger === undefined || repetitionClock)
+      && zeroDiffusionField('x00189087', 1) && zeroDiffusionField('x00189089', 3) && !dataSet.elements.x00189117
+      && dataSet.uint16('x00280010') !== undefined && dataSet.uint16('x00280011') !== undefined
+      && dataSet.uint16('x00280002') === 1 && /^MONOCHROME[12]$/.test(dataSet.string('x00280004') ?? ''),
+  };
 }
 
 /**
@@ -129,6 +161,7 @@ export function parseDicomMetadata(
   const encoding = pixelEncoding(dataSet);
 
   const plane: ImagePlane = {
+    temporalAcquisition: readTemporalAcquisition(dataSet, numberOfFramesInFile),
     sopClassUid: dataSet.string('x00080016'),
     imageType: dataSet.string('x00080008')?.split('\\').map(value => value.trim().toUpperCase()),
     hasMissingPixelSpacing: !psFloats,

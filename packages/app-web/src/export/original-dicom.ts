@@ -17,6 +17,17 @@ async function crc32(bytes: Uint8Array, signal?: AbortSignal): Promise<number> {
 
 /** 无压缩 ZIP32；目录仅用序号，原始实例字节不重编码，不带患者文件路径。 */
 export async function originalDicomBlob(files: readonly ImportCandidate[], signal?: AbortSignal): Promise<Blob> {
+  return dicomArchive(files, index => `instance-${String(index + 1).padStart(6, '0')}.dcm`, signal);
+}
+
+export async function frameResultArchive(entries: ReadonlyArray<{ name: 'source.dcm' | 'presentation-state.dcm' | 'distance-report.dcm'; bytes: Uint8Array }>, signal: AbortSignal) {
+  const files = entries.map(({ name, bytes }) => ({
+    id: name, name, size: bytes.byteLength, read: async () => Uint8Array.from(bytes).buffer,
+  }));
+  return dicomArchive(files, index => entries[index]!.name, signal);
+}
+
+async function dicomArchive(files: readonly ImportCandidate[], nameAt: (index: number) => string, signal?: AbortSignal): Promise<Blob> {
   if (!files.length) throw new Error('没有可导出的原始实例');
   if (files.length > 65535) throw new Error('实例数量超过 ZIP32 上限');
   const parts: BlobPart[] = [], directory: Uint8Array[] = [];
@@ -28,7 +39,7 @@ export async function originalDicomBlob(files: readonly ImportCandidate[], signa
     await yieldExport(signal);
     if (buffer.byteLength !== file.size) throw new Error('原始文件大小已变化或读取不完整，请重新导入');
     if (files.length === 1) return new Blob([buffer], { type: 'application/dicom' });
-    const name = new TextEncoder().encode(`instance-${String(index + 1).padStart(6, '0')}.dcm`);
+    const name = new TextEncoder().encode(nameAt(index));
     const checksum = await crc32(new Uint8Array(buffer), signal);
     const local = new Uint8Array(30 + name.length), view = new DataView(local.buffer);
     view.setUint32(0, 0x04034b50, true); view.setUint16(4, 20, true);

@@ -45,6 +45,12 @@ export interface SeriesRef {
 
 export interface SeriesHandle {
   readonly meta: SeriesMeta;
+  readonly temporal?: {
+    readonly positions: readonly number[];
+    readonly firstPhaseMeta: SeriesMeta;
+    /** 不传位置表示取得包含所有时相的完整原始 Stack。每个句柄独立释放。 */
+    select(position?: number): SeriesHandle;
+  };
   readonly warnings: readonly DataWarning[];
   /** 原始完整实例来源；省略层号返回当前序列全部已导入实例，多帧只返回一次，不包含标注。 */
   originalCandidates?(layerIndex?: number): readonly ImportCandidate[];
@@ -113,7 +119,7 @@ export type RenderBackendType = 'webgl2' | 'webgpu' | 'cpu';
  *
  * 两条通路不是可互换的：STACK 视口没有 `setVolumes`，体积视口也没有 `setStack`（Spike B）。
  */
-export type ViewportKind = 'stack' | 'orthographic';
+export type ViewportKind = 'stack' | 'orthographic' | 'volume-3d';
 
 /** MPR 切面方向（患者坐标轴，不是相机自由朝向） */
 export type ViewportOrientation = 'axial' | 'coronal' | 'sagittal';
@@ -216,7 +222,7 @@ export interface RendererPort {
   /**
    * 设置视口显示降采样 3D Volume（MPR 通路，严禁作测量依据）。
    *
-   * 只接受 `orthographic` 视口；STACK 视口调用会明确抛错，不会静默降级为 Stack。
+   * 接受正交和三维体积视口；STACK 视口调用会明确抛错，不会静默降级为 Stack。
    */
   setVolume(viewportId: string, volume: VolumeHandle): Promise<void>;
 

@@ -224,9 +224,12 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .welcome-content { width: min(var(--welcome-max-w),100%); margin: 0 auto; text-align: center; }
 .welcome-content h1 { font-size: var(--welcome-title-size); font-weight: 650; line-height: 54px; letter-spacing: -.6px; margin: 0 0 18px; }
 .welcome-description { color: var(--color-txt-dim); font-size: var(--welcome-description-size); line-height: 33px; }
-.welcome-open { width: min(var(--welcome-action-w),100%); height: var(--welcome-action-h); padding: 0 24px; margin-top: 36px; font-size: 20px; font-weight: 550; gap: 12px; border-radius: 10px; background: var(--color-welcome-action); }
-.welcome-open:hover { background: var(--color-welcome-action-hover); }
-.welcome-open svg { width: 24px; height: 24px; }
+.welcome-import { border: 1px dashed var(--color-line-strong); border-radius: 10px; background: var(--color-panel); margin-top: 24px; padding: 24px 16px; }
+.welcome-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.welcome-actions button { min-height: 44px; padding: 0 18px; font-size: 15px; }
+.welcome-import p { margin-top: 14px; font-size: 12px; color: var(--color-txt-dim); }
+.welcome-resume { margin-top: 12px; }
+.welcome-content button:focus-visible { outline: 2px solid var(--color-accent-hover); outline-offset: 3px; }
 .welcome-samples { margin-top: 32px; }
 .welcome-section-label { display: flex; align-items: center; justify-content: center; gap: 14px; font-size: 12px; color: var(--color-txt-muted); margin-bottom: 14px; }
 .welcome-section-label::before, .welcome-section-label::after { content: ''; width: 96px; height: 1px; background: var(--color-line-strong); }
@@ -236,23 +239,11 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 .sample-card-image { display: block; width: 100%; aspect-ratio: 172 / 154; background-color: var(--color-canvas); background-size: 339.534884% 151.948052%; background-repeat: no-repeat; }
 .sample-cover-brain { background-position: 26.213592% 22.5%; }
 .sample-cover-chest { background-position: 75.728155% 22.5%; }
-.sample-caption { display: grid; place-items: center; width: 100%; height: 38px; border-top: 1px solid var(--color-line); }
+.sample-caption { display: grid; place-items: center; width: 100%; padding: 8px; gap: 2px; border-top: 1px solid var(--color-line); }
 .sample-caption strong { font-size: 14px; font-weight: 500; color: var(--color-txt); line-height: 20px; }
-.welcome-drop-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; min-height: 116px; gap: 8px; margin-top: 24px; padding: 17px; border: 1px dashed var(--color-line-strong); border-radius: 8px; color: var(--color-txt-dim); background: transparent; cursor: pointer; }
-.welcome-drop-zone:hover { background: var(--color-panel); border-color: var(--color-accent-hover); }
-.welcome-drop-zone svg { width: 26px; height: 26px; margin-bottom: 2px; }
-.welcome-drop-zone strong { font-size: 14px; font-weight: 500; line-height: 1.5; }
-.welcome-drop-zone > span { font-size: 11px; color: var(--color-txt-muted); line-height: 1.6; }
-.welcome-steps { margin-top: 26px; text-align: left; }
-.welcome-steps-label { display: flex; align-items: center; gap: 14px; font-size: 11px; color: var(--color-txt-muted); }
-.welcome-steps-label::after { content: ''; height: 1px; flex: 1; background: var(--color-line); }
-.welcome-steps ol { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin-top: 16px; }
-.welcome-steps li { display: flex; gap: 11px; align-items: flex-start; min-width: 0; }
-.welcome-step-number { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; border-radius: 50%; background: var(--color-active); color: var(--color-txt-dim); font: 12px var(--font-mono); }
-.welcome-steps strong { font-size: 12px; color: var(--color-txt); line-height: 1.6; font-weight: 550; }
-.welcome-steps p { font-size: 10px; color: var(--color-txt-muted); line-height: 1.7; margin-top: 3px; }
+.sample-caption small { font-size: 12px; color: var(--color-txt-dim); }
 .welcome-use { margin-top: 20px; font-size: 10px; color: var(--color-txt-muted); line-height: 1.5; }
-@media (max-width: 540px) { .welcome-screen { padding-top: 48px; } .welcome-content h1 { font-size: 30px; line-height: 42px; } .welcome-description { font-size: 17px; line-height: 27px; } .sample-grid { gap: 14px; } .sample-card { width: min(var(--sample-card-w),46%); } .welcome-steps ol { grid-template-columns: 1fr; gap: 14px; } .welcome-drop-zone { padding: 16px 12px; } }
+@media (max-width: 540px) { .welcome-screen { padding-top: 48px; } .welcome-content h1 { font-size: 30px; line-height: 42px; } .welcome-description { font-size: 17px; line-height: 27px; } .sample-grid { gap: 14px; } .sample-card { width: min(var(--sample-card-w),46%); } }
 .series-thumbnail { width: var(--thumbnail-size); height: var(--thumbnail-size); position: relative; display: grid; place-items: center; flex-shrink: 0; background: var(--color-canvas); border: 1px solid var(--color-line-strong); border-radius: 4px; overflow: hidden; }
 .series-thumbnail canvas { width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; padding: var(--thumbnail-inset); box-sizing: border-box; }
 .series-thumbnail-fallback { color: color-mix(in srgb, var(--color-overlay) 65%, transparent); font: 11px var(--font-mono); }
@@ -280,7 +271,12 @@ button:focus-visible, summary:focus-visible, input:focus-visible {
 }
 
 @media (max-width: 760px) {
-  :root { --header-h: 86px; }
+  :root { --header-h: 48px; }
+  .workspace-series, .workspace-inspector { position: absolute; top: 0; bottom: 0; z-index: 15; box-shadow: 0 6px 24px #0004; }
+  .workspace-series { left: 0; }
+  .workspace-inspector { right: 0; }
+  .workspace-slice-footer { overflow-x: auto; gap: 10px; }
+  .workspace-slice-footer > * { flex-shrink: 0; }
   .workspace-header { flex-wrap: wrap; align-content: center; gap: 2px 10px; padding: 0 var(--workspace-edge); }
   .workspace-header-actions { gap: 8px; }
   .workspace-header-preferences { margin-left: auto; gap: 8px; }

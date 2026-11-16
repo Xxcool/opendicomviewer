@@ -1,6 +1,6 @@
 # 导出功能计划
 
-更新：2026-11-09。版本化标注 JSON 保存恢复、PNG 预览及桌面原生保存、原始 DICOM 导出已接入；原生保存及193实例导出再导入已实测，Web 下载实现仍待界面验收。SR/GSPS 待实施。桌面 MPR 已知重绘问题单列跟踪。原始导出的平台/来源边界见[交付记录](reviews/DELIVERY-2026-11-08-original-export.md)。
+更新：2026-11-16。版本化标注 JSON 保存恢复、PNG 预览及桌面原生保存、原始 DICOM 导出已接入；原生保存及193实例导出再导入已实测，Web 单帧 GSPS 与 Enhanced SR 测距已实际导出读回，可打包原图和结果。限定实现与 TID 1500、第三方互操作的后续边界见[验收记录](reviews/DELIVERY-2026-11-16-workstation.md)。桌面 MPR 已知重绘问题单列跟踪。原始导出的平台/来源边界见[交付记录](reviews/DELIVERY-2026-11-08-original-export.md)。
 
 本次根据用户补充，主范围调整为 **PNG、DICOM、DICOM SR、DICOM GSPS**。参考医院与 DicomVisionClient 的使用场景，按本项目数据与能力独立设计；菜单存在不等于读写与互操作已验收。
 

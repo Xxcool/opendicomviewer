@@ -21,7 +21,7 @@ const choices: Record<'measurement' | 'annotation', readonly Choice[]> = {
 };
 export function AnnotationToolMenu({ enabled }: { enabled: boolean }) {
   const state = useAnnotations();
-  return <ToolbarMenu label="标注与测量" icon={<AnnotationIcon name="length" />} active={state.tool !== 'none'} width={520}>
+  return <ToolbarMenu disabled={!enabled} label="标注与测量" icon={<AnnotationIcon name="length" />} active={state.tool !== 'none'} width={520}>
     {close => <>
       <button className="annotation-menu-item annotation-library" role="menuitem" onClick={() => { state.setPanelOpen(true); close(); }}>
         <AnnotationIcon name="list" /><span><strong>标注列表{state.records.length ? ` · ${state.records.length}` : ''}</strong><small>备注、保存恢复、撤销与删除</small></span>

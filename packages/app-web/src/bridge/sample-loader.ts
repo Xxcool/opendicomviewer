@@ -26,23 +26,48 @@ export interface SampleManifest {
 
 const MANIFEST_URL = './samples/manifest.json';
 
-export async function fetchSampleManifest(signal?: AbortSignal): Promise<SampleManifest> {
-  const res = await fetch(MANIFEST_URL, { signal });
-  if (!res.ok) {
-    throw new Error(
-      `无法读取示例清单（HTTP ${res.status}）。请确认仓库根目录存在 sample-dicom/`,
-    );
+const CONCURRENCY = 6;
+const REQUEST_TIMEOUT_MS = 20_000;
+
+async function readSample(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  for (let attempt = 0; ; attempt++) {
+    signal?.throwIfAborted();
+    const request = new AbortController();
+    const abort = () => request.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, REQUEST_TIMEOUT_MS);
+    let retryable = true;
+    try {
+      const response = await fetch(url, { signal: request.signal });
+      if (!response.ok) {
+        retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+        throw new Error(`${url}（HTTP ${response.status}）`);
+      }
+      const bytes = await response.arrayBuffer();
+      request.signal.throwIfAborted();
+      return bytes;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (attempt >= 1 || !retryable) {
+        if (request.signal.aborted) throw new Error(`读取 ${url} 超时，请重新载入示例`, { cause: error });
+        throw error;
+      }
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      request.abort();
+    }
   }
-  return (await res.json()) as SampleManifest;
 }
 
-async function loadOne(datasetId: string, fileName: string, signal?: AbortSignal): Promise<ImportCandidate> {
+export async function fetchSampleManifest(signal?: AbortSignal): Promise<SampleManifest> {
+  const bytes = await readSample(MANIFEST_URL, signal);
+  return JSON.parse(new TextDecoder().decode(bytes)) as SampleManifest;
+}
+
+async function loadOne(datasetId: string, fileName: string, signal: AbortSignal): Promise<ImportCandidate> {
   const url = `./samples/${encodeURIComponent(datasetId)}/${encodeURIComponent(fileName)}`;
-  const res = await fetch(url, { signal });
-  if (!res.ok) {
-    throw new Error(`加载示例切片失败：${datasetId}/${fileName}（HTTP ${res.status}）`);
-  }
-  const buffer = await res.arrayBuffer();
+  const buffer = await readSample(url, signal);
   return {
     // id 保留目录前缀，便于失败时定位是哪份数据
     id: `${datasetId}/${fileName}`,
@@ -77,19 +102,30 @@ export async function loadSampleCandidates(datasetId?: string, signal?: AbortSig
     );
   }
 
-  const total = picked.reduce((sum, dataset) => sum + dataset.files.length, 0);
+  const files = picked.flatMap(dataset => dataset.files.map(name => ({ id: dataset.id, name })));
+  const results = new Array<ImportCandidate>(files.length);
+  const batch = new AbortController();
+  const cancel = () => batch.abort();
+  signal?.throwIfAborted();
+  signal?.addEventListener('abort', cancel, { once: true });
+  let next = 0;
   let completed = 0;
-  onProgress?.(0, total);
-  const groups = await Promise.all(
-    picked.map((dataset) =>
-      Promise.all(dataset.files.map(async (file) => {
-        const candidate = await loadOne(dataset.id, file, signal);
-        signal?.throwIfAborted();
-        onProgress?.(++completed, total);
-        return candidate;
-      })),
-    ),
-  );
-
-  return groups.flat();
+  async function worker() {
+    while (next < files.length) {
+      batch.signal.throwIfAborted();
+      const index = next++;
+      const file = files[index]!;
+      results[index] = await loadOne(file.id, file.name, batch.signal);
+      batch.signal.throwIfAborted();
+      onProgress?.(++completed, files.length);
+    }
+  }
+  try {
+    onProgress?.(0, files.length);
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker));
+    return results;
+  } finally {
+    cancel();
+    signal?.removeEventListener('abort', cancel);
+  }
 }

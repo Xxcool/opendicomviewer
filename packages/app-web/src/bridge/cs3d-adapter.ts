@@ -56,6 +56,7 @@ function toCs3dViewportType(type: string): cs3d.Enums.ViewportType {
   if (type === cs3d.Enums.ViewportType.ORTHOGRAPHIC) {
     return cs3d.Enums.ViewportType.ORTHOGRAPHIC;
   }
+  if (type === cs3d.Enums.ViewportType.VOLUME_3D) return cs3d.Enums.ViewportType.VOLUME_3D;
   return cs3d.Enums.ViewportType.STACK;
 }
 
@@ -110,6 +111,28 @@ export class Cs3dViewportAdapter implements Cs3dViewportLike {
     const inputs: cs3d.Types.IVolumeInput[] = volumeInputs.map((input) => ({
       volumeId: input.volumeId,
     }));
+    if (this.vp instanceof cs3d.VolumeViewport3D) {
+      for (const input of inputs) {
+        input.callback = ({ volumeActor }) => {
+          // 体素已按显示窗归一化为 8 位。传递函数仅表示相对亮度与不透明度。
+          const property = volumeActor.getProperty();
+          const opacity = property.getScalarOpacity(0);
+          opacity.removeAllPoints();
+          opacity.addPoint(0, 0);
+          opacity.addPoint(20, 0);
+          opacity.addPoint(70, 0.035);
+          opacity.addPoint(160, 0.16);
+          opacity.addPoint(255, 0.65);
+          const colors = property.getRGBTransferFunction(0);
+          colors.removeAllPoints();
+          colors.addRGBPoint(0, 0, 0, 0);
+          colors.addRGBPoint(255, 1, 1, 1);
+          property.setShade(true);
+        };
+      }
+      await this.vp.setVolumes(inputs, immediate, suppressEvents);
+      return;
+    }
     await this.requireVolume('setVolumes').setVolumes(
       inputs,
       immediate,
@@ -195,9 +218,36 @@ export class Cs3dViewportAdapter implements Cs3dViewportLike {
   }
 
   resetCamera(): void {
+    if (this.vp instanceof cs3d.VolumeViewport3D) {
+      this.vp.setCamera({ viewPlaneNormal: [0, -1, 0], viewUp: [0, 0, 1] });
+      this.vp.resetCamera();
+      this.vp.setZoom(0.9);
+      return;
+    }
     // 适配只居中当前切面，不能把 MPR 翻回体积中心；留边避免解剖轮廓贴边。
     this.vp.resetCamera({ resetToCenter: false });
     this.vp.setZoom(0.9);
+  }
+
+  restoreCamera(camera: Cs3dCameraLike): void {
+    if (!(this.vp instanceof cs3d.VolumeViewport3D)) throw new Error('三维相机需要体积视口');
+    this.vp.setCamera({
+      position: toPoint3(camera.position),
+      focalPoint: toPoint3(camera.focalPoint),
+      viewPlaneNormal: toPoint3(camera.viewPlaneNormal),
+      viewUp: camera.viewUp && toPoint3(camera.viewUp),
+      parallelScale: camera.parallelScale,
+    });
+  }
+
+  orbit(yaw: number, pitch: number): void {
+    if (!(this.vp instanceof cs3d.VolumeViewport3D)) throw new Error('旋转需要三维体积视口');
+    const renderer = this.vp.getRenderer();
+    const camera = renderer.getActiveCamera();
+    camera.azimuth(yaw);
+    camera.elevation(pitch);
+    camera.orthogonalizeViewUp();
+    renderer.resetCameraClippingRange();
   }
 
   getZoom(): number { return this.vp.getZoom(); }

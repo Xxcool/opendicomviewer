@@ -14,10 +14,10 @@ describe('导入真实进度与取消', () => {
     const html = renderToStaticMarkup(createElement(SpinnerIcon, { className: 'w-8 h-8 text-accent' }));
     expect(html).toContain('animate-spin w-8 h-8 text-accent');
   });
-  it('示例以实际完成文件数报告，所有请求使用同一取消信号', async () => {
+  it('示例以实际完成文件数报告，请求可取消', async () => {
     const controller = new AbortController(); const events: number[][] = [];
     const request = vi.fn(async (_url: unknown, options?: RequestInit) => {
-      expect(options?.signal).toBe(controller.signal);
+      expect(options?.signal?.aborted).toBe(false);
       return new Response(request.mock.calls.length === 1
         ? JSON.stringify({ datasets: [{ id: 'sample', files: ['one.dcm', 'two.dcm'] }] }) : new Uint8Array([1, 2]));
     });
@@ -33,6 +33,60 @@ describe('导入真实进度与取消', () => {
     }));
     await expect(loadSampleCandidates('sample', controller.signal, (n, t) => events.push([n, t]))).rejects.toMatchObject({ name: 'AbortError' });
     expect(events).toEqual([[0, 1]]);
+  });
+  it('慢切片有并发上限，返回顺序与清单一致', async () => {
+    const names = Array.from({ length: 15 }, (_, index) => `${index}.dcm`);
+    const releases: (() => void)[] = [];
+    let active = 0, peak = 0;
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.endsWith('manifest.json')) return Response.json({ datasets: [{ id: 'sample', files: names }] });
+      peak = Math.max(peak, ++active);
+      await new Promise<void>(resolve => releases.push(resolve));
+      active--;
+      return new Response(new Uint8Array([1]));
+    });
+    const result = loadSampleCandidates('sample');
+    for (let completed = 0; completed < names.length; completed++) {
+      await vi.waitFor(() => expect(releases.length).toBeGreaterThan(0));
+      releases.pop()!();
+    }
+    expect((await result).map(candidate => candidate.name)).toEqual(names);
+    expect(peak).toBe(6);
+  });
+
+  it('暂时的服务器错误重试，缺失文件立即失败', async () => {
+    for (const status of [503, 404]) {
+      let attempts = 0;
+      vi.stubGlobal('fetch', async (url: string) => {
+        if (url.endsWith('manifest.json')) return Response.json({ datasets: [{ id: 'sample', files: ['one.dcm'] }] });
+        if (++attempts === 1) return new Response(null, { status });
+        return new Response(new Uint8Array([1]));
+      });
+      if (status === 503) {
+        await expect(loadSampleCandidates('sample')).resolves.toHaveLength(1);
+        expect(attempts).toBe(2);
+      } else {
+        await expect(loadSampleCandidates('sample')).rejects.toThrow('HTTP 404');
+        expect(attempts).toBe(1);
+      }
+    }
+  });
+
+  it('含响应体读取的超时在两次尝试后结束', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn(async (_url: string, options: RequestInit) => ({
+        ok: true,
+        arrayBuffer: () => new Promise((_, reject) => {
+          options.signal!.addEventListener('abort', () => reject(new DOMException('取消', 'AbortError')));
+        }),
+      }));
+      vi.stubGlobal('fetch', fetcher);
+      const result = expect(loadSampleCandidates('sample')).rejects.toThrow('超时');
+      await vi.runAllTimersAsync();
+      await result;
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
   });
   it('扫描跳过项和失败项也计数，不能把成功数伪装成处理进度', async () => {
     const bytes = await readFile(new URL('../../../sample-dicom/brain-head-mr/head-sagittal.dcm', import.meta.url));

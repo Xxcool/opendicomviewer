@@ -5,15 +5,14 @@ import type { HostCloseGuard } from './bridge/host-close-guard';
 import type { HostFileSaver } from './bridge/host-file-saver';
 import { AnnotationProvider, useAnnotations } from './annotations/AnnotationContext';
 import type { ImportCandidate } from '@opendicomviewer/core';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import { PixelCodec } from '@opendicomviewer/codec-wasm';
 import { LocalDataSource } from '@opendicomviewer/source-local';
 import {
   createCornerstoneRenderer,
   type CornerstoneRenderer,
 } from '@opendicomviewer/renderer-cs3d';
-import { createCs3dModule } from './bridge/cs3d-adapter';
-import { registerCs3dBridge } from './bridge/cs3d-bridge';
+import type { BridgeRegistration } from './bridge/cs3d-bridge';
 import { fileToImportCandidate } from './bridge/candidate';
 import { useImportFlow } from './import-flow';
 import { WelcomeScreen } from './components/WelcomeScreen';
@@ -21,6 +20,7 @@ import { Header } from './components/Header';
 import { SeriesList } from './components/SeriesList';
 import { Viewport } from './components/Viewport';
 import { MprWorkspace, type MprNavigationSession } from './components/MprWorkspace';
+import { VolumeWorkspace } from './components/VolumeWorkspace';
 import { SplitWorkspace, type SplitNavigationSession } from './components/SplitWorkspace';
 import { MetadataPanel } from './components/MetadataPanel';
 import { ImportFailuresDialog } from './components/ImportFailuresDialog';
@@ -31,13 +31,17 @@ import { SpinnerIcon, WarningIcon } from './components/Icons';
 import type { HostFilePicker } from './bridge/host-file-picker';
 
 interface AppProps { savePng?: HostPngSaver; saveOriginals?: HostOriginalSaver; filePicker?: HostFilePicker; openProject?: () => Promise<void>; saveFile?: HostFileSaver; closeGuard?: HostCloseGuard }
+function createLocalSource() { return new LocalDataSource(new PixelCodec()); }
 export function App(props: AppProps) {
-  const dataSource = useMemo(() => new LocalDataSource(new PixelCodec()), []);
-  return <AnnotationProvider dataSource={dataSource} saveFile={props.saveFile} closeGuard={props.closeGuard}><ViewerApp {...props} dataSource={dataSource} /></AnnotationProvider>;
+  const [dataSource, setDataSource] = useState(createLocalSource);
+  return <AnnotationProvider dataSource={dataSource} saveFile={props.saveFile} closeGuard={props.closeGuard}><ViewerApp {...props} dataSource={dataSource} setDataSource={setDataSource} /></AnnotationProvider>;
 }
-function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng }: AppProps & { dataSource: LocalDataSource }) {
+function ViewerApp({ filePicker, openProject, dataSource, setDataSource, saveOriginals, savePng }: AppProps & { dataSource: LocalDataSource; setDataSource: (source: LocalDataSource) => void }) {
   const annotations = useAnnotations();
-  const [renderer, setRenderer] = useState<CornerstoneRenderer | null>(null);
+  const [engine, setEngine] = useState<{ owner: LocalDataSource; renderer: CornerstoneRenderer } | null>(null);
+  const renderer = engine?.owner === dataSource ? engine.renderer : null;
+  const [mountAttempt, setMountAttempt] = useState(0);
+  const [mountError, setMountError] = useState('');
   const [homeOpen, setHomeOpen] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   /** MPR 准星会话跨布局保留，不参与高频 React 状态更新。 */
@@ -63,6 +67,7 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
     studies,
     seriesPanelOpen, inspectorOpen, focusMode,
   } = useViewerStore();
+  const singleViewport = LAYOUTS[layoutMode].panes.length === 1;
   const hasWorkspace = !!activeSeriesHandle || layoutMode === 'split-2x2';
   useEffect(() => {
     // 新导入是新的数据会话，不能按相同 UID 继承上一次的定位。
@@ -77,7 +82,7 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
     loadSample: loadSampleRaw,
     cancel: cancelImport,
     confirmPendingFailures,
-  } = useImportFlow(dataSource);
+  } = useImportFlow(createLocalSource, setDataSource);
   const importCandidates = useCallback(async (files: readonly ImportCandidate[]) => {
     if (files.length && await annotations.confirmReplacement()) await importRaw(files);
   }, [annotations.confirmReplacement, importRaw]);
@@ -104,45 +109,39 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
     return () => { cancelled = true; stop?.(); };
   }, [filePicker, importCandidates, setImportStatus]);
 
-  // 渲染器生命周期上提至 App 组合根，确保 StrictMode 双调用下安全重建 (P0-1)
+  // 进入阅片才加载 GPU 引擎。新的导入会话独占像素缓存，避免相同系列 UID 的部分导入复用旧切片。
   useEffect(() => {
+    if (!hasWorkspace) return;
     let cancelled = false;
-
-    const r = createCornerstoneRenderer({
-      cs3d: createCs3dModule(),
-    });
-    const bridge = registerCs3dBridge(r);
-
+    let instance: CornerstoneRenderer | undefined;
+    let bridge: BridgeRegistration | undefined;
+    setMountError('');
     async function mountRenderer() {
       try {
-        await r.mount(
-          { containerId: 'odv-viewport-el' },
-          { rows: 1, cols: 1, viewportIds: ['default-viewport'] },
-        );
+        const [{ createCs3dModule }, { registerCs3dBridge }] = await Promise.all([
+          import('./bridge/cs3d-adapter'), import('./bridge/cs3d-bridge'),
+        ]);
+        if (cancelled) return;
+        instance = createCornerstoneRenderer({ cs3d: createCs3dModule() });
+        bridge = registerCs3dBridge(instance);
+        await instance.mount({ containerId: 'odv-viewport-el' }, { rows: 1, cols: 1, viewportIds: ['default-viewport'] });
         if (!cancelled) {
-          setRenderer(r);
-          setRendererCapabilities(r.capabilities());
+          setEngine({ owner: dataSource, renderer: instance });
+          setRendererCapabilities(instance.capabilities());
         }
-      } catch (err: unknown) {
-        if (!cancelled) {
-          // 挂载失败向用户显式展示，杜绝静默黑屏 (P1-1 / R7)
-          setImportStatus({
-            loading: false,
-            error: `渲染引擎初始化失败: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
+      } catch (error) {
+        if (!cancelled) setMountError(`渲染引擎初始化失败：${error instanceof Error ? error.message : String(error)}`);
       }
     }
-
     void mountRenderer();
-
     return () => {
       cancelled = true;
-      bridge.unregister();
-      r.destroy();
-      setRenderer(null);
+      instance?.destroy();
+      bridge?.unregister();
+      setEngine(null);
+      setAppliedLayout(null);
     };
-  }, [setImportStatus, setRendererCapabilities]);
+  }, [hasWorkspace, dataSource, mountAttempt, setRendererCapabilities]);
 
   /**
    * 布局切换：必须等 setLayout 完成后才允许 MPR 组件装载 Stack/Volume，
@@ -205,6 +204,13 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
       className="w-screen h-screen flex flex-col bg-app text-txt overflow-hidden relative"
     >
       <Header
+        onClearSession={async () => {
+          if (!await annotations.confirmReplacement()) return false;
+          cancelImport();
+          useViewerStore.getState().reset();
+          setDataSource(createLocalSource());
+          return true;
+        }}
         onGoHome={() => setHomeOpen(true)}
         onImportCandidates={importCandidates}
         onLoadSample={loadSample}
@@ -227,7 +233,7 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
 
       {/* 错误提示横条 */}
       {importStatus.error && (
-        <div className="bg-danger/15 border-b border-danger/40 px-4 py-2 flex items-center justify-between text-xs text-danger z-50">
+        <div role="alert" className="bg-danger/15 border-b border-danger/40 px-4 py-2 flex items-center justify-between text-xs text-danger z-50">
           <div className="flex items-center space-x-2">
             <WarningIcon className="w-4 h-4 text-danger shrink-0" />
             <span>{importStatus.error}</span>
@@ -249,17 +255,17 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
       {pendingFailures && (
         <ImportFailuresDialog
           outcome={pendingFailures}
+          onCancel={cancelImport}
           onConfirm={confirmPendingFailures}
         />
       )}
 
       {/* 主工作区：三栏布局，宽度统一走 CSS token */}
       <div className="flex-1 flex overflow-hidden min-w-0 relative">
-        {homeOpen && <div data-viewer-home="true" className="absolute inset-0 z-20 bg-app overflow-auto">
-          {hasWorkspace && <div className="flex justify-center pt-4"><button className="workspace-control" onClick={() => setHomeOpen(false)}>继续阅片</button></div>}
-          <WelcomeScreen onOpenFolder={() => openLocal('folder')} onOpenFiles={() => openLocal('files')} onLoadSample={loadSample} />
+        {(homeOpen || !hasWorkspace) && <div data-viewer-home="true" className="absolute inset-0 z-20 bg-app overflow-auto">
+          <WelcomeScreen onResume={hasWorkspace ? () => setHomeOpen(false) : undefined} onOpenFolder={() => openLocal('folder')} onOpenFiles={() => openLocal('files')} onLoadSample={loadSample} />
         </div>}
-        <div className="contents" inert={homeOpen}>
+        <div className="contents" inert={homeOpen || !hasWorkspace}>
         <div
           id="series-panel"
           hidden={!hasWorkspace || !seriesPanelOpen || focusMode}
@@ -283,13 +289,13 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
           >
             <div
               id="odv-viewport-el"
-              data-odv-viewport="default-viewport"
-              style={layoutMode === '1x1' ? undefined : LAYOUTS[layoutMode].gridStyle}
+              data-odv-viewport={singleViewport ? LAYOUTS[layoutMode].panes[0]?.viewportId : undefined}
+              style={singleViewport ? undefined : LAYOUTS[layoutMode].gridStyle}
               className={`absolute inset-0 w-full h-full touch-none ${
-                layoutMode === '1x1' ? '' : 'bg-line'
+                singleViewport ? '' : 'bg-line'
               }`}
             >
-              {layoutMode !== '1x1' &&
+              {!singleViewport &&
                 LAYOUTS[layoutMode].panes.map((pane) => (
                   <div
                     key={pane.viewportId}
@@ -301,7 +307,11 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
             </div>
           </div>
 
-          {appliedLayout === layoutMode ? (
+          {!hasWorkspace ? null : mountError ? (
+            <div role="alert" className="absolute inset-0 z-10 flex items-center justify-center gap-3 text-sm">
+              <span>{mountError}</span><button className="workspace-control" onClick={() => setMountAttempt(attempt => attempt + 1)}>重试</button>
+            </div>
+          ) : renderer && appliedLayout === layoutMode ? (
             layoutMode === '1x1' ? (
               <Viewport
                 renderer={renderer}
@@ -310,6 +320,8 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
                 onOpenFolder={() => openLocal('folder')}
                 onOpenFiles={() => openLocal('files')}
               />
+            ) : layoutMode === 'volume-3d' && renderer ? (
+              <VolumeWorkspace renderer={renderer} />
             ) : layoutMode === 'split-2x2' && renderer ? (
               <SplitWorkspace renderer={renderer} session={splitNavigation} />
             ) : (
@@ -330,7 +342,7 @@ function ViewerApp({ filePicker, openProject, dataSource, saveOriginals, savePng
               }}
             >
               <SpinnerIcon className="w-4 h-4 text-accent mr-2" />
-              <span>正在切换布局…</span>
+              <span>{renderer ? '正在切换布局…' : '正在启动阅片引擎…'}</span>
             </div>
           )}
         </div>

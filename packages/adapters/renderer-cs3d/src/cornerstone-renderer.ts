@@ -10,6 +10,7 @@
  *    换算，保证与 core 的像素映射公式同一口径。
  */
 
+import { seriesViewKey } from '@opendicomviewer/core';
 import {
   type CanvasPoint,
   type RenderBackendType,
@@ -107,6 +108,7 @@ export class CornerstoneRenderer implements RendererPort {
    */
   private readonly volumeInFlight = new Map<string, number>();
   /** 视口级装载版本号：慢请求归来时用它判断自己是否已被新请求取代 */
+  private nextViewportToken = 0;
   private readonly viewportTokens = new Map<string, number>();
   /**
    * 视口上仍在进行中的装载目标序列。
@@ -310,7 +312,7 @@ export class CornerstoneRenderer implements RendererPort {
         `视口 ${viewportId} 是 ORTHOGRAPHIC 类型，不支持 setStack；请改用 setVolume（两条通路不可互换）`,
       );
     }
-    const nextSeriesUid = handle.meta.seriesInstanceUid;
+    const nextSeriesUid = seriesViewKey(handle.meta);
     const frameCount = handle.meta.planes.length;
 
     // 先校验再登记：否则越界抛错时帧已经进了登记表，而 viewportSeries 没更新，
@@ -335,7 +337,7 @@ export class CornerstoneRenderer implements RendererPort {
     // 视口级版本号：并发 setStack 时只让最后一次生效。
     // 没有它的话，慢请求 A 会在快请求 B 之后归来并把归属写回 A，
     // 导致 B 的帧再也没人释放（内存泄漏）+ 越界判断用错帧数（状态串扰）。
-    const token = (this.viewportTokens.get(viewportId) ?? 0) + 1;
+    const token = ++this.nextViewportToken;
     this.viewportTokens.set(viewportId, token);
     this.viewportPendingSeries.set(viewportId, nextSeriesUid);
 
@@ -400,7 +402,7 @@ export class CornerstoneRenderer implements RendererPort {
 
   public async setVolume(viewportId: string, volume: VolumeHandle): Promise<void> {
     const viewport = this.viewportOf(viewportId);
-    if (this.kindOf(viewportId) !== 'orthographic') {
+    if (this.kindOf(viewportId) === 'stack') {
       throw new Error(
         `视口 ${viewportId} 是 STACK 类型，不支持体积渲染；请改用 setStack（禁止静默降级）`,
       );
@@ -421,7 +423,7 @@ export class CornerstoneRenderer implements RendererPort {
       );
     }
 
-    const token = (this.viewportTokens.get(viewportId) ?? 0) + 1;
+    const token = ++this.nextViewportToken;
     this.viewportTokens.set(viewportId, token);
 
     // 同 id 的体积只有在**数据句柄变了**（重建）时才需要移出 cache；
@@ -456,6 +458,10 @@ export class CornerstoneRenderer implements RendererPort {
       this.createdVolumes.set(created.volumeId, created);
     }
 
+    const previous = this.viewportVolumes.get(viewportId);
+    // 同一序列切时相时保持观察角度和缩放，切到别的序列则重新居中。
+    const camera = this.kindOf(viewportId) === 'volume-3d' && previous?.seriesInstanceUid === volume.seriesInstanceUid
+      ? viewport.getCamera?.() : undefined;
     this.retainInFlight(created.volumeId);
     let failure: Error | null = null;
     let superseded = false;
@@ -486,13 +492,16 @@ export class CornerstoneRenderer implements RendererPort {
       viewport.setOrientation?.(orientation, true);
     }
     // 8-bit 显示区间固定，不跟随用户调窗（ARCHITECTURE §5.2）
-    viewport.setProperties({ voiRange: VOLUME_VOI_RANGE });
+    if (this.kindOf(viewportId) === 'orthographic') viewport.setProperties({ voiRange: VOLUME_VOI_RANGE });
     this.resizeNow(false);
-    viewport.resetCamera?.();
-    this.autoFitViewports.add(viewportId);
+    if (camera && viewport.restoreCamera) {
+      viewport.restoreCamera(camera);
+    } else {
+      viewport.resetCamera?.();
+      this.autoFitViewports.add(viewportId);
+    }
     viewport.render();
 
-    const previous = this.viewportVolumes.get(viewportId);
     this.viewportVolumes.set(viewportId, volume);
     if (previous && previous.volumeId !== volume.volumeId) {
       this.releaseVolumeIfUnused(previous.volumeId, viewportId);
@@ -641,6 +650,15 @@ export class CornerstoneRenderer implements RendererPort {
     viewport.render();
   }
 
+  public orbit(viewportId: string, yaw: number, pitch: number): void {
+    const viewport = this.viewportOf(viewportId);
+    if (this.kindOf(viewportId) !== 'volume-3d' || !viewport.orbit) throw new Error('当前视口不支持三维旋转');
+    if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) throw new Error('旋转角度必须为有限数值');
+    this.autoFitViewports.delete(viewportId);
+    viewport.orbit(yaw, pitch);
+    viewport.render();
+  }
+
   public panBy(viewportId: string, delta: CanvasPoint): void {
     if (![delta.x, delta.y].every(Number.isFinite)) throw new Error('平移坐标必须为有限数值');
     const viewport = this.viewportOf(viewportId);
@@ -735,8 +753,7 @@ export class CornerstoneRenderer implements RendererPort {
     this.viewportSeries.delete(viewportId);
     this.viewportFrameCounts.delete(viewportId);
     this.viewportVolumes.delete(viewportId);
-    // 版本号也清掉，但先自增一次：让仍在 await 的旧请求明确作废
-    this.viewportTokens.set(viewportId, (this.viewportTokens.get(viewportId) ?? 0) + 1);
+    // 重建同名视口会取得新的全局递增版本号，晚到结果不会归入新视口。
     this.viewportTokens.delete(viewportId);
     this.viewportPendingSeries.delete(viewportId);
   }
@@ -803,13 +820,12 @@ export class CornerstoneRenderer implements RendererPort {
     element: unknown,
     cell: ResolvedCell,
   ): void {
+    const types = this.cs3d.Enums.ViewportType;
+    const viewportTypes = { stack: types.STACK, orthographic: types.ORTHOGRAPHIC, 'volume-3d': types.VOLUME_3D };
     engine.enableElement({
       viewportId,
       element,
-      type:
-        cell.kind === 'orthographic'
-          ? this.cs3d.Enums.ViewportType.ORTHOGRAPHIC
-          : this.cs3d.Enums.ViewportType.STACK,
+      type: viewportTypes[cell.kind],
       defaultOptions: { background: [0, 0, 0] },
     });
     this.viewports.set(viewportId, engine.getViewport(viewportId));
@@ -1026,7 +1042,7 @@ export class CornerstoneRenderer implements RendererPort {
       }
       seen.add(cell.viewportId);
       const kind = cell.kind ?? 'stack';
-      if (kind !== 'stack' && kind !== 'orthographic') {
+      if (kind !== 'stack' && kind !== 'orthographic' && kind !== 'volume-3d') {
         throw new Error(`未知视口类型：${String(kind)}`);
       }
       if (kind === 'orthographic' && cell.orientation === undefined) {

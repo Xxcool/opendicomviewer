@@ -21,24 +21,27 @@ export function WorkspaceToolbar({ renderer, ready, desktop = false, saveOrigina
   const state = useViewerStore();
   const annotations = useAnnotations();
   const plan = useMemo(() => state.activeSeriesHandle
-    ? planVolumeDownsample(state.activeSeriesHandle.meta) : null, [state.activeSeriesHandle]);
+    ? planVolumeDownsample(state.activeSeriesHandle.temporal?.firstPhaseMeta ?? state.activeSeriesHandle.meta) : null, [state.activeSeriesHandle]);
+  const volumeUnavailable = !plan ? '请先选择影像序列' : !plan.ok ? plan.message
+    : !state.rendererCapabilities?.supportsVolume ? '当前设备不支持体积渲染' : '';
+  const volumeMode = state.layoutMode === 'volume-3d';
   const canWindow = state.layoutMode === 'split-2x2' || state.activeViewportId === 'default-viewport';
   const disabled = !renderer || !ready || !state.activeSeriesHandle;
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (disabled || blocksViewerShortcut(event)) return;
       const tool = tools.find((item) => item.key.toLowerCase() === event.key.toLowerCase());
-      if (tool && (tool.id !== 'window' || canWindow)) { event.preventDefault(); annotations.setTool('none'); state.setActiveTool(tool.id); }
+      if (!volumeMode && tool && (tool.id !== 'window' || canWindow)) { event.preventDefault(); annotations.setTool('none'); state.setActiveTool(tool.id); }
       if (event.key.toLowerCase() === 'f') { event.preventDefault(); state.toggleFocusMode(); }
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [state.setActiveTool, state.toggleFocusMode, canWindow, disabled]);
+  }, [state.setActiveTool, state.toggleFocusMode, canWindow, disabled, volumeMode]);
   const camera = (action: 'fit' | number) => {
     if (!renderer || disabled) return;
     try {
-      if (action === 'fit') renderer.resetView(state.activeViewportId);
-      else renderer.zoomBy(state.activeViewportId, action);
+      if (action === 'fit') renderer.resetView(volumeMode ? 'volume-3d' : state.activeViewportId);
+      else renderer.zoomBy(volumeMode ? 'volume-3d' : state.activeViewportId, action);
       notifyCameraChanged();
     } catch (error) {
       state.setImportStatus({ loading: false, error: `视图操作失败：${error instanceof Error ? error.message : String(error)}` });
@@ -50,21 +53,22 @@ export function WorkspaceToolbar({ renderer, ready, desktop = false, saveOrigina
       <WorkspaceIcon name="left" />
     </button>
     <span className="toolbar-divider" />
-    <div className="tool-group" role="group" aria-label="鼠标工具">
+    {!volumeMode && <div className="tool-group" role="group" aria-label="鼠标工具">
       {tools.map((tool) => <button key={tool.id} className="workspace-control" disabled={disabled || (tool.id === 'window' && !canWindow)}
         aria-label={tool.label} aria-pressed={state.activeTool === tool.id} title={`${tool.label}（${tool.key}）${tool.id === 'window' && !canWindow ? ' · MPR 为固定灰度' : ''}`}
         onClick={() => { annotations.setTool('none'); state.setActiveTool(tool.id); }}><WorkspaceIcon name={tool.id} /><span>{tool.label}</span></button>)}
-    </div>
-    <span className="toolbar-divider" />
+    </div>}
+    {!volumeMode && <span className="toolbar-divider" />}
     <button className="workspace-control" aria-label="适应窗口" title="适应窗口" disabled={disabled} onClick={() => camera('fit')}><WorkspaceIcon name="fit" /><span>适应窗口</span></button>
     <AnnotationControls enabled={!disabled && (state.layoutMode === '1x1' || state.layoutMode === 'split-2x2')} />
     <PngExportControl renderer={renderer} enabled={!disabled && state.layoutMode === '1x1'} desktop={desktop} saveOriginals={saveOriginals} savePng={savePng} />
     <span className="toolbar-spacer" />
-    <ToolbarMenu label={`布局 · ${LAYOUTS[state.layoutMode].label}`} icon={<WorkspaceIcon name="layout" />} disabled={!renderer || !ready}>
-      {close => <><div className="annotation-menu-heading">视口布局</div>
-        {LAYOUT_MODES.filter(mode => mode === '1x1' || mode === 'split-2x2' || (plan?.ok && state.rendererCapabilities?.supportsVolume)).map(mode =>
-          <button key={mode} className="annotation-menu-item toolbar-layout-choice" role="menuitemradio" aria-checked={state.layoutMode === mode}
+    <ToolbarMenu label={`浏览模式 · ${LAYOUTS[state.layoutMode].label}`} icon={<WorkspaceIcon name="layout" />} disabled={!renderer || !ready}>
+      {close => <><div className="annotation-menu-heading">浏览模式</div>
+        {LAYOUT_MODES.map(mode =>
+          <button key={mode} className="annotation-menu-item toolbar-layout-choice" role="menuitemradio" disabled={mode !== '1x1' && mode !== 'split-2x2' && !!volumeUnavailable} aria-checked={state.layoutMode === mode}
             onClick={() => { state.setLayoutMode(mode); close(); }}><WorkspaceIcon name="layout" /><span><strong>{LAYOUTS[mode].label}</strong><small>{LAYOUTS[mode].hint}</small></span>{state.layoutMode === mode && <span aria-hidden="true">✓</span>}</button>)}
+        {volumeUnavailable && <p className="annotation-menu-footnote">MPR 与 3D 暂不可用 · {volumeUnavailable}</p>}
       </>}
     </ToolbarMenu>
     <ToolbarMenu label="更多" icon={<WorkspaceIcon name="more" />} disabled={disabled}>

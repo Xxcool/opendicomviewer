@@ -21,7 +21,9 @@ import type {
   CornerstoneRenderer,
 } from '@opendicomviewer/renderer-cs3d';
 import type { VOIRange, VolumeHandle, WorldPoint } from '@opendicomviewer/core';
-import { buildVolumeFromSeries } from '../bridge/volume-builder';
+import { TemporalControls } from './TemporalControls';
+import { seriesViewKey } from '@opendicomviewer/core';
+import { useDisplayVolume } from '../bridge/use-display-volume';
 import { measureMmPerPx } from './scale-bar';
 import { blocksViewerShortcut, CAMERA_CHANGED } from './viewport-gestures';
 import {
@@ -86,11 +88,9 @@ export function MprWorkspace({
 
   const activeSeriesHandle = useViewerStore((s) => s.activeSeriesHandle);
   const layoutMode = useViewerStore((s) => s.layoutMode);
-  const mprVolume = useViewerStore((s) => s.mprVolume);
+  const mprVolume = useDisplayVolume();
   const mprStatus = useViewerStore((s) => s.mprStatus);
-  const rendererCapabilities = useViewerStore((s) => s.rendererCapabilities);
   const warnings = useViewerStore((s) => s.warnings);
-  const setMprVolume = useViewerStore((s) => s.setMprVolume);
   const setMprStatus = useViewerStore((s) => s.setMprStatus);
   const setImportStatus = useViewerStore((s) => s.setImportStatus);
 
@@ -233,7 +233,7 @@ export function MprWorkspace({
   // 1. 装载 Stack 视口（setLayout 完成后；MPR 之间切换不重复装载）
   useEffect(() => {
     if (!renderer || !activeSeriesHandle || !layoutReady) return;
-    const seriesUid = activeSeriesHandle.meta.seriesInstanceUid;
+    const seriesUid = seriesViewKey(activeSeriesHandle.meta);
     if (loadedSeriesUidRef.current === seriesUid) {
       syncAllPaneUi();
       return;
@@ -290,63 +290,6 @@ export function MprWorkspace({
     focusAllAtCrosshair,
     updateCrosshairOverlays,
     setImportStatus,
-  ]);
-
-  // 2. 构建降采样体积：失败一律显式落到 mprStatus，由格子覆盖层 + 顶栏同时呈现
-  useEffect(() => {
-    if (!activeSeriesHandle) return;
-    const seriesUid = activeSeriesHandle.meta.seriesInstanceUid;
-    if (mprVolume && mprVolume.seriesInstanceUid === seriesUid) return;
-    if (rendererCapabilities && !rendererCapabilities.supportsVolume) {
-      setMprStatus({
-        phase: 'error',
-        message: '当前渲染后端不支持体积通路，MPR 不可用',
-      });
-      return;
-    }
-
-    const controller = new AbortController();
-    setAttachedVolume(null);
-    setMprStatus({
-      phase: 'building',
-      processedSlices: 0,
-      totalSlices: activeSeriesHandle.meta.planes.length,
-    });
-
-    void buildVolumeFromSeries(activeSeriesHandle, {
-      signal: controller.signal,
-      onProgress: (progress) => {
-        setMprStatus({
-          phase: 'building',
-          processedSlices: progress.processedSlices,
-          totalSlices: progress.totalSlices,
-        });
-      },
-    })
-      .then((outcome) => {
-        if (controller.signal.aborted) return;
-        if (outcome.status === 'ok') {
-          setMprVolume(outcome.volume);
-          setMprStatus({ phase: 'ready' });
-        } else if (outcome.status === 'rejected') {
-          setMprStatus({ phase: 'error', message: outcome.message });
-        }
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        setMprStatus({
-          phase: 'error',
-          message: `MPR 体积构建失败：${err instanceof Error ? err.message : String(err)}`,
-        });
-      });
-
-    return () => controller.abort();
-  }, [
-    activeSeriesHandle,
-    mprVolume,
-    rendererCapabilities,
-    setMprStatus,
-    setMprVolume,
   ]);
 
   // 3. 把体积挂到三个 MPR 视口，并把准星落到体积中心
@@ -722,6 +665,7 @@ export function MprWorkspace({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
+          <TemporalControls ready={!!mprVolume && attachedVolume === mprVolume && loadedSeriesUidRef.current === (activeSeriesHandle && seriesViewKey(activeSeriesHandle.meta))} />
           {warnings.length > 0 && topSeverity && (
             <span
               title={warnings.map((w) => w.message).slice(0, 8).join('\n')}

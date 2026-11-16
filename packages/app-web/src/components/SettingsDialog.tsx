@@ -4,6 +4,7 @@ import { MoonIcon, SettingsIcon, SunIcon } from './Icons';
 import { getWindowPresets, normalizeBodyPart } from './window-presets';
 
 interface SettingsDialogProps {
+  readonly onClearSession: () => Promise<boolean>;
   readonly onClose: () => void;
 }
 
@@ -23,8 +24,8 @@ const TABS: readonly { readonly id: TabId; readonly label: string }[] = [
  * 主题切换、窗预设只读画廊、隐私口径、能力现状。不摆假开关：
  * 未实现的（脱敏）明确写"尚未实现"，而不是给个点了没反应的控件。
  */
-export function SettingsDialog({ onClose }: SettingsDialogProps) {
-  const { reset, studies, theme, setTheme, activeSeriesHandle } = useViewerStore();
+export function SettingsDialog({ onClose, onClearSession }: SettingsDialogProps) {
+  const { studies, theme, setTheme, activeSeriesHandle } = useViewerStore();
   const WINDOW_PRESETS = getWindowPresets(activeSeriesHandle?.meta);
   const [tab, setTab] = useState<TabId>('general');
 
@@ -129,10 +130,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
                     </p>
                     <button
                       type="button"
-                      onClick={() => {
-                        reset();
-                        onClose();
-                      }}
+                      onClick={() => { onClose(); void onClearSession(); }}
                       disabled={studies.length === 0}
                       className="shrink-0 px-3 py-1.5 rounded-md bg-danger hover:bg-danger/90 text-white text-[11px] font-medium transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     >
@@ -197,7 +195,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               <div className="space-y-3">
                 <h3 className="font-semibold text-txt-dim">数据与隐私</h3>
                 <p className="text-txt-dim leading-relaxed">
-                  所有影像仅在本地浏览器内存中处理，不上传、不落盘、不发起任何外部网络请求。
+                  本地影像在当前设备读取和处理。教学样本从本站下载，选择导出时会在设备上创建文件。
                 </p>
                 <p className="text-txt-dim leading-relaxed">
                   隐私状态：当前版本尚未实现脱敏判定，导入数据一律按「含身份信息」保守显示。
@@ -212,7 +210,7 @@ export function SettingsDialog({ onClose }: SettingsDialogProps) {
               <div className="space-y-3">
                 <h3 className="font-semibold text-txt-dim">关于</h3>
                 <p className="text-txt-dim leading-relaxed">
-                  OpenDicomViewer · Phase 1 MVP。仅供科研教学与影像分析参考。
+                  OpenDicomViewer 是本地优先的开源影像查看器，供科研、教学与非诊断参考使用。
                 </p>
                 <p className="text-txt-muted leading-relaxed">
                   渲染能力与不可用项见右栏「能力与降级」；测量值仅供参考，不构成诊断依据。

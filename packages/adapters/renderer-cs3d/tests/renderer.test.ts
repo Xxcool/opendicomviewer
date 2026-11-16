@@ -142,6 +142,7 @@ class FakeViewport implements Cs3dViewportLike {
     this.pan = [0, 0];
   }
 
+  public orbit = vi.fn();
   public zoom = 1;
   public pan = [0, 0];
   public getZoom(): number { return this.zoom; }
@@ -280,7 +281,7 @@ function makeCs3dModule(
   const cs3d: Cs3dModuleLike = {
     init: () => undefined,
     RenderingEngine,
-    Enums: { ViewportType: { STACK: 'stack', ORTHOGRAPHIC: 'orthographic' } },
+    Enums: { ViewportType: { STACK: 'stack', ORTHOGRAPHIC: 'orthographic', VOLUME_3D: 'volume-3d' } },
     ...(options.volume ? { volumeLoader, cache } : {}),
   };
   return { cs3d, engine, cache, created };
@@ -1048,6 +1049,26 @@ describe('CornerstoneRenderer · P2 混合布局与体积通路', () => {
     await renderer.mount({ containerId: 'root' }, ORTHO_AXIAL);
     return { renderer, engine, cache, created, viewport: engine.viewportOf('vp') };
   }
+
+  it('3D 视口使用完整体积 actor，旋转和复位后可切回 Stack', async () => {
+    const { renderer, engine } = makeRenderer({}, { volume: true });
+    await renderer.mount({ containerId: 'root' }, {
+      rows: 1, cols: 1, viewportIds: ['vr'], cells: [{ viewportId: 'vr', kind: 'volume-3d' }],
+    });
+    expect(engine.enabled[0]?.type).toBe('volume-3d');
+    const volume = makeVolume();
+    await renderer.setVolume('vr', volume);
+    const viewport = engine.viewportOf('vr');
+    expect(viewport.volumeCalls).toEqual([[volume.volumeId]]);
+    expect(viewport.orientationCalls).toEqual([]);
+    renderer.orbit('vr', 15, -10);
+    expect(viewport.orbit).toHaveBeenCalledWith(15, -10);
+    renderer.resetView('vr');
+    expect(viewport.resetCameraCount).toBeGreaterThan(1);
+    await renderer.setLayout({ rows: 1, cols: 1, viewportIds: ['stack'] });
+    expect(engine.disabled).toContain('vr');
+    expect(() => renderer.orbit('stack', 10, 0)).toThrow(/三维旋转/);
+  });
 
   it('混合布局：STACK 与 ORTHOGRAPHIC 同时启用，且只对 ORTHOGRAPHIC 预热', async () => {
     const { renderer, engine } = makeRenderer({

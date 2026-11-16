@@ -69,9 +69,17 @@ export class MeasurementSession implements MeasurementPort {
   }
 
   add(record: MeasurementRecord): void {
+    this.addAll([record]);
+  }
+
+  addAll(records: readonly MeasurementRecord[]): void {
     this.assertWritable();
-    if (this.current.some(existing => existing.id === record.id)) throw new Error('标注 ID 已存在');
-    this.commit([...this.current, copyRecord(record)]);
+    const ids = new Set(this.current.map(existing => existing.id));
+    for (const record of records) {
+      if (ids.has(record.id)) throw new Error('标注 ID 已存在');
+      ids.add(record.id);
+    }
+    this.commit([...this.current, ...records.map(copyRecord)]);
   }
 
   update(record: MeasurementRecord): void {

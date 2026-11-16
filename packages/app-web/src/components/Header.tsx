@@ -14,10 +14,11 @@ interface HeaderProps {
   readonly onOpenFolder?: () => void;
   readonly onOpenFiles?: () => void;
   readonly onOpenProject?: () => void;
+  readonly onClearSession: () => Promise<boolean>;
   readonly onGoHome?: () => void;
 }
 
-export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpenFolder, onOpenFiles, onOpenProject, onGoHome }: HeaderProps) {
+export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpenFolder, onOpenFiles, onOpenProject, onGoHome, onClearSession }: HeaderProps) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { importStatus, theme, setTheme } = useViewerStore();
@@ -77,6 +78,6 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpe
         <span>{theme === 'dark' ? '浅色' : '深色'}</span>
       </button>
     </div>
-    {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+    {settingsOpen && <SettingsDialog onClearSession={onClearSession} onClose={() => setSettingsOpen(false)} />}
   </header>;
 }

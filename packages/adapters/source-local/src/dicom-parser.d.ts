@@ -34,6 +34,7 @@ declare module 'dicom-parser' {
     int16(tag: string, index?: number): number | undefined;
     uint32(tag: string, index?: number): number | undefined;
     int32(tag: string, index?: number): number | undefined;
+    double(tag: string, index?: number): number | undefined;
     floatString(tag: string, index?: number): number | undefined;
     intString(tag: string, index?: number): number | undefined;
     element(tag: string): DicomElement | undefined;

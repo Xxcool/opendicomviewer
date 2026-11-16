@@ -26,6 +26,14 @@ describe('原生导出下载桥', () => {
     expect(host.prepare).toHaveBeenCalledWith(expect.any(String), expect.stringMatching(/^blob:/), 64, format);
     expect(host.download).toHaveBeenCalledWith(expect.stringMatching(/^blob:/), filename);
   });
+  it.each([['sr', 'distance-report.dcm'], ['gsps', 'presentation-state.dcm'], ['results', 'frame-results.zip']] as const)(
+    'uses the document-specific native filename for %s', async (kind, name) => {
+      const { host } = harness();
+      const type = kind === 'results' ? 'application/zip' : 'application/dicom';
+      await createBlobSaver(host)(new Blob([new Uint8Array(160)], { type }), undefined, kind);
+      expect(host.prepare).toHaveBeenCalledWith(expect.any(String), expect.any(String), 160, kind);
+      expect(host.download).toHaveBeenCalledWith(expect.any(String), name);
+    });
   it('cancels an archive download and ignores completion after cleanup', async () => {
     const h = harness(); h.host.download = vi.fn();
     const abort = new AbortController();

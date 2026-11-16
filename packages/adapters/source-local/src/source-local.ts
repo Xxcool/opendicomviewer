@@ -1,3 +1,4 @@
+import { organizeTemporalSeries } from './temporal-series';
 import { pixelEncoding, unpackNativePixels } from './pixel-values';
 /**
  * 本地数据源端口实现（LocalDataSource）
@@ -266,12 +267,7 @@ export class LocalDataSource implements DataSourcePort {
       throw new Error(`找不到序列: ${ref.seriesInstanceUid}`);
     }
 
-    const seriesMeta = buildSortedSeriesMeta(
-      seriesData,
-      this.scanResult.failedFiles,
-    );
-
-    return this.createSeriesHandle(seriesMeta, seriesData.candidateByImageId);
+    return this.openIndexedSeries(seriesData, this.scanResult.failedFiles);
   }
 
   private async openSeriesFromDicomdir(
@@ -356,8 +352,21 @@ export class LocalDataSource implements DataSourcePort {
       extraWarnings,
     };
 
-    const seriesMeta = buildSortedSeriesMeta(internalData, failures);
-    return this.createSeriesHandle(seriesMeta, candidateMap);
+    return this.openIndexedSeries(internalData, failures);
+  }
+
+  private openIndexedSeries(data: InternalSeriesData, failures: readonly FileParseFailure[]): SeriesHandle {
+    const grouped = organizeTemporalSeries(data, failures);
+    const meta = grouped?.whole ?? buildSortedSeriesMeta(data, failures);
+    const phases = grouped?.phases;
+    if (!phases) return this.createSeriesHandle(meta, data.candidateByImageId);
+    const positions = [...phases.keys()];
+    const temporal = { positions, firstPhaseMeta: phases.get(positions[0]!)!, select: (position?: number): SeriesHandle => {
+      const view = position === undefined ? meta : phases.get(position);
+      if (!view) throw new RangeError('时相编号超出序列范围');
+      return { ...this.createSeriesHandle(view, data.candidateByImageId), temporal };
+    } };
+    return temporal.select();
   }
 
   private createSeriesHandle(

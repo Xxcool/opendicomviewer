@@ -11,6 +11,7 @@
  */
 
 import {
+  seriesViewKey,
   planVolumeDownsample,
   resolveVolumeWindow,
   VolumeSampler,
@@ -109,7 +110,7 @@ function makeVolume(
   scalarData: Uint8Array,
 ): VolumeHandle {
   return {
-    volumeId: `odv:volume:${handle.meta.seriesInstanceUid}`,
+    volumeId: `odv:volume:${seriesViewKey(handle.meta)}`,
     seriesInstanceUid: handle.meta.seriesInstanceUid,
     dimensions: plan.dimensions,
     spacing: plan.spacing,
@@ -148,47 +149,47 @@ async function buildInWorker(
   const startedAt = performance.now();
 
   const worker = workerFactory();
-  let settle: ((response: VolumeWorkerResponse) => void) | null = null;
-  const responsePromise = new Promise<VolumeWorkerResponse>((resolve) => {
-    settle = resolve;
-  });
+  type Reply = VolumeWorkerResponse | { type: 'aborted' };
+  let deliver: ((response: Reply) => void) | null = null;
+  let terminal: Reply | null = null;
+  const receive = (response: Reply) => {
+    if (response.type === 'error' || response.type === 'aborted') terminal = response;
+    deliver?.(response);
+    deliver = null;
+  };
+  worker.onMessage(receive);
+  worker.onError(message => receive({ type: 'error', id: requestId, message: `体积构建 Worker 异常：${message}` }));
+  const abort = () => receive({ type: 'aborted' });
+  options.signal?.addEventListener('abort', abort, { once: true });
 
-  worker.onMessage((response) => {
-    if (response.type === 'progress') {
-      options.onProgress?.({
-        processedSlices: response.processedSlices,
-        totalSlices: response.expectedSlices,
-      });
-      return;
-    }
-    settle?.(response);
-  });
-  worker.onError((message) => {
-    settle?.({ type: 'error', id: requestId, message: `体积构建 Worker 异常：${message}` });
-  });
+  async function send(request: VolumeWorkerRequest): Promise<Reply> {
+    const reply = terminal ?? await new Promise<Reply>(resolve => {
+      deliver = resolve;
+      worker.postMessage(request);
+    });
+    if (reply.type === 'error') throw new Error(reply.message);
+    return reply;
+  }
 
   try {
     worker.postMessage({ type: 'start', id: requestId, plan, window });
 
+    // 每个分块处理完才读下一块，避免快速像素源将整套原始影像积压在 Worker 队列。
     for (let start = 0; start < plan.usedSourceSlices; start += slicesPerChunk) {
       const end = Math.min(start + slicesPerChunk, plan.usedSourceSlices);
       const frames: PixelFrame[] = [];
       for (let i = start; i < end; i++) {
-        if (options.signal?.aborted) {
-          worker.postMessage({ type: 'abort', id: requestId });
-          return { status: 'aborted' };
-        }
+        if (options.signal?.aborted) return { status: 'aborted' };
         frames.push(await handle.pixel(i));
       }
-      worker.postMessage({ type: 'chunk', id: requestId, startSlice: start, frames });
+      const reply = await send({ type: 'chunk', id: requestId, startSlice: start, frames });
+      if (reply.type === 'aborted') return { status: 'aborted' };
+      if (reply.type !== 'progress' || reply.processedSlices !== end) throw new Error('体积构建 Worker 未确认当前切片块');
+      options.onProgress?.({ processedSlices: end, totalSlices: reply.expectedSlices });
     }
 
-    worker.postMessage({ type: 'finish', id: requestId });
-    const response = await responsePromise;
-
-    if (response.type === 'error') {
-      throw new Error(response.message);
-    }
+    const response = await send({ type: 'finish', id: requestId });
+    if (response.type === 'aborted') return { status: 'aborted' };
     if (response.type !== 'done') {
       throw new Error('体积构建 Worker 未返回结果');
     }
@@ -203,6 +204,7 @@ async function buildInWorker(
       elapsedMs,
     };
   } finally {
+    options.signal?.removeEventListener('abort', abort);
     worker.terminate();
   }
 }
@@ -242,21 +244,16 @@ export async function buildVolumeFromSeries(
     return buildInWorker(handle, plan, window, options, workerFactory);
   }
 
-  // 同步回退：逐层取帧后一次性采样，逻辑与 Worker 路径完全一致
-  const frames: PixelFrame[] = [];
+  const startedAt = performance.now();
+  const sampler = new VolumeSampler(plan, window);
   for (let i = 0; i < plan.usedSourceSlices; i++) {
     if (options.signal?.aborted) {
       return { status: 'aborted' };
     }
-    frames.push(await handle.pixel(i));
+    sampler.addSlice(await handle.pixel(i));
     options.onProgress?.({ processedSlices: i + 1, totalSlices: plan.usedSourceSlices });
   }
 
-  const startedAt = performance.now();
-  const sampler = new VolumeSampler(plan, window);
-  for (const frame of frames) {
-    sampler.addSlice(frame);
-  }
   const scalarData = sampler.finish();
   const elapsedMs = performance.now() - startedAt;
 
