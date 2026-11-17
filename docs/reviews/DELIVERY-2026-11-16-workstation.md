@@ -19,3 +19,5 @@
 - 3D 当前提供灰度体渲染。设备显存差异、长时间使用和大序列运行表现待目标设备验证。
 - SR 当前交换单源帧的毫米测距。完整 TID 1500 报告及第三方 PACS/工作站互操作待验。GSPS 支持图形预览，完整可编辑标注可用项目 JSON 保存。
 - Windows 安装与签名、目标浏览器矩阵和原生 SR/GSPS 保存对话框仍待实机验收。当前验收不覆盖临床诊断用途。
+
+11 月 17 日复验已补上[千帧压力测试](VOLUME-STRESS-2026-11-17.md)、[macOS 原生保存与独立工作站显示](NATIVE-SAVE-2026-11-17.md)、[DICOM 归档传输](INTEROP-2026-11-17.md)及 [Windows 自动化安装运行](https://github.com/Xxcool/opendicomviewer/actions/runs/44004470090)。上表反映 11 月 16 日的验收范围。

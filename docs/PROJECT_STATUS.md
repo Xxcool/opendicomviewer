@@ -1,6 +1,8 @@
 # OpenDicomViewer 项目进度与开源状态
 
-更新：2026-11-16。本页维护当前能力与验收边界；历史过程见 reviews，后续执行顺序见 [实施计划](IMPLEMENTATION_PLAN.md)。
+更新：2026-11-17。本页维护当前能力与验收边界；历史过程见 reviews，后续执行顺序见 [实施计划](IMPLEMENTATION_PLAN.md)。
+
+本轮完成 [千帧序列和双浏览器体渲染测试](reviews/VOLUME-STRESS-2026-11-17.md)、[macOS 原生保存与 Weasis 显示](reviews/NATIVE-SAVE-2026-11-17.md)、[归档服务互操作](reviews/INTEROP-2026-11-17.md)。Windows x64 自动验收覆盖 NSIS 安装、启动、从内置 CT 生成 PNG 预览与卸载。[Windows 原生运行记录](https://github.com/Xxcool/opendicomviewer/actions/runs/44004470090)
 
 ## 当前处于什么阶段
 
@@ -10,7 +12,7 @@
 
 | 原阶段 | 当前状态 | 已有能力 | 尚缺的主要门槛 |
 | --- | --- | --- | --- |
-| Phase 0 技术验证 | 部分通过 | 最小 Stack 渲染、裸缓冲 MPR、版本与资源生命周期验证 | S1 千帧内存/导入、S2 真 GPU 帧时间、S3 部署矩阵、S4 十张真实脱敏光盘解析率 |
+| Phase 0 技术验证 | 部分通过 | 最小 Stack 渲染、裸缓冲 MPR、版本与资源生命周期验证 | 其他设备上的千帧内存/导入、S2 真 GPU 帧时间、S3 部署矩阵、S4 十张真实脱敏光盘解析率 |
 | Phase 1 MVP | 进行中 | 本地导入、原始切片浏览、调窗/平移/缩放、数据提醒、单视口测距/箭头/文字/ROI/角度、在线 Web 预览 | HU 单位确认、工具双端完整验收、导入完整性回归、Demo Gate |
 | Phase 2 交互成熟 | 部分提前实现 | 独立 2×2、MPR 2×2 / 1+3、基础翻层定位、部分热键、二维播放控制 | 桌面 MPR 多轮切换绘制、完整相机/VOI/准星交互、播放完整验收、命令面板 |
 | Phase 3 双端闭环 | 验证壳已运行 | macOS Tauri 打包、原生选择/拖入、受限 Range 读取 | 桌面显示稳定性、Windows/Linux、签名/公证、关联/更新、脱敏及既往对比 |
