@@ -95,6 +95,13 @@ jobs:
           cargo test --locked --manifest-path packages/app-tauri/src-tauri/Cargo.toml --target "${{ matrix.target }}"
       - name: Build platform installer
         run: pnpm --filter @opendicomviewer/app-tauri exec tauri build --ci --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}" -- --locked
+      - name: Verify installed Windows viewer
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem 'packages/app-tauri/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one Windows installer' }
+          ./packages/app-tauri/testing/windows-installed-smoke.ps1 -Installer $installers[0].FullName
       - name: Collect packages and checksums
         env:
           RELEASE_PLATFORM: ${{ matrix.platform }}
