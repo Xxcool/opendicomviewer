@@ -2,11 +2,11 @@
 
 按版本记录已交付的功能、修复和重要限制。后续开发范围见[项目状态](docs/PROJECT_STATUS.md)。
 
-## Unreleased
+## [0.1.0-alpha.2] — 2026-11-17
 
 ### ✨ 新增
 
-- 支持灰阶 3D 体绘制及显式时间维 Classic MR 的 MPR / 3D 时相回放。
+- 支持基础灰阶 3D 体绘制；显式时间维 Classic MR 的 MPR / 3D 时相回放为实验功能。
 - 支持当前原始帧的 GSPS、毫米测距 Enhanced SR、可编辑测距读回及原图与结果 ZIP。
 
 - 独立分屏原始影像支持标注与测量，活动格独占绘制和快捷键，跨格保留备注与源帧归属。
@@ -60,3 +60,5 @@
 [安装包与完整发行说明][0.1.0-alpha.1] · [本版提交记录](https://github.com/Xxcool/opendicomviewer/commits/v0.1.0-alpha.1/) · [验收记录](docs/reviews/DELIVERY-2026-11-09-preview-release.md)
 
 [0.1.0-alpha.1]: https://github.com/Xxcool/opendicomviewer/releases/tag/v0.1.0-alpha.1
+
+[0.1.0-alpha.2]: https://github.com/Xxcool/opendicomviewer/releases/tag/v0.1.0-alpha.2
