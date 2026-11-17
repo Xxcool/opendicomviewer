@@ -3,7 +3,7 @@ import { decodeDicomText } from './charset';
 import { ENHANCED_SR_CLASS } from './measurement-report';
 import { GSPS_SOP_CLASS_UID, readPresentationState } from './presentation-state';
 import type { PresentationImageReference } from './presentation-state-reader';
-import { requiredUid, sequenceItems } from './presentation-state-source';
+import { parseExchangeDataSet, requiredUid, sequenceItems } from './presentation-state-source';
 
 
 function single(source: DataSet, tag: string): DataSet {
@@ -53,8 +53,8 @@ function readMeasurement(item: DataSet, charset: string | undefined, expected: P
 }
 
 function readReport(source: DataSet) {
-  if (source.string('x00020010') !== '1.2.840.10008.1.2.1' || source.string('x0040a040') !== 'CONTAINER'
-    || codeValue(source, 'x0040a043', 'DCM') !== '126000') throw new Error('当前仅支持 Explicit VR Little Endian 单帧测距 SR');
+  if (source.string('x0040a040') !== 'CONTAINER'
+    || codeValue(source, 'x0040a043', 'DCM') !== '126000') throw new Error('当前仅支持 单帧测距 SR');
   const studyInstanceUid = requiredUid(source, 'x0020000d');
   const evidence = single(source, 'x0040a375');
   if (requiredUid(evidence, 'x0020000d') !== studyInstanceUid) throw new Error('SR 引用的检查与报告不一致');
@@ -71,6 +71,6 @@ export function readExchangeDocument(bytes: Uint8Array) {
   const header = dicomParser.parseDicom(bytes, { untilTag: 'x00080018' });
   const type = header.string('x00080016');
   if (type === GSPS_SOP_CLASS_UID) return { kind: 'GSPS' as const, ...readPresentationState(bytes) };
-  if (type === ENHANCED_SR_CLASS) return readReport(dicomParser.parseDicom(bytes));
+  if (type === ENHANCED_SR_CLASS) return readReport(parseExchangeDataSet(bytes));
   throw new Error('请选择灰阶 GSPS 或 Enhanced SR 测距文件');
 }

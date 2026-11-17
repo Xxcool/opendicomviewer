@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type { ImportCandidate } from '@opendicomviewer/core';
 import { fileToImportCandidate } from '../bridge/candidate';
 import { useViewerStore } from '../state/viewer-store';
@@ -78,6 +79,6 @@ export function Header({ onImportCandidates, onLoadSample, onCancelImport, onOpe
         <span>{theme === 'dark' ? '浅色' : '深色'}</span>
       </button>
     </div>
-    {settingsOpen && <SettingsDialog onClearSession={onClearSession} onClose={() => setSettingsOpen(false)} />}
+    {settingsOpen && createPortal(<SettingsDialog onClearSession={onClearSession} onClose={() => setSettingsOpen(false)} />, document.body)}
   </header>;
 }

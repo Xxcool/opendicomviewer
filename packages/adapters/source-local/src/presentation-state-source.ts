@@ -17,6 +17,18 @@ export interface PresentationSource {
   readonly pixelAspectRatio?: string;
 }
 
+export function parseExchangeDataSet(bytes: Uint8Array): DataSet {
+  // 隐式 VR 的坐标和文字锚点均按 DICOM 数据字典使用 FL，显式 VR 保留文件中的类型校验。
+  const source = dicomParser.parseDicom(bytes, {
+    vrCallback: tag => tag === 'x00700022' || tag === 'x00700014' ? 'FL' : undefined,
+  });
+  const syntax = source.string('x00020010');
+  if (syntax !== '1.2.840.10008.1.2' && syntax !== '1.2.840.10008.1.2.1') {
+    throw new Error('结果读回仅支持 Explicit 或 Implicit VR Little Endian');
+  }
+  return source;
+}
+
 export function dicomText(source: DataSet, tag: string): string {
   const element = source.elements[tag];
   if (!element) return '';

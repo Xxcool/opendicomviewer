@@ -42,6 +42,7 @@ declare module 'dicom-parser' {
 
   export interface ParseOptions {
     readonly untilTag?: string;
+    readonly vrCallback?: (tag: string) => string | undefined;
     readonly maxBytesToParse?: number;
   }
 

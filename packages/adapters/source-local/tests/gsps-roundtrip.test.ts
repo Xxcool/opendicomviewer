@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import dicomParser from 'dicom-parser';
 import type { MeasurementRecord } from '@opendicomviewer/core';
@@ -137,5 +138,39 @@ describe('单帧毫米测距 SR', () => {
     expect(report.measurements[0]!.note).toBe('教学备注');
     expect(() => writeMeasurementReport(input([{ ...segment, stats: { lengthMm: 4 } }]))).toThrow(/标定/);
     expect(() => writeMeasurementReport(input([]))).toThrow(/没有/);
+  });
+});
+
+
+describe('DICOM 查询检索服务的隐式 VR 结果', () => {
+  it('读取文字、图形和省略整个空间变换模块的 GSPS', () => {
+    const bytes = readFileSync(new URL('../testing/fixtures/exchange/implicit-pr.dcm', import.meta.url));
+    const pr = readExchangeDocument(bytes);
+    if (pr.kind !== 'GSPS') throw new Error('预期 GSPS');
+    expect(pr.reference.sopInstanceUid).toBe('2.25.3');
+    expect([pr.rotation, pr.horizontalFlip]).toEqual([0, false]);
+    expect(pr.annotations[0]!.graphics[0]!.points).toEqual([[0, 0], [4, 0]]);
+    expect(pr.annotations[1]!.texts[0]).toEqual({ anchor: [1, 1], value: '教学备注', visible: false });
+  });
+
+  it('读取隐式 VR 测距 SR 的坐标、数值和引用', () => {
+    const bytes = readFileSync(new URL('../testing/fixtures/exchange/implicit-sr.dcm', import.meta.url));
+    const sr = readExchangeDocument(bytes);
+    if (sr.kind !== 'SR') throw new Error('预期 SR');
+    expect(sr.reference.sopInstanceUid).toBe('2.25.3');
+    expect(sr.measurements[0]).toMatchObject({ lengthMm: 2, points: [[0, 0], [4, 0]], note: '教学备注' });
+  });
+
+  it('拒绝缺少旋转或翻转字段的空间变换模块', () => {
+    const bytes = writePresentationState(input());
+    const data = dicomParser.parseDicom(bytes);
+    for (const tag of ['x00700041', 'x00700042']) {
+      const element = data.elements[tag]!;
+      const tagOffset = element.dataOffset - 8;
+      const missingField = new Uint8Array(bytes.length - 8 - element.length);
+      missingField.set(bytes.subarray(0, tagOffset));
+      missingField.set(bytes.subarray(element.dataOffset + element.length), tagOffset);
+      expect(() => readPresentationState(missingField)).toThrow(/空间变换模块不完整/);
+    }
   });
 });

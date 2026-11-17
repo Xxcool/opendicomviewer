@@ -1,6 +1,6 @@
-import dicomParser, { type DataSet } from 'dicom-parser';
+import type { DataSet } from 'dicom-parser';
 import { decodeDicomText } from './charset';
-import { requiredUid, sequenceItems } from './presentation-state-source';
+import { parseExchangeDataSet, requiredUid, sequenceItems } from './presentation-state-source';
 export interface PresentationImageReference {
   readonly seriesInstanceUid: string;
   readonly sopClassUid: string;
@@ -106,15 +106,20 @@ function readArea(source: DataSet, reference: PresentationImageReference): Prese
 
 /** Reads the supported standard GSPS subset, never private JSON or implied measurement values. */
 export function readPresentationState(bytes: Uint8Array): PresentationStateReadback {
-  const source = dicomParser.parseDicom(bytes);
-  if (source.string('x00080016') !== '1.2.840.10008.5.1.4.1.1.11.1'
-    || source.string('x00020010') !== '1.2.840.10008.1.2.1') throw new Error('当前读回仅支持 Explicit VR Little Endian GSPS');
-  const reference = imageReference(source), rotation = source.uint16('x00700042') ?? 0;
-  const presentationLutShape = source.string('x20500020'), flip = source.string('x00700041');
+  const source = parseExchangeDataSet(bytes);
+  if (source.string('x00080016') !== '1.2.840.10008.5.1.4.1.1.11.1') throw new Error('当前读回需要灰阶 GSPS');
+  const reference = imageReference(source);
+  const presentationLutShape = source.string('x20500020');
+  const rotationElement = source.elements.x00700042;
+  const flipElement = source.elements.x00700041;
+  // 空间变换模块可以整体省略；一旦出现，旋转和翻转都是必填字段。
+  const rotation = rotationElement ? source.uint16('x00700042') : 0;
+  const flip = flipElement ? source.string('x00700041') : 'N';
+  if (Boolean(rotationElement) !== Boolean(flipElement) || (rotationElement && rotationElement.length !== 2)) throw new Error('GSPS 空间变换模块不完整');
   if (flip !== 'Y' && flip !== 'N') throw new Error('GSPS 水平翻转标志无效');
   if (source.elements.x00286100 || source.elements.x00181600 || source.elements.x00700061
     || source.elements.x20500010) throw new Error('当前 GSPS 读回不支持遮罩、减影、覆盖层或查表呈现');
-  if (![0, 90, 180, 270].includes(rotation) || (presentationLutShape !== 'IDENTITY' && presentationLutShape !== 'INVERSE')) throw new Error('当前 GSPS 读回不支持此显示变换');
+  if (rotation === undefined || ![0, 90, 180, 270].includes(rotation) || (presentationLutShape !== 'IDENTITY' && presentationLutShape !== 'INVERSE')) throw new Error('当前 GSPS 读回不支持此显示变换');
   const annotations = sequenceItems(source, 'x00700001').map(annotation => {
     checkLocalReference(annotation, reference);
     if (annotation.elements.x00700209) throw new Error('当前 GSPS 读回不支持 Compound Graphic');

@@ -10,10 +10,12 @@ export function ExchangePreview({ result, frame, window }: ExchangePreviewData) 
     if (!context) return;
     const width = frame.width, height = frame.height;
     const pixels = context.createImageData(width, height);
-    // 此预览按原图像素核对结果；平移、缩放和显示屏旋转不参与坐标计算。
+    // GSPS 自带最终呈现极性，不能再叠加原始影像的 MONOCHROME1 反相。
+    const photometric = result.kind === 'SR' ? frame.photometricInterpretation
+      : result.presentationLutShape === 'INVERSE' ? 'MONOCHROME1' : 'MONOCHROME2';
     for (let index = 0; index < width * height; index++) {
       const value = rawToHU(frame.pixelData[index]!, frame.rescaleSlope, frame.rescaleIntercept, frame.modalityLUT);
-      const gray = mapHUToUint8(value, window, frame.photometricInterpretation);
+      const gray = mapHUToUint8(value, window, photometric);
       const offset = index * 4;
       pixels.data[offset] = pixels.data[offset + 1] = pixels.data[offset + 2] = gray;
       pixels.data[offset + 3] = 255;
@@ -49,7 +51,7 @@ export function ExchangePreview({ result, frame, window }: ExchangePreviewData) 
     <p>已匹配源帧 · {result.kind === 'GSPS' ? 'GSPS 图形与文字' : 'SR 测距'}</p>
     <canvas ref={canvas} width={frame.width} height={frame.height} aria-label="结果在源像素上的位置"
       style={{ display: 'block', maxWidth: '100%', maxHeight: '42vh', margin: '8px auto', objectFit: 'contain' }} />
-    <p className="text-txt-muted">核对图使用{result.kind === 'GSPS' ? '文件窗值' : '当前窗值'}及原始像素坐标。</p>
+    <p className="text-txt-muted">核对图按原图方向显示，使用{result.kind === 'GSPS' ? '文件窗值和呈现极性' : '当前窗值'}。</p>
     {result.kind === 'SR' ? <ol>{result.measurements.map((item, index) => <li key={index}>{item.type} · {item.lengthMm.toFixed(2)} mm{item.note && ' · ' + item.note}</li>)}</ol>
       : <p>{result.annotations.length} 项标注 · 文件窗宽 {result.voi.windowWidth} · 窗位 {result.voi.windowCenter} · 旋转 {result.rotation}°{result.horizontalFlip && ' · 水平翻转'}</p>}
   </section>;
